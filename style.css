@@ -1,0 +1,343 @@
+/* CSS CƠ BẢN: Định dạng font chữ chung cho toàn trang và màu nền tổng thể */
+html {
+    height: 100%;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: #f8fafc;
+    height: 100%;
+}
+
+/* Ẩn scrollbar trên toàn trang */
+* {
+    scrollbar-width: none;       /* Firefox */
+    -ms-overflow-style: none;    /* IE / Edge */
+}
+*::-webkit-scrollbar {
+    display: none;               /* Chrome / Safari */
+}
+
+/* NAVIGATION: Hiệu ứng chuyển động khi hover/click và định dạng chung cho các mục menu */
+/* Bao gồm: font chữ, màu chữ, căn icon + text, khoảng cách giữa icon và chữ */
+.nav-item {
+    transition: all 0.2s;
+    font-weight: 500;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 10px 20px;
+}
+
+/* NAVIGATION ACTIVE: Khi menu được chọn (đang ở trang đó) */
+/* Đổi màu nền sang vàng và chữ xanh đậm để nổi bật */
+.nav-active {
+    background-color: #facc15 !important;
+    color: #1e3a8a !important;
+    font-weight: 700;
+}
+
+/* COMPONENT: Thẻ thống kê hiển thị các số liệu nhanh trên dashboard */
+/* Ví dụ: tổng phòng, tổng sinh viên, phòng trống... */
+.stat-card {
+    background: white;
+    padding: 1.25rem;
+    border-radius: 0.5rem;
+    min-width: 150px;
+    flex: 1;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* MODAL: Lớp phủ popup hiển thị form thêm/sửa dữ liệu */
+/* fixed + inset:0 giúp modal phủ toàn màn hình */
+.modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    padding: 20px;
+}
+
+/* MODAL ACTIVE: Khi modal được mở thì hiển thị bằng flex */
+.modal.active {
+    display: flex;
+}
+
+/* PAGE SECTION: Mặc định ẩn tất cả các section (module) */
+/* Khi chuyển chức năng thì JS sẽ bật class active */
+.page-section {
+    display: none;
+}
+
+/* Khi section có class active thì hiển thị */
+.page-section.active {
+    display: block;
+}
+
+/* FORM INPUT: Ẩn nút tăng giảm của input number trên Chrome */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* REQUIRED FIELD: Tự động thêm dấu * đỏ sau label bắt buộc */
+.required::after {
+    content: " *";
+    color: #ef4444;
+    font-weight: bold;
+}
+
+/* FORM DISABLED: Định dạng input chỉ đọc hoặc select bị disable */
+/* Làm mờ và đổi con trỏ để thể hiện không chỉnh sửa được */
+input:read-only,
+select:disabled {
+    background-color: #f1f5f9;
+    cursor: not-allowed;
+    color: #64748b;
+}
+
+/* PHÂN TÍCH THỐNG KÊ: Thanh tiến trình hiển thị tỷ lệ giới tính hoặc khu vực */
+.progress-container {
+    background-color: #f1f5f9;
+    height: 8px;
+    border-radius: 4px;
+    width: 120px;
+    overflow: hidden;
+}
+
+/* Thanh tiến trình bên trong container */
+.progress-bar {
+    height: 100%;
+    border-radius: 4px;
+}
+
+/* Màu thanh tiến trình cho sinh viên nam */
+.bg-male {
+    background-color: #3b82f6;
+}
+
+/* Màu thanh tiến trình cho sinh viên nữ */
+.bg-female {
+    background-color: #f472b6;
+}
+
+
+/* BIẾN CSS (CSS VARIABLES): Định nghĩa màu sắc chủ đạo cho toàn bộ dashboard */
+/* Giúp dễ thay đổi theme hoặc tái sử dụng màu */
+:root {
+    --primary-blue: #00338D;
+    /* màu xanh chính của hệ thống */
+    --secondary-yellow: #FFC107;
+    /* màu vàng phụ */
+    --bg-light: #F4F7FE;
+    /* màu nền dashboard */
+    --text-main: #333;
+    /* màu chữ chính */
+    --success: #28a745;
+    /* màu trạng thái thành công */
+    --danger: #dc3545;
+    /* màu cảnh báo/lỗi */
+    --warning: #ffc107;
+    /* màu cảnh báo trung bình */
+}
+
+/* CONTAINER DASHBOARD: vùng chứa toàn bộ phần thống kê */
+.dashboard-container {
+    padding: 20px;
+    background-color: var(--bg-light);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* GRID THỐNG KÊ: bố trí các stat-card theo dạng lưới */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    /* 5 cột bằng nhau */
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+/* CARD THỐNG KÊ: thẻ hiển thị các số liệu */
+.stat-card {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    text-align: center;
+}
+
+/* Tiêu đề trong card thống kê */
+.stat-card h3 {
+    font-size: 14px;
+    color: #888;
+    margin-bottom: 10px;
+}
+
+/* Giá trị thống kê lớn trong card */
+.stat-card .value {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+/* CARD HIGHLIGHT: thẻ hiển thị tỷ lệ sử dụng phòng nổi bật */
+.usage-rate-card {
+    background: #F3E8FF;
+    border: 1px solid #D1B3FF;
+}
+
+/* Giá trị hiển thị lớn hơn để nhấn mạnh */
+.usage-rate-card .value {
+    color: #8B5CF6;
+    font-size: 32px;
+}
+
+/* KHU VỰC BIỂU ĐỒ: chia layout biểu đồ và panel phụ */
+.chart-section {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    /* biểu đồ chính lớn hơn */
+    gap: 20px;
+}
+
+/* PANEL CARD: container chứa biểu đồ hoặc bảng thống kê */
+.card-panel {
+    background: white;
+    padding: 25px;
+    border-radius: 15px;
+    min-height: 300px;
+}
+
+/* CONTAINER THANH TIẾN TRÌNH */
+.progress-bar-container {
+    height: 10px;
+    background: #eee;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+/* PHẦN ĐỔ MÀU CỦA THANH TIẾN TRÌNH */
+.progress-fill {
+    height: 100%;
+    transition: width 0.5s ease-in-out;
+}
+
+/* Ẩn toàn bộ section của các module theo mặc định */
+.page-section {
+    display: none;
+}
+
+/* Khi section có class active thì hiển thị nội dung module */
+.page-section.active {
+    display: block;
+}
+
+/* Container Tab */
+.tab-item {
+    position: relative;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    outline: none;
+}
+
+/* Hiệu ứng gạch chân khi Active */
+.active-tab {
+    color: #1e3a8a !important;
+    /* Màu xanh đậm của bạn */
+}
+
+.active-tab::after {
+    content: "";
+    position: absolute;
+    bottom: -1px;
+    /* Đè lên border-b của container */
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background-color: #1e3a8a;
+    border-radius: 2px 2px 0 0;
+}
+
+/* Hover nhẹ để người dùng biết có thể click */
+.tab-item:hover {
+    color: #1e3a8a;
+}
+
+/* Màu sắc cảnh báo dựa trên User Story */
+.bg-critical {
+    background-color: #fee2e2;
+    color: #ef4444;
+}
+
+/* Đỏ: <= 3 ngày */
+.bg-warning-custom {
+    background-color: #fef3c7;
+    color: #d97706;
+}
+
+/* Vàng: <= 7 ngày */
+
+/* Badge cho số ngày còn lại */
+.days-left-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: bold;
+    margin-top: 4px;
+    display: inline-block;
+}
+
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+    display: none;
+}
+
+.active-tab {
+    color: #2563eb !important;
+    border-bottom: 2px solid #2563eb !important;
+}
+
+/* =========================
+   LOGIN INPUT ERROR FIX
+========================= */
+
+
+/* Input lỗi: luôn đỏ đồng nhất kể cả đang focus */
+.input-error {
+    border-color: #f87171 !important;
+    background-color: #fef2f2 !important;
+}
+
+
+.input-error:focus {
+    border-color: #f87171 !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+
+/* Chặn màu autofill của trình duyệt làm lệch nền */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+    -webkit-text-fill-color: #000 !important;
+    transition: background-color 5000s ease-in-out 0s;
+}
+
+
+/* Khi input đang lỗi mà bị autofill vẫn giữ màu đỏ */
+.input-error:-webkit-autofill,
+.input-error:-webkit-autofill:hover,
+.input-error:-webkit-autofill:focus,
+.input-error:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 1000px #fef2f2 inset !important;
+    -webkit-text-fill-color: #000 !important;
+}

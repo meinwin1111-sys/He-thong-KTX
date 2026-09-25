@@ -1,0 +1,236 @@
+Lỗi API /api/hoadon-chua-thanh-toan: RequestError: Invalid column name 'MaSinhVien'.
+    at handleError (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\mssql\lib\tedious\request.js:384:15)
+    at Connection.emit (node:events:508:28)
+    at Connection.emit (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\connection.js:1013:18)
+    at RequestTokenHandler.onErrorMessage (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\handler.js:285:21)
+    at Readable.<anonymous> (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+    at Readable.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:563:12)
+    at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+    at Readable.push (node:internal/streams/readable:395:5)
+    at nextAsync (node:internal/streams/from:194:22) {
+  code: 'EREQUEST',
+  originalError: Error: Invalid column name 'MaSinhVien'.
+      at handleError (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\mssql\lib\tedious\request.js:382:19)
+      at Connection.emit (node:events:508:28)
+      at Connection.emit (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\connection.js:1013:18)
+      at RequestTokenHandler.onErrorMessage (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\handler.js:285:21)
+      at Readable.<anonymous> (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+      at Readable.emit (node:events:508:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+      at Readable.push (node:internal/streams/readable:395:5)
+      at nextAsync (node:internal/streams/from:194:22) {
+    info: ErrorMessageToken {
+      name: 'ERROR',
+      handlerName: 'onErrorMessage',
+      number: 207,
+      state: 1,
+      class: 16,
+      message: "Invalid column name 'MaSinhVien'.",
+      serverName: 'DESKTOP-EG837TQ',
+      procName: '',
+      lineNumber: 4
+    }
+  },
+  number: 207,
+  lineNumber: 4,
+  state: 1,
+  class: 16,
+  serverName: 'DESKTOP-EG837TQ',
+  procName: '',
+  precedingErrors: [
+    RequestError: Invalid column name 'MaSinhVien'.
+        at handleError (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\mssql\lib\tedious\request.js:384:15)
+        at Connection.emit (node:events:508:28)
+        at Connection.emit (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\connection.js:1013:18)
+        at RequestTokenHandler.onErrorMessage (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\handler.js:285:21)
+        at Readable.<anonymous> (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+        at Readable.emit (node:events:508:28)
+        at addChunk (node:internal/streams/readable:563:12)
+        at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+        at Readable.push (node:internal/streams/readable:395:5)
+        at nextAsync (node:internal/streams/from:194:22) {
+      code: 'EREQUEST',
+      originalError: [Error],
+      number: 207,
+      lineNumber: 13,
+      state: 1,
+      class: 16,
+      serverName: 'DESKTOP-EG837TQ',
+      procName: ''
+    }
+  ]
+}
+Lỗi cập nhật sinh viên: RequestError: The UPDATE statement conflicted with the CHECK constraint "CK__SinhVien__TrangT__719CDDE7". The conflict occurred in database "DMS_Group6", table "dbo.SinhVien", column 'TrangThaiSinhVien'.
+    at handleError (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\mssql\lib\tedious\request.js:384:15)
+    at Connection.emit (node:events:508:28)
+    at Connection.emit (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\connection.js:1013:18)
+    at RequestTokenHandler.onErrorMessage (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\handler.js:285:21)
+    at Readable.<anonymous> (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+    at Readable.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:563:12)
+    at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+    at Readable.push (node:internal/streams/readable:395:5)
+    at nextAsync (node:internal/streams/from:194:22) {
+  code: 'EREQUEST',
+  originalError: Error: The UPDATE statement conflicted with the CHECK constraint "CK__SinhVien__TrangT__719CDDE7". The conflict occurred in database "DMS_Group6", table "dbo.SinhVien", column 'TrangThaiSinhVien'.
+      at handleError (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\mssql\lib\tedious\request.js:382:19)
+      at Connection.emit (node:events:508:28)
+      at Connection.emit (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\connection.js:1013:18)
+      at RequestTokenHandler.onErrorMessage (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\handler.js:285:21)
+      at Readable.<anonymous> (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+      at Readable.emit (node:events:508:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+      at Readable.push (node:internal/streams/readable:395:5)
+      at nextAsync (node:internal/streams/from:194:22) {
+    info: ErrorMessageToken {
+      name: 'ERROR',
+      handlerName: 'onErrorMessage',
+      number: 547,
+      state: 0,
+      class: 16,
+      message: `The UPDATE statement conflicted with the CHECK constraint "CK__SinhVien__TrangT__719CDDE7". The conflict occurred in database "DMS_Group6", table "dbo.SinhVien", column 'TrangThaiSinhVien'.`,
+      serverName: 'DESKTOP-EG837TQ',
+      procName: '',
+      lineNumber: 2
+    }
+  },
+  number: 547,
+  lineNumber: 2,
+  state: undefined,
+  class: 16,
+  serverName: 'DESKTOP-EG837TQ',
+  procName: '',
+  precedingErrors: []
+}
+Lỗi cập nhật sinh viên: RequestError: The UPDATE statement conflicted with the CHECK constraint "CK__SinhVien__TrangT__719CDDE7". The conflict occurred in database "DMS_Group6", table "dbo.SinhVien", column 'TrangThaiSinhVien'.
+    at handleError (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\mssql\lib\tedious\request.js:384:15)
+    at Connection.emit (node:events:508:28)
+    at Connection.emit (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\connection.js:1013:18)
+    at RequestTokenHandler.onErrorMessage (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\handler.js:285:21)
+    at Readable.<anonymous> (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+    at Readable.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:563:12)
+    at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+    at Readable.push (node:internal/streams/readable:395:5)
+    at nextAsync (node:internal/streams/from:194:22) {
+  code: 'EREQUEST',
+  originalError: Error: The UPDATE statement conflicted with the CHECK constraint "CK__SinhVien__TrangT__719CDDE7". The conflict occurred in database "DMS_Group6", table "dbo.SinhVien", column 'TrangThaiSinhVien'.
+      at handleError (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\mssql\lib\tedious\request.js:382:19)
+      at Connection.emit (node:events:508:28)
+      at Connection.emit (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\connection.js:1013:18)
+      at RequestTokenHandler.onErrorMessage (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\handler.js:285:21)
+      at Readable.<anonymous> (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+      at Readable.emit (node:events:508:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+      at Readable.push (node:internal/streams/readable:395:5)
+      at nextAsync (node:internal/streams/from:194:22) {
+    info: ErrorMessageToken {
+      name: 'ERROR',
+      handlerName: 'onErrorMessage',
+      number: 547,
+      state: 0,
+      class: 16,
+      message: `The UPDATE statement conflicted with the CHECK constraint "CK__SinhVien__TrangT__719CDDE7". The conflict occurred in database "DMS_Group6", table "dbo.SinhVien", column 'TrangThaiSinhVien'.`,
+      serverName: 'DESKTOP-EG837TQ',
+      procName: '',
+      lineNumber: 2
+    }
+  },
+  number: 547,
+  lineNumber: 2,
+  state: undefined,
+  class: 16,
+  serverName: 'DESKTOP-EG837TQ',
+  procName: '',
+  precedingErrors: []
+}
+Lỗi cập nhật sinh viên: RequestError: The UPDATE statement conflicted with the CHECK constraint "CK__SinhVien__TrangT__719CDDE7". The conflict occurred in database "DMS_Group6", table "dbo.SinhVien", column 'TrangThaiSinhVien'.
+    at handleError (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\mssql\lib\tedious\request.js:384:15)
+    at Connection.emit (node:events:508:28)
+    at Connection.emit (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\connection.js:1013:18)
+    at RequestTokenHandler.onErrorMessage (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\handler.js:285:21)
+    at Readable.<anonymous> (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+    at Readable.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:563:12)
+    at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+    at Readable.push (node:internal/streams/readable:395:5)
+    at nextAsync (node:internal/streams/from:194:22) {
+  code: 'EREQUEST',
+  originalError: Error: The UPDATE statement conflicted with the CHECK constraint "CK__SinhVien__TrangT__719CDDE7". The conflict occurred in database "DMS_Group6", table "dbo.SinhVien", column 'TrangThaiSinhVien'.
+      at handleError (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\mssql\lib\tedious\request.js:382:19)
+      at Connection.emit (node:events:508:28)
+      at Connection.emit (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\connection.js:1013:18)
+      at RequestTokenHandler.onErrorMessage (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\handler.js:285:21)
+      at Readable.<anonymous> (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+      at Readable.emit (node:events:508:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+      at Readable.push (node:internal/streams/readable:395:5)
+      at nextAsync (node:internal/streams/from:194:22) {
+    info: ErrorMessageToken {
+      name: 'ERROR',
+      handlerName: 'onErrorMessage',
+      number: 547,
+      state: 0,
+      class: 16,
+      message: `The UPDATE statement conflicted with the CHECK constraint "CK__SinhVien__TrangT__719CDDE7". The conflict occurred in database "DMS_Group6", table "dbo.SinhVien", column 'TrangThaiSinhVien'.`,
+      serverName: 'DESKTOP-EG837TQ',
+      procName: '',
+      lineNumber: 2
+    }
+  },
+  number: 547,
+  lineNumber: 2,
+  state: undefined,
+  class: 16,
+  serverName: 'DESKTOP-EG837TQ',
+  procName: '',
+  precedingErrors: []
+}
+Lỗi cập nhật sinh viên: RequestError: The UPDATE statement conflicted with the CHECK constraint "CK__SinhVien__TrangT__719CDDE7". The conflict occurred in database "DMS_Group6", table "dbo.SinhVien", column 'TrangThaiSinhVien'.
+    at handleError (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\mssql\lib\tedious\request.js:384:15)
+    at Connection.emit (node:events:508:28)
+    at Connection.emit (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\connection.js:1013:18)
+    at RequestTokenHandler.onErrorMessage (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\handler.js:285:21)
+    at Readable.<anonymous> (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+    at Readable.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:563:12)
+    at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+    at Readable.push (node:internal/streams/readable:395:5)
+    at nextAsync (node:internal/streams/from:194:22) {
+  code: 'EREQUEST',
+  originalError: Error: The UPDATE statement conflicted with the CHECK constraint "CK__SinhVien__TrangT__719CDDE7". The conflict occurred in database "DMS_Group6", table "dbo.SinhVien", column 'TrangThaiSinhVien'.
+      at handleError (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\mssql\lib\tedious\request.js:382:19)
+      at Connection.emit (node:events:508:28)
+      at Connection.emit (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\connection.js:1013:18)
+      at RequestTokenHandler.onErrorMessage (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\handler.js:285:21)
+      at Readable.<anonymous> (C:\Users\Dell\Documents\New_49K211.06\49K211.06\DMS_Project\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+      at Readable.emit (node:events:508:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+      at Readable.push (node:internal/streams/readable:395:5)
+      at nextAsync (node:internal/streams/from:194:22) {
+    info: ErrorMessageToken {
+      name: 'ERROR',
+      handlerName: 'onErrorMessage',
+      number: 547,
+      state: 0,
+      class: 16,
+      message: `The UPDATE statement conflicted with the CHECK constraint "CK__SinhVien__TrangT__719CDDE7". The conflict occurred in database "DMS_Group6", table "dbo.SinhVien", column 'TrangThaiSinhVien'.`,
+      serverName: 'DESKTOP-EG837TQ',
+      procName: '',
+      lineNumber: 2
+    }
+  },
+  number: 547,
+  lineNumber: 2,
+  state: undefined,
+  class: 16,
+  serverName: 'DESKTOP-EG837TQ',
+  procName: '',
+  precedingErrors: []
+}

@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <!-- Khai báo bộ mã ký tự UTF-8 để hiển thị tiếng Việt -->
+    <meta charset="UTF-8">
+
+    <!-- Giúp website hiển thị tốt trên các thiết bị di động -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Tiêu đề hiển thị trên tab trình duyệt -->
+    <title>DMS - Dormitory Management System</title>
+
+    <!-- Import TailwindCSS để sử dụng framework CSS nhanh -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Import font Inter từ Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Bebas+Neue&family=Courier+Prime:wght@700&display=swap" rel="stylesheet">
+
+    <!-- Import thư viện icon Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- File CSS tùy chỉnh của project -->
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="min-h-screen text-[13px] flex flex-col">
+
+    <!-- ================= HEADER ================= -->
+    <header class="bg-[#1e3a8a] px-8 py-3 flex justify-between items-center border-b border-blue-800">
+
+        <!-- Logo hệ thống -->
+        <div class="flex items-center gap-2">
+            <div class="bg-yellow-400 p-1 rounded">
+                <i class="fa-solid fa-hotel text-white text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-extrabold text-white leading-tight">DMS</h1>
+                <p class="text-[8px] text-blue-200 uppercase">Dormitory Management System</p>
+            </div>
+        </div>
+
+        <!-- Thanh tìm kiếm toàn hệ thống
+        <div class="flex-1 max-w-xl mx-10 relative">
+            <input
+                type="text"
+                id="topSearch"
+                oninput="filterData()"
+                placeholder="Tìm kiếm..."
+                class="w-full bg-white rounded py-1.5 px-4 pl-10 outline-none border-none"
+            >
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-400"></i>
+        </div> -->
+
+        <!-- Khu vực thông báo và tài khoản admin -->
+        <div class="flex items-center gap-6 text-white">
+            <!-- <i class="fa-solid fa-bell text-lg cursor-pointer"></i> -->
+
+            <div class="relative" id="admin-menu-wrapper">
+                <!-- Nút click mở dropdown -->
+                <button type="button" onclick="toggleAdminMenu()"
+                    class="flex items-center gap-3 font-semibold cursor-pointer select-none px-3 py-2 rounded-xl hover:bg-blue-700/40 transition">
+                    <div id="admin-display-avatar"
+                        class="w-8 h-8 rounded-full border-2 border-yellow-400 bg-yellow-400 text-[#1e3a8a] font-bold flex items-center justify-center">
+                        <i class="fa-solid fa-user text-sm"></i>
+                    </div>
+
+                    <span id="admin-display-name" class="text-white">Quản trị viên</span>
+                    <i class="fa-solid fa-chevron-down text-[10px]"></i>
+                </button>
+
+                <!-- Dropdown -->
+                <div id="admin-dropdown"
+                    class="hidden absolute right-0 top-12 w-52 bg-white rounded-xl shadow-lg border border-gray-200 overflow-visible z-50">
+                    <!-- Item Tài khoản -->
+                    <div id="account-menu-item" class="relative">
+                        <button type="button"
+                            class="w-full text-left px-4 py-3 text-gray-700 hover:bg-gray-50 flex items-center justify-between rounded-t-xl">
+                            <span class="flex items-center gap-2">
+                                <i class="fa-solid fa-user text-sm"></i>
+                                Tài khoản
+                            </span>
+                            <i class="fa-solid fa-chevron-left text-[10px] text-gray-400"></i>
+                        </button>
+
+                        <!-- Vùng nối hover để rê chuột không bị mất popup -->
+                        <div class="absolute top-0 right-full w-3 h-full"></div>
+
+                        <!-- Popup tài khoản bên trái -->
+                        <div id="account-hover-popup"
+                            class="hidden absolute top-0 right-full mr-3 w-[340px] bg-white rounded-2xl shadow-xl border border-gray-200 p-5 z-[60]">
+                            <div class="flex items-center gap-4">
+                                <div id="account-popup-avatar"
+                                    class="w-14 h-14 rounded-full bg-blue-600 text-white text-2xl font-bold flex items-center justify-center">
+                                    <i class="fa-solid fa-user text-2xl"></i>
+                                </div>
+
+                                <div class="min-w-0">
+                                    <h3 id="account-popup-name" class="text-[20px] font-bold text-gray-900 truncate">
+                                        Nguyễn Văn A
+                                    </h3>
+                                    <p id="account-popup-role" class="text-[14px] text-blue-600 font-semibold">
+                                        Admin
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div class="mt-6 space-y-5">
+                                <div>
+                                    <p class="text-[12px] text-gray-400 mb-1">Email</p>
+                                    <p id="account-popup-email"
+                                        class="text-[16px] font-semibold text-gray-900 break-all">
+                                        admin@gmail.com
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <p class="text-[12px] text-gray-400 mb-1">Số điện thoại</p>
+                                    <p id="account-popup-phone" class="text-[16px] font-semibold text-gray-900">
+                                        0123456789
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div class="mt-6 pt-5 border-t border-gray-100">
+                                <button type="button" onclick="openChangePasswordModal()"
+                                    class="w-full h-12 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition">
+                                    Đổi mật khẩu
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Đăng xuất -->
+                    <button type="button" onclick="openLogoutConfirm()"
+                        class="w-full text-left px-4 py-3 text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-gray-100 rounded-b-xl">
+                        <i class="fa-solid fa-right-from-bracket text-sm"></i>
+                        Đăng xuất
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ================= NAVIGATION ================= -->
+    <nav class="bg-[#2c4ca3] px-8 flex shadow-md" id="main-nav">
+        <!-- Menu Trang chủ -->
+        <div onclick="switchPage('Trang Chu', this)" class="nav-item nav-active">
+            <i class="fa-solid fa-house"></i> Trang chủ
+        </div>
+
+        <!-- Menu Quản lý phòng -->
+        <div onclick="switchPage('Phong', this)" class="nav-item">
+            <i class="fa-solid fa-bed"></i> Phòng ở
+        </div>
+
+        <!-- Menu Quản lý sinh viên -->
+        <div onclick="switchPage('Sinh Vien', this)" class="nav-item">
+            <i class="fa-solid fa-user-group"></i> Sinh viên
+        </div>
+
+        <!-- Menu Quản lý hợp đồng -->
+        <div onclick="switchPage('Hop Dong', this)" class="nav-item">
+            <i class="fa-solid fa-file-lines"></i> Hợp đồng
+        </div>
+
+        <!-- Menu Quản lý hóa đơn -->
+        <div onclick="switchPage('Hoa Don', this)" class="nav-item">
+            <i class="fa-solid fa-wallet"></i> Hóa đơn
+        </div>
+
+        <!-- Menu Báo cáo và thống kê -->
+        <div onclick="switchPage('Bao cao & Thong ke', this)" class="nav-item">
+            <i class="fa-solid fa-chart-simple"></i> Báo cáo & Thống kê
+        </div>
+    </nav>
+
+    <main id="main-content" class="flex-1 p-6 bg-gray-50">
+
+        <!-- HEADER MODULE DÙNG CHUNG -->
+        <div id="page-header" class="mb-6"></div>
+
+        <!-- NỘI DUNG MODULE: LOGIN -->
+        <div id="page-body"></div>
+    </main>
+
+    <!-- ================= MODAL XÁC NHẬN ĐĂNG XUẤT ================= -->
+    <div id="logoutModal" class="hidden fixed inset-0 bg-black/40 items-center justify-center z-[100]">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+            <h3 class="text-xl font-bold text-gray-800 mb-3">Xác nhận đăng xuất</h3>
+            <p class="text-gray-500 mb-6">Bạn có chắc chắn muốn đăng xuất khỏi hệ thống không?</p>
+
+            <div class="flex justify-end gap-3">
+                <button onclick="closeLogoutConfirm()"
+                    class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200">
+                    Hủy
+                </button>
+                <button onclick="confirmLogout()"
+                    class="px-4 py-2 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700">
+                    Đăng xuất
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= MODAL ĐỔI MẬT KHẨU ================= -->
+    <div id="changePasswordModal" class="hidden fixed inset-0 bg-black/40 items-center justify-center z-[120]">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-[460px] p-6">
+            <h3 class="text-[22px] font-bold text-blue-700 text-center mb-2">Đổi mật khẩu</h3>
+            <p class="text-center text-gray-400 text-sm mb-6">
+                Vui lòng nhập đầy đủ thông tin để thay đổi mật khẩu
+            </p>
+
+            <form id="changePasswordForm" novalidate>
+                <div class="mb-5">
+                    <label class="block mb-2 text-[14px] font-bold text-slate-700">
+                        Mật khẩu hiện tại <span class="text-red-500">*</span>
+                    </label>
+                    <div class="relative">
+                        <input type="password" id="currentPassword"
+                            class="w-full h-12 rounded-[10px] border border-slate-200 bg-white px-4 pr-14 outline-none focus:border-blue-400" />
+                        <button type="button" data-toggle-target="currentPassword"
+                            onclick="togglePasswordField('currentPassword', this)"
+                            class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-blue-600"
+                            aria-label="Hiện mật khẩu">
+                            <i class="fa-regular fa-eye-slash"></i>
+                        </button>
+                    </div>
+                    <p id="currentPasswordError" class="mt-1 text-[12px] text-red-500 font-medium hidden"></p>
+                </div>
+
+
+                <div class="mb-5">
+                    <label class="block mb-2 text-[14px] font-bold text-slate-700">
+                        Mật khẩu mới <span class="text-red-500">*</span>
+                    </label>
+                    <div class="relative">
+                        <input type="password" id="newPassword"
+                            class="w-full h-12 rounded-[10px] border border-slate-200 bg-white px-4 pr-14 outline-none focus:border-blue-400" />
+                        <button type="button" data-toggle-target="newPassword"
+                            onclick="togglePasswordField('newPassword', this)"
+                            class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-blue-600"
+                            aria-label="Hiện mật khẩu">
+                            <i class="fa-regular fa-eye-slash"></i>
+                        </button>
+                    </div>
+                    <p id="newPasswordError" class="mt-1 text-[12px] text-red-500 font-medium hidden"></p>
+                </div>
+
+
+                <div class="mb-6">
+                    <label class="block mb-2 text-[14px] font-bold text-slate-700">
+                        Xác nhận mật khẩu mới <span class="text-red-500">*</span>
+                    </label>
+                    <div class="relative">
+                        <input type="password" id="confirmNewPassword"
+                            class="w-full h-12 rounded-[10px] border border-slate-200 bg-white px-4 pr-14 outline-none focus:border-blue-400" />
+                        <button type="button" data-toggle-target="confirmNewPassword"
+                            onclick="togglePasswordField('confirmNewPassword', this)"
+                            class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-blue-600"
+                            aria-label="Hiện mật khẩu">
+                            <i class="fa-regular fa-eye-slash"></i>
+                        </button>
+                    </div>
+                    <p id="confirmNewPasswordError" class="mt-1 text-[12px] text-red-500 font-medium hidden"></p>
+                </div>
+
+
+                <div class="flex justify-end gap-3">
+                    <button type="button" onclick="closeChangePasswordModal()"
+                        class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200">
+                        Hủy
+                    </button>
+                    <button type="submit"
+                        class="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700">
+                        Đổi mật khẩu
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Import file JavaScript chính xử lý logic hệ thống -->
+    <script src="js/script.js"></script>
+
+    <!-- Import module đăng nhập -->
+    <script src="js/module/Login.js"></script>
+
+    <!-- Import module trang chủ -->
+    <script src="js/module/TrangChu.js"></script>
+
+    <!-- Import module quản lý phòng -->
+    <script src="js/module/Phong.js"></script>
+
+    <!-- Import module quản lý sinh viên -->
+    <script src="js/module/SinhVien.js"></script>
+
+    <!-- Import module quản lý hợp đồng -->
+    <script src="js/module/HopDong.js"></script>
+
+    <!-- Import module quản lý hóa đơn -->
+    <script src="js/module/HoaDon.js"></script>
+
+    <!-- Thư viện SheetJS để xuất file Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+    <!-- Nạp thư viện Chart.js trước (Để trình duyệt hiểu lệnh vẽ biểu đồ) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Import module báo cáo và thống kê -->
+    <script src="js/module/BaoCaoThongKe.js"></script>
+
+</body>
+
+</html>
