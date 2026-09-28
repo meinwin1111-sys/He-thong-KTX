@@ -55,62 +55,62 @@ async function renderSinhVienModule() {
         <section class="p-6">
             <div class="flex justify-between items-start mb-6">
                 <div>
-                    <h2 class="text-3xl font-bold text-gray-800">Quản lý Sinh viên</h2>
-                    <p class="text-gray-400 mt-1 font-medium text-[13px]">
-                        <span class="hover:text-blue-600 cursor-pointer" onclick="switchPage('Trang Chu', document.querySelectorAll('.nav-item')[0])">Trang chủ</span>
+                    <h2 class="text-3xl font-bold text-slate-900">Quản lý Sinh viên</h2>
+                    <p class="text-slate-500 mt-1 font-medium text-[13px]">
+                        <span class="hover:text-emerald-600 cursor-pointer" onclick="switchPage('Trang Chu', document.querySelectorAll('.nav-item')[0])">Trang chủ</span>
                         <span class="mx-1">></span>
                         <span>Sinh viên</span>
                     </p>
                 </div>
 
                 <button id="btnOpenAddStudent"
-                    class="bg-[#2563eb] text-white px-5 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700 transition-all border-none shadow-lg">
+                    class="bg-[#059669] text-white px-5 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-emerald-700 transition-all border-none shadow-lg">
                     <i class="fa-solid fa-circle-plus"></i> Thêm sinh viên
                 </button>
             </div>
 
             <div class="flex gap-4 mb-8">
                 <div class="stat-card text-left cursor-pointer hover:shadow-md transition-all">
-                    <p class="text-[10px] font-bold text-gray-400 uppercase mb-1">Tổng sinh viên</p>
-                    <p class="text-3xl font-bold text-gray-800" id="tongSinhVienStat"></p>
+                    <p class="text-[10px] font-bold text-slate-500 uppercase mb-1">Tổng sinh viên</p>
+                    <p class="text-3xl font-bold text-slate-900" id="tongSinhVienStat"></p>
                 </div>
 
                 <div class="stat-card border-l-4 border-green-500 text-left cursor-pointer hover:shadow-md transition-all">
-                    <p class="text-[10px] font-bold text-gray-400 uppercase mb-1">Sinh viên Nam</p>
+                    <p class="text-[10px] font-bold text-slate-500 uppercase mb-1">Sinh viên Nam</p>
                     <p class="text-3xl font-bold text-green-500" id="tongNamStat"></p>
                 </div>
 
                 <div class="stat-card border-l-4 border-red-500 text-left cursor-pointer hover:shadow-md transition-all">
-                    <p class="text-[10px] font-bold text-gray-400 uppercase mb-1">Sinh viên Nữ</p>
+                    <p class="text-[10px] font-bold text-slate-500 uppercase mb-1">Sinh viên Nữ</p>
                     <p class="text-3xl font-bold text-red-500" id="tongNuStat"></p>
                 </div>
 
-                <div class="stat-card border-l-4 border-blue-500 text-left cursor-pointer hover:shadow-md transition-all">
-                    <p class="text-[10px] font-bold text-gray-400 uppercase mb-1">Đang lưu trú</p>
-                    <p class="text-3xl font-bold text-blue-500" id="statLiving"></p>
+                <div class="stat-card border-l-4 border-emerald-500 text-left cursor-pointer hover:shadow-md transition-all">
+                    <p class="text-[10px] font-bold text-slate-500 uppercase mb-1">Đang lưu trú</p>
+                    <p class="text-3xl font-bold text-emerald-500" id="statLiving"></p>
                 </div>
             </div>
 
             <div class="flex items-center gap-3 mb-6">
                 <input id="studentSearch" type="text" placeholder="Tìm tên sinh viên..."
-                    class="border-none rounded px-4 py-2 w-64 outline-none bg-white shadow-sm focus:ring-1 focus:ring-blue-400 text-sm">
+                    class="border-none rounded px-4 py-2 w-64 outline-none bg-white shadow-sm focus:ring-1 focus:ring-emerald-400 text-sm">
 
                 <select id="studentStatusFilter"
-                    class="border-none rounded px-4 py-2 text-gray-600 outline-none bg-white shadow-sm cursor-pointer text-sm">
+                    class="border-none rounded px-4 py-2 text-slate-500 outline-none bg-white shadow-sm cursor-pointer text-sm">
                     <option value="">Trạng thái sinh viên</option>
                     <option value="Đang ở">Đang ở</option>
                     <option value="Đã rời khỏi">Đã rời khỏi</option>
                 </select>
 
-                <button id="btnResetText" class="text-gray-400 hover:text-red-500 text-sm transition-colors flex items-center gap-1">
+                <button id="btnResetText" class="text-slate-500 hover:text-red-500 text-sm transition-colors flex items-center gap-1">
                     <i class="fa-solid fa-rotate-left"></i> Reset lọc
                 </button>
             </div>
 
-            <div class="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-100">
+            <div class="bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
                 <table class="w-full text-left table-fixed">
-                    <thead class="bg-gray-50 border-b border-gray-100">
-                        <tr class="text-[12px] font-bold text-gray-400 uppercase tracking-wider">
+                    <thead class="bg-slate-50 border-b border-slate-200">
+                        <tr class="text-[12px] font-bold text-slate-500 uppercase tracking-wider">
                             <th class="px-5 py-4 w-[95px]">MSSV</th>
                             <th class="px-5 py-4 w-[180px]">Tên sinh viên</th>
                             <th class="px-5 py-4 w-[110px]">Ngày sinh</th>
@@ -124,22 +124,22 @@ async function renderSinhVienModule() {
                             <th class="px-5 py-4 w-[120px] text-center">Thao tác</th>
                         </tr>
                     </thead>
-                    <tbody id="studentTableBody" class="divide-y divide-gray-100">
+                    <tbody id="studentTableBody" class="divide-y divide-slate-100">
                         </tbody>
                 </table>
 
-                <footer class="px-8 py-4 flex justify-between items-center text-gray-400 bg-white border-t border-gray-50 text-xs">
+                <footer class="px-8 py-4 flex justify-between items-center text-slate-500 bg-white border-t border-slate-200 text-xs">
                     <span id="studentCountText"></span>
                     <div class="flex items-center gap-3">
-                        <button id="btnPrevPage" class="hover:text-blue-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                        <button id="btnPrevPage" class="hover:text-emerald-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                             <i class="fa-solid fa-chevron-left"></i>
                         </button>
                         <div class="flex items-center gap-1 font-medium">
-                            <span id="currentPageBox" class="text-blue-600 font-bold border border-blue-100 bg-blue-50 px-2 py-0.5 rounded">1</span>
+                            <span id="currentPageBox" class="text-emerald-600 font-bold border border-emerald-100 bg-emerald-50 px-2 py-0.5 rounded">1</span>
                             <span class="mx-1">/</span>
                             <span id="totalPageText">1</span>
                         </div>
-                        <button id="btnNextPage" class="hover:text-blue-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                        <button id="btnNextPage" class="hover:text-emerald-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                             <i class="fa-solid fa-chevron-right"></i>
                         </button>
                     </div>
@@ -148,12 +148,12 @@ async function renderSinhVienModule() {
 
             <div id="addStudentModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50">
                 <div class="bg-white w-[470px] rounded-xl shadow-xl p-6 relative">
-                    <h3 class="text-2xl font-bold text-gray-800 mb-5">Thêm sinh viên mới</h3>
+                    <h3 class="text-2xl font-bold text-slate-900 mb-5">Thêm sinh viên mới</h3>
                     <form id="addStudentForm" class="space-y-4">
                         ${renderStudentForm("", true)}
-                        <div class="flex justify-end gap-2 pt-4 border-t border-gray-100">
-                            <button type="submit" class="bg-blue-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-blue-700 transition-all">Lưu</button>
-                            <button type="button" id="btnCloseAddStudent" class="bg-gray-100 text-gray-600 px-5 py-2 rounded-lg font-bold hover:bg-gray-200 transition-all">Hủy</button>
+                        <div class="flex justify-end gap-2 pt-4 border-t border-slate-200">
+                            <button type="submit" class="bg-emerald-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-emerald-700 transition-all">Lưu</button>
+                            <button type="button" id="btnCloseAddStudent" class="bg-slate-100 text-slate-500 px-5 py-2 rounded-lg font-bold hover:bg-slate-200 transition-all">Hủy</button>
                         </div>
                     </form>
                 </div>
@@ -161,12 +161,12 @@ async function renderSinhVienModule() {
 
             <div id="editStudentModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50">
                 <div class="bg-white w-[470px] rounded-xl shadow-xl p-6 relative">
-                    <h3 class="text-2xl font-bold text-gray-800 mb-5">Cập nhật thông tin</h3>
+                    <h3 class="text-2xl font-bold text-slate-900 mb-5">Cập nhật thông tin</h3>
                     <form id="editStudentForm" class="space-y-4">
                         <div id="editStudentFormContainer"></div>
-                        <div class="flex justify-end gap-2 pt-4 border-t border-gray-100">
-                            <button type="submit" class="bg-blue-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-blue-700 transition-all">Lưu thay đổi</button>
-                            <button type="button" id="btnCloseEditStudent" class="bg-gray-100 text-gray-600 px-5 py-2 rounded-lg font-bold hover:bg-gray-200 transition-all">Hủy</button>
+                        <div class="flex justify-end gap-2 pt-4 border-t border-slate-200">
+                            <button type="submit" class="bg-emerald-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-emerald-700 transition-all">Lưu thay đổi</button>
+                            <button type="button" id="btnCloseEditStudent" class="bg-slate-100 text-slate-500 px-5 py-2 rounded-lg font-bold hover:bg-slate-200 transition-all">Hủy</button>
                         </div>
                     </form>
                 </div>
@@ -174,11 +174,11 @@ async function renderSinhVienModule() {
 
             <div id="detailStudentModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50">
                 <div class="bg-white w-[520px] rounded-xl shadow-xl p-6 relative">
-                    <h3 class="text-2xl font-bold text-blue-800 mb-5 border-b border-gray-100 pb-3">Chi tiết sinh viên</h3>
+                    <h3 class="text-2xl font-bold text-emerald-800 mb-5 border-b border-slate-200 pb-3">Chi tiết sinh viên</h3>
                     <div id="detailStudentContent"></div>
                     <div class="flex justify-end gap-2 mt-6">
-                        <button id="btnEditFromDetail" class="bg-blue-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-blue-700 transition-all">Sửa</button>
-                        <button id="btnCloseDetailStudent" class="bg-gray-100 text-gray-600 px-5 py-2 rounded-lg font-bold hover:bg-gray-200 transition-all">Đóng</button>
+                        <button id="btnEditFromDetail" class="bg-emerald-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-emerald-700 transition-all">Sửa</button>
+                        <button id="btnCloseDetailStudent" class="bg-slate-100 text-slate-500 px-5 py-2 rounded-lg font-bold hover:bg-slate-200 transition-all">Đóng</button>
                     </div>
                 </div>
             </div>
@@ -314,11 +314,11 @@ function renderActionButtons(studentIndex) {
     return `
             <div class="flex items-center justify-center gap-2">
                 <button onclick="openDetailStudentModal(${studentIndex})"
-                    class="h-[26px] px-2 rounded border border-[#D9DFE7] bg-[#F9FAFB] text-[#6B7280] text-[11px] flex items-center gap-1 hover:bg-[#F3F4F6]">
+                    class="h-[26px] px-2 rounded border border-[#e2e8f0] bg-[#f8fafc] text-[#64748b] text-[11px] flex items-center gap-1 hover:bg-[#f1f5f9]">
                     <span>👁</span> <span>Xem</span>
                 </button>
                 <button onclick="openEditStudentModal(${studentIndex})"
-                    class="h-[26px] px-2 rounded border border-[#D9DFE7] bg-[#F9FAFB] text-[#6B7280] text-[11px] flex items-center gap-1 hover:bg-[#F3F4F6]">
+                    class="h-[26px] px-2 rounded border border-[#e2e8f0] bg-[#f8fafc] text-[#64748b] text-[11px] flex items-center gap-1 hover:bg-[#f1f5f9]">
                     <span>✎</span> <span>Sửa</span>
                 </button>
             </div>
@@ -343,7 +343,7 @@ function renderTable(data) {
     if (data.length === 0) {
         tableBody.innerHTML = `
                 <tr>
-                    <td colspan="11" class="text-center py-10 text-[13px] text-gray-400 italic">
+                    <td colspan="11" class="text-center py-10 text-[13px] text-slate-500 italic">
                         Không tìm thấy sinh viên phù hợp
                     </td>
                 </tr>
@@ -358,17 +358,17 @@ function renderTable(data) {
     // Render từng dòng sinh viên vào tbody
     data.forEach((s, index) => {
         tableBody.innerHTML += `
-                <tr class="hover:bg-gray-50 border-b border-gray-100 transition-colors text-[13px] text-gray-600">
-                    <td class="px-5 py-4 text-left font-bold text-gray-700">${s.mssv}</td>
-                    <td class="px-5 py-4 text-left font-medium text-gray-800">${s.name}</td>
+                <tr class="hover:bg-slate-50 border-b border-slate-200 transition-colors text-[13px] text-slate-500">
+                    <td class="px-5 py-4 text-left font-bold text-slate-900">${s.mssv}</td>
+                    <td class="px-5 py-4 text-left font-medium text-slate-900">${s.name}</td>
                     <td class="px-5 py-4 text-left">${s.birthday}</td>
                     <td class="px-5 py-4 text-left">${s.gender}</td>
                     <td class="px-5 py-4 text-left">${s.phone}</td>
                     <td class="px-5 py-4 text-left">${s.email}</td>
                     <td class="px-5 py-4 text-left truncate max-w-[130px]" title="${s.address}">${s.address}</td>
-                    <td class="px-5 py-4 text-left font-bold text-blue-600">${s.room}</td>
+                    <td class="px-5 py-4 text-left font-bold text-emerald-600">${s.room}</td>
                     <td class="px-5 py-4 text-left">${getStatusBadge(s.status)}</td>
-                    <td class="px-5 py-4 text-left text-gray-400 italic">${s.note}</td>
+                    <td class="px-5 py-4 text-left text-slate-500 italic">${s.note}</td>
                     <td class="px-5 py-4 text-center">
                         ${renderActionButtons(index)}
                     </td>
@@ -409,19 +409,19 @@ function updatePaginationButtons(totalPages) {
     // Cập nhật giao diện nút "Trang trước"
     if (btnPrevPage.disabled) {
         btnPrevPage.className =
-            "w-7 h-7 rounded border border-[#E5E7EB] bg-[#F9FAFB] text-[#D1D5DB] flex items-center justify-center cursor-not-allowed";
+            "w-7 h-7 rounded border border-[#e2e8f0] bg-[#f8fafc] text-[#e2e8f0] flex items-center justify-center cursor-not-allowed";
     } else {
         btnPrevPage.className =
-            "w-7 h-7 rounded border border-[#E5E7EB] bg-white text-[#94A3B8] flex items-center justify-center hover:bg-[#F3F4F6] transition-colors";
+            "w-7 h-7 rounded border border-[#e2e8f0] bg-white text-[#94A3B8] flex items-center justify-center hover:bg-[#f1f5f9] transition-colors";
     }
 
     // Cập nhật giao diện nút "Trang sau"
     if (btnNextPage.disabled) {
         btnNextPage.className =
-            "w-7 h-7 rounded border border-[#E5E7EB] bg-[#F9FAFB] text-[#D1D5DB] flex items-center justify-center cursor-not-allowed";
+            "w-7 h-7 rounded border border-[#e2e8f0] bg-[#f8fafc] text-[#e2e8f0] flex items-center justify-center cursor-not-allowed";
     } else {
         btnNextPage.className =
-            "w-7 h-7 rounded border border-[#E5E7EB] bg-white text-[#94A3B8] flex items-center justify-center hover:bg-[#F3F4F6] transition-colors";
+            "w-7 h-7 rounded border border-[#e2e8f0] bg-white text-[#94A3B8] flex items-center justify-center hover:bg-[#f1f5f9] transition-colors";
     }
 }
 
@@ -501,8 +501,8 @@ window.openDetailStudentModal = async function (index) {
                     ${renderDetailField("Địa chỉ", student.DiaChi || s.address)}
                     ${renderDetailField("Phòng", student.TenPhong || s.room)}
                     ${renderDetailField("Trạng thái sinh viên", student.TrangThaiSinhVien || s.status)}
-                    <div class="pt-2 border-t border-gray-100 mt-1">
-                        <p class="font-semibold text-[#374151] mb-2">Thông tin hợp đồng:</p>
+                    <div class="pt-2 border-t border-slate-200 mt-1">
+                        <p class="font-semibold text-[#0f172a] mb-2">Thông tin hợp đồng:</p>
                         ${renderDetailField("Mã hợp đồng", contractData.code)}
                         ${renderDetailField("Ngày bắt đầu", contractData.start)}
                         ${renderDetailField("Ngày kết thúc", contractData.end)}
@@ -735,7 +735,7 @@ function clearValidationUI(form) {
     // 2. Khôi phục màu viền mặc định cho tất cả các trường nhập liệu
     form.querySelectorAll("input, select, textarea").forEach((field) => {
         field.classList.remove("border-red-500");
-        field.classList.add("border-[#E5E7EB]");
+        field.classList.add("border-[#e2e8f0]");
     });
 
     // 3. Xóa bỏ các dòng tin nhắn lỗi chi tiết dưới mỗi field
@@ -753,7 +753,7 @@ function showValidationErrors(form, errors, errorBoxId) {
     Object.keys(errors).forEach((fieldName) => {
         const field = form.querySelector(`[name="${fieldName}"]`);
         if (field) {
-            field.classList.remove("border-[#E5E7EB]");
+            field.classList.remove("border-[#e2e8f0]");
             field.classList.add("border-red-500");
 
             const errorMsg = document.createElement("div");
@@ -834,12 +834,12 @@ function generateContractCode() {
 function renderDetailField(label, value) {
     return `
             <div class="grid grid-cols-[160px_1fr] items-center gap-3">
-                <label class="font-semibold text-[#374151]">${label}</label>
+                <label class="font-semibold text-[#0f172a]">${label}</label>
                 <input
                     type="text"
                     value="${value}"
                     readonly
-                    class="h-[34px] border border-[#E5E7EB] rounded-[4px] px-3 text-[12px] text-[#4B5563] bg-gray-50 cursor-not-allowed"
+                    class="h-[34px] border border-[#e2e8f0] rounded-[4px] px-3 text-[12px] text-[#64748b] bg-slate-50 cursor-not-allowed"
                 />
             </div>
         `;
@@ -882,7 +882,7 @@ function renderInputRow(
 ) {
     return `
             <div class="grid grid-cols-[160px_1fr] items-center gap-3">
-                <label class="text-[13px] font-semibold text-[#374151]">
+                <label class="text-[13px] font-semibold text-[#0f172a]">
                     ${label} ${required ? '<span class="text-red-500">*</span>' : ""}
                 </label>
                 <div>
@@ -891,7 +891,7 @@ function renderInputRow(
                         name="${name}"
                         placeholder="${placeholder}"
                         value="${value}"
-                        class="w-full h-[34px] border border-[#E5E7EB] rounded-[4px] px-3 text-[12px] outline-none focus:border-blue-400 transition-all"
+                        class="w-full h-[34px] border border-[#e2e8f0] rounded-[4px] px-3 text-[12px] outline-none focus:border-emerald-400 transition-all"
                     />
                 </div>
             </div>
@@ -927,12 +927,12 @@ function renderRoomSelectRow(selectedRoom = "", gender = "") {
 
     return `
         <div class="grid grid-cols-[160px_1fr] items-center gap-3">
-            <label class="text-[13px] font-semibold text-[#374151]">
+            <label class="text-[13px] font-semibold text-[#0f172a]">
                 Phòng <span class="text-red-500">*</span>
             </label>
             <div>
                 <select name="room" id="roomSelect"
-                    class="w-full h-[34px] border border-[#E5E7EB] rounded-[4px] px-3 text-[12px] outline-none bg-white focus:border-blue-400 transition-all">
+                    class="w-full h-[34px] border border-[#e2e8f0] rounded-[4px] px-3 text-[12px] outline-none bg-white focus:border-emerald-400 transition-all">
                     <option value="">Chọn phòng</option>
                     ${options}
                 </select>
@@ -950,13 +950,13 @@ function renderSelectRow(
 ) {
     return `
             <div class="grid grid-cols-[160px_1fr] items-center gap-3">
-                <label class="text-[13px] font-semibold text-[#374151]">
+                <label class="text-[13px] font-semibold text-[#0f172a]">
                     ${label} ${required ? '<span class="text-red-500">*</span>' : ""}
                 </label>
                 <div>
                     <select
                         name="${name}"
-                        class="w-full h-[34px] border border-[#E5E7EB] rounded-[4px] px-3 text-[12px] outline-none bg-white focus:border-blue-400 transition-all">
+                        class="w-full h-[34px] border border-[#e2e8f0] rounded-[4px] px-3 text-[12px] outline-none bg-white focus:border-emerald-400 transition-all">
                         <option value="">Chọn</option>
                         ${options
             .map(
@@ -978,12 +978,12 @@ function renderSelectRow(
 function renderTextareaRow(label, name, value = "") {
     return `
             <div class="grid grid-cols-[160px_1fr] items-start gap-3">
-                <label class="text-[13px] font-semibold text-[#374151] pt-2">${label}</label>
+                <label class="text-[13px] font-semibold text-[#0f172a] pt-2">${label}</label>
                 <div>
                     <textarea
                         name="${name}"
                         rows="3"
-                        class="w-full border border-[#E5E7EB] rounded-[4px] px-3 py-2 text-[12px] outline-none resize-none focus:border-blue-400 transition-all"
+                        class="w-full border border-[#e2e8f0] rounded-[4px] px-3 py-2 text-[12px] outline-none resize-none focus:border-emerald-400 transition-all"
                     >${value}</textarea>
                 </div>
             </div>

@@ -141,7 +141,7 @@ function drawChartDoanhThu() {
                 {
                     label: "Phòng", // Tên hiển thị
                     data: data.phong, // Mảng dữ liệu theo 12 tháng
-                    backgroundColor: "#3b82f6", // Màu cột (xanh)
+                    backgroundColor: "#10b981", // Màu cột (xanh)
                     borderRadius: 6, // Bo góc cột
                     borderSkipped: false, // Không bỏ viền
                     stack: "tong", // Stack chung (cộng dồn)
@@ -194,7 +194,7 @@ function drawChartDoanhThu() {
                         boxWidth: 14,
                         boxHeight: 10,
                         padding: 16,
-                        color: "#6b7280",
+                        color: "#64748b",
                         font: { size: 12 },
                         usePointStyle: true,
                         pointStyle: "rectRounded",
@@ -214,7 +214,7 @@ function drawChartDoanhThu() {
                         drawBorder: false, // Ẩn viền trục
                     },
                     ticks: {
-                        color: "#9ca3af", // Màu chữ
+                        color: "#64748b", // Màu chữ
                         font: { size: 11 },
                     },
                     border: {
@@ -227,11 +227,11 @@ function drawChartDoanhThu() {
                     stacked: true, // Stack theo chiều dọc
                     beginAtZero: true, // Bắt đầu từ 0
                     ticks: {
-                        color: "#9ca3af",
+                        color: "#64748b",
                         font: { size: 11 },
                     },
                     grid: {
-                        color: "#e5e7eb", // Màu lưới
+                        color: "#e2e8f0", // Màu lưới
                         borderDash: [5, 5], // Nét đứt
                         drawBorder: false,
                     },
@@ -308,7 +308,7 @@ function drawChartGioiTinh() {
                 {
                     label: "Sức chứa",
                     data: [tongSucChuaNam, tongSucChuaNu],
-                    backgroundColor: "#e5e7eb",
+                    backgroundColor: "#e2e8f0",
                     borderRadius: 8,
 
                     barPercentage: 0.9,
@@ -317,7 +317,7 @@ function drawChartGioiTinh() {
                 {
                     label: "Thực tế",
                     data: [gioiTinhSinhVienData.nam, gioiTinhSinhVienData.nu],
-                    backgroundColor: ["#3b82f6", "#ef4444"],
+                    backgroundColor: ["#10b981", "#ef4444"],
                     borderRadius: 8,
 
                     barPercentage: 0.9,
@@ -344,16 +344,16 @@ function drawChartGioiTinh() {
                     return [
                         {
                             text: "Sức chứa",
-                            fillStyle: "#e5e7eb",
-                            strokeStyle: "#d1d5db",
+                            fillStyle: "#e2e8f0",
+                            strokeStyle: "#e2e8f0",
                             lineWidth: 1,
                             pointStyle: "rectRounded",
                             hidden: false,
                         },
                         {
                             text: "Nam",
-                            fillStyle: "#3b82f6",
-                            strokeStyle: "#3b82f6",
+                            fillStyle: "#10b981",
+                            strokeStyle: "#10b981",
                             lineWidth: 0,
                             pointStyle: "rectRounded",
                             hidden: false,
@@ -370,7 +370,7 @@ function drawChartGioiTinh() {
                 },
                 usePointStyle: true,
                 pointStyleWidth: 14,
-                color: "#6b7280",
+                color: "#64748b",
                 font: { size: 12 },
                 padding: 16,
                 boxHeight: 10,
@@ -381,19 +381,19 @@ function drawChartGioiTinh() {
                 x: {
                     grid: { display: false },
                     ticks: {
-                        color: "#9ca3af",
+                        color: "#64748b",
                         font: { size: 11 },
                     },
                 },
                 y: {
                     beginAtZero: true,
                     grid: {
-                        color: "#e5e7eb",
+                        color: "#e2e8f0",
                         borderDash: [5, 5],
                     },
                     ticks: {
                         stepSize: 100,
-                        color: "#9ca3af",
+                        color: "#64748b",
                         font: { size: 11 },
                     },
                 },
@@ -416,20 +416,20 @@ function renderBaoCaoThongKeModule() {
     // 1. RENDER HTML GIAO DIỆN
     // ======================================================
     main.innerHTML = `
-        <section id="module-baocao-thongke" class="p-6 bg-gray-50 min-h-screen">
+        <section id="module-baocao-thongke" class="p-6 bg-slate-50 min-h-screen">
             <div class="flex justify-between items-start mb-6">
                 <div>
-                    <h2 class="text-3xl font-bold text-gray-800">Báo cáo & Thống kê</h2>
-                    <p class="text-gray-400 mt-1 font-medium">
-                        <span class="hover:text-blue-600 cursor-pointer" onclick="switchPage('Trang Chu', document.querySelectorAll('.nav-item')[0])">Trang chủ</span>
+                    <h2 class="text-3xl font-bold text-slate-900">Báo cáo & Thống kê</h2>
+                    <p class="text-slate-500 mt-1 font-medium">
+                        <span class="hover:text-emerald-600 cursor-pointer" onclick="switchPage('Trang Chu', document.querySelectorAll('.nav-item')[0])">Trang chủ</span>
                         <span class="mx-1">></span>
                         <span>Báo cáo & Thống kê</span>
                     </p>
                 </div>
 
                 <div class="flex items-center gap-3">
-                    <label for="selectRevenueYear" class="text-sm text-gray-500 font-medium">Năm:</label>
-                    <select id="selectRevenueYear" class="border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 focus:ring-2 focus:ring-blue-500 outline-none bg-white shadow-sm">
+                    <label for="selectRevenueYear" class="text-sm text-slate-500 font-medium">Năm:</label>
+                    <select id="selectRevenueYear" class="border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none bg-white shadow-sm">
                         <option value="">Đang tải...</option>
                     </select>
                     <button id="btnExportReport" class="bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition">
@@ -440,15 +440,15 @@ function renderBaoCaoThongKeModule() {
         <div id="reportPreviewModal" class="fixed inset-0 bg-black/50 z-50 hidden items-center justify-center p-4">
     <div class="bg-white w-full max-w-6xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl">
         <div class="flex items-center justify-between px-6 py-4 border-b">
-            <h3 class="text-base font-semibold text-gray-700">Báo cáo tổng hợp</h3>
+            <h3 class="text-base font-semibold text-slate-900">Báo cáo tổng hợp</h3>
            <div class="flex items-center gap-2">
     <button id="btnDownloadReport" class="px-4 py-2 text-sm bg-emerald-500 text-white rounded-lg hover:bg-emerald-600">
         Tải xuống
     </button>
-    <button id="btnPrintReport" class="px-4 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+    <button id="btnPrintReport" class="px-4 py-2 text-sm bg-emerald-500 text-white rounded-lg hover:bg-emerald-600">
         In báo cáo
     </button>
-    <button id="btnCloseReportPreview" class="px-4 py-2 text-sm bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300">
+    <button id="btnCloseReportPreview" class="px-4 py-2 text-sm bg-slate-200 text-slate-500 rounded-lg hover:bg-slate-300">
         Đóng
     </button>
 </div>
@@ -459,12 +459,12 @@ function renderBaoCaoThongKeModule() {
 
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-            <div class="lg:col-span-2 bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+            <div class="lg:col-span-2 bg-white p-5 rounded-xl shadow-sm border border-slate-200">
                 <div class="flex justify-between items-center mb-4 flex-wrap gap-3">
                         <div>
-                            <h3 class="text-2xl font-bold text-gray-700">
+                            <h3 class="text-2xl font-bold text-slate-900">
                                 Doanh thu các tháng năm
-                                <span id="selectedRevenueYearText" class="text-blue-500">${baoCaoState.selectedYear}</span>
+                                <span id="selectedRevenueYearText" class="text-emerald-500">${baoCaoState.selectedYear}</span>
                             </h3>
                         </div>
                     </div>
@@ -474,8 +474,8 @@ function renderBaoCaoThongKeModule() {
                     </div>
                 </div>
 
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-                    <h3 class="text-2xl font-bold text-gray-700 mb-4">Tỷ lệ lấp đầy theo Giới tính</h3>
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col">
+                    <h3 class="text-2xl font-bold text-slate-900 mb-4">Tỷ lệ lấp đầy theo Giới tính</h3>
                     <div class="flex-1 min-h-[450px] flex items-center justify-center">
                         <canvas id="chartGioiTinh"></canvas>
                     </div>
@@ -484,8 +484,8 @@ function renderBaoCaoThongKeModule() {
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
 
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-                    <h3 class="text-2xl font-bold text-gray-700 mb-4">
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col">
+                    <h3 class="text-2xl font-bold text-slate-900 mb-4">
                         Tỷ lệ sinh viên rời bỏ (%) -
                         <span id="selectedDropoutYearText" class="text-red-400">${baoCaoState.selectedYear}</span>
                     </h3>
@@ -500,31 +500,31 @@ function renderBaoCaoThongKeModule() {
                     </div>
                 </div>
 
-                 <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col h-full">
-                <h3 class="text-2xl font-bold text-gray-700 mb-4">Hiệu suất sử dụng phòng</h3>
+                 <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col h-full">
+                <h3 class="text-2xl font-bold text-slate-900 mb-4">Hiệu suất sử dụng phòng</h3>
 
                 <div class="grid grid-cols-2 gap-3 mb-5 text-center">
-                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-100">
-                        <p class="text-xs text-gray-400 font-semibold uppercase mb-1">Tổng phòng</p>
-                        <p class="text-2xl font-bold text-gray-700" id="statTotalRoom">...</p>
+                    <div class="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                        <p class="text-xs text-slate-500 font-semibold uppercase mb-1">Tổng phòng</p>
+                        <p class="text-2xl font-bold text-slate-900" id="statTotalRoom">...</p>
                     </div>
-                   <div class="bg-emerald-50 p-4 rounded-lg border border-gray-100">
+                   <div class="bg-emerald-50 p-4 rounded-lg border border-slate-200">
                         <p class="text-xs text-emerald-500 font-semibold uppercase mb-1">Phòng Trống</p>
                         <p class="text-2xl font-bold text-emerald-500" id="statEmptyRoom">...</p>
                     </div>
-                    <div class="bg-red-50 p-4 rounded-lg border border-gray-100">
+                    <div class="bg-red-50 p-4 rounded-lg border border-slate-200">
                         <p class="text-xs text-red-400 font-semibold uppercase mb-1">Phòng Đầy</p>
                         <p class="text-2xl font-bold text-red-400" id="statFullRoom">...</p>
                     </div>
-                    <div class="bg-blue-50 p-4 rounded-lg border border-gray-100">
-                        <p class="text-xs text-blue-500 font-semibold uppercase mb-1">Tổng SV</p>
-                        <p class="text-2xl font-bold text-blue-500" id="statTotalSV">...</p>
+                    <div class="bg-emerald-50 p-4 rounded-lg border border-slate-200">
+                        <p class="text-xs text-emerald-500 font-semibold uppercase mb-1">Tổng SV</p>
+                        <p class="text-2xl font-bold text-emerald-500" id="statTotalSV">...</p>
                     </div>
                 </div>
 
                 <div class="flex items-center gap-6 flex-1">
                     <div class="flex-1">
-                        <h4 class="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wider">Chi tiết theo Khu vực (A, B)</h4>
+                        <h4 class="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wider">Chi tiết theo Khu vực (A, B)</h4>
                         <table class="w-full text-sm">
                             <tbody id="areaStatsTable">
                                 </tbody>
@@ -533,8 +533,8 @@ function renderBaoCaoThongKeModule() {
                     <div class="w-40 h-40 relative flex-shrink-0">
                         <canvas id="chartPieUsage"></canvas>
                         <div class="absolute inset-0 flex flex-col items-center justify-center">
-                            <span class="text-2xl font-bold text-gray-700" id="usageRateText">0%</span>
-                            <span class="text-[10px] text-gray-400 font-semibold uppercase tracking-widest">Hiệu suất</span>
+                            <span class="text-2xl font-bold text-slate-900" id="usageRateText">0%</span>
+                            <span class="text-[10px] text-slate-500 font-semibold uppercase tracking-widest">Hiệu suất</span>
                         </div>
                     </div>
                 </div>
@@ -543,17 +543,17 @@ function renderBaoCaoThongKeModule() {
 
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col">
 
-    <h3 class="text-2xl font-bold text-gray-700 mb-4 flex items-center gap-2">
-        <i class="fas fa-file-contract text-blue-500"></i>
+    <h3 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+        <i class="fas fa-file-contract text-emerald-500"></i>
         <span id="contractTableTitle">Sinh viên sắp hết hạn hợp đồng</span>
     </h3>
 
 
-    <div class="overflow-x-auto rounded-lg border border-gray-100 flex-1">
+    <div class="overflow-x-auto rounded-lg border border-slate-200 flex-1">
         <table class="w-full text-left text-xs">
-            <thead class="bg-gray-50 text-gray-400 font-semibold uppercase tracking-wider">
+            <thead class="bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider">
                 <tr>
                     <th class="p-3">MSSV</th>
                     <th class="p-3">Họ và tên</th>
@@ -561,25 +561,25 @@ function renderBaoCaoThongKeModule() {
                     <th class="p-3 text-right">Còn lại</th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-gray-50 text-gray-600" id="tableExpiringContracts"></tbody>
+            <tbody class="divide-y divide-slate-50 text-slate-500" id="tableExpiringContracts"></tbody>
         </table>
     </div>
 
 
-    <div id="expiringContractsPagination" class="mt-4 flex items-center justify-between text-xs text-gray-400 min-h-[36px]"></div>
+    <div id="expiringContractsPagination" class="mt-4 flex items-center justify-between text-xs text-slate-500 min-h-[36px]"></div>
 </div>
 
 
-            <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-    <h3 class="text-2xl font-bold text-gray-700 mb-4 flex items-center gap-2">
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col">
+    <h3 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
         <i class="fas fa-exclamation-triangle text-orange-500"></i>
         <span>Danh sách công nợ</span>
     </h3>
 
 
-    <div class="overflow-x-auto rounded-lg border border-gray-100 flex-1">
+    <div class="overflow-x-auto rounded-lg border border-slate-200 flex-1">
         <table class="w-full text-left text-xs">
-            <thead class="bg-gray-50 text-gray-400 font-semibold uppercase tracking-wider">
+            <thead class="bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider">
                 <tr>
                     <th class="p-3">Mã HĐ</th>
                     <th class="p-3">Phòng</th>
@@ -587,12 +587,12 @@ function renderBaoCaoThongKeModule() {
                     <th class="p-3 text-right">Số tiền</th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-gray-50 text-gray-600" id="tableUnpaidBills"></tbody>
+            <tbody class="divide-y divide-slate-50 text-slate-500" id="tableUnpaidBills"></tbody>
         </table>
     </div>
 
 
-    <div id="unpaidBillsPagination" class="mt-4 flex items-center justify-between text-xs text-gray-400 min-h-[36px]"></div>
+    <div id="unpaidBillsPagination" class="mt-4 flex items-center justify-between text-xs text-slate-500 min-h-[36px]"></div>
 </div>
 
 </div>
@@ -886,16 +886,16 @@ function renderExpiringContracts(expiringContracts = []) {
 // Tạo HTML cho các dòng hợp đồng sắp hết hạn
     const html = pageData.length
         ? pageData.map(item => `
-            <tr class="hover:bg-gray-50 transition">
-                <td class="p-3 text-xs font-medium text-gray-600">${item.MSSV || item.MaSinhVien || ""}</td>
-                <td class="p-3 text-xs text-gray-600">${item.TenSV || item.HoTen || "Không rõ"}</td>
-                <td class="p-3 text-xs text-gray-500">${item.TenPhong || "Chưa có"}</td>
+            <tr class="hover:bg-slate-50 transition">
+                <td class="p-3 text-xs font-medium text-slate-500">${item.MSSV || item.MaSinhVien || ""}</td>
+                <td class="p-3 text-xs text-slate-500">${item.TenSV || item.HoTen || "Không rõ"}</td>
+                <td class="p-3 text-xs text-slate-500">${item.TenPhong || "Chưa có"}</td>
                 <td class="p-3 text-xs text-red-400 font-semibold text-right">${item.ConLai ?? item.conLai ?? 0} ngày</td>
             </tr>
         `).join("")
         : `
             <tr>
-                <td colspan="4" class="p-4 text-center text-xs text-gray-400 italic">
+                <td colspan="4" class="p-4 text-center text-xs text-slate-500 italic">
                     Không có sinh viên nào sắp hết hạn hợp đồng
                 </td>
             </tr>
@@ -919,17 +919,17 @@ function renderExpiringContracts(expiringContracts = []) {
 function renderExpiringContractsPagination(totalPages, currentPage, totalItems, startIndex, endIndex) {
     if (totalPages <= 1) {
         return `
-            <div class="text-gray-400">
+            <div class="text-slate-500">
                 Hiển thị ${totalItems === 0 ? 0 : startIndex + 1}-${endIndex}/${totalItems} hợp đồng
             </div>
             <div class="flex items-center gap-2">
-                <button class="w-8 h-8 rounded-md border border-gray-200 text-gray-300 cursor-not-allowed" disabled>
+                <button class="w-8 h-8 rounded-md border border-slate-200 text-slate-300 cursor-not-allowed" disabled>
                     &lt;
                 </button>
-                <div class="px-4 py-1.5 rounded-lg border border-gray-200 bg-white text-blue-500 font-medium">
+                <div class="px-4 py-1.5 rounded-lg border border-slate-200 bg-white text-emerald-500 font-medium">
                     1 / 1
                 </div>
-                <button class="w-8 h-8 rounded-md border border-gray-200 text-gray-300 cursor-not-allowed" disabled>
+                <button class="w-8 h-8 rounded-md border border-slate-200 text-slate-300 cursor-not-allowed" disabled>
                     &gt;
                 </button>
             </div>
@@ -937,16 +937,16 @@ function renderExpiringContractsPagination(totalPages, currentPage, totalItems, 
     }
 // Nếu có nhiều hơn 1 trang, hiển thị phân trang với nút bấm
     return `
-        <div class="text-gray-400">
+        <div class="text-slate-500">
             Hiển thị ${startIndex + 1}-${endIndex}/${totalItems} hợp đồng
         </div>
 
         <div class="flex items-center gap-2">
             <button
-                class="w-8 h-8 rounded-md border border-gray-200 flex items-center justify-center ${
+                class="w-8 h-8 rounded-md border border-slate-200 flex items-center justify-center ${
                     currentPage <= 1
-                        ? "text-gray-300 cursor-not-allowed bg-gray-50"
-                        : "text-gray-500 hover:bg-gray-50"
+                        ? "text-slate-300 cursor-not-allowed bg-slate-50"
+                        : "text-slate-500 hover:bg-slate-50"
                 }"
                 data-page="${currentPage - 1}"
                 ${currentPage <= 1 ? "disabled" : ""}
@@ -954,15 +954,15 @@ function renderExpiringContractsPagination(totalPages, currentPage, totalItems, 
                 &lt;
             </button>
 
-            <div class="px-4 py-1.5 rounded-lg border border-gray-200 bg-white text-blue-500 font-medium">
+            <div class="px-4 py-1.5 rounded-lg border border-slate-200 bg-white text-emerald-500 font-medium">
                 ${currentPage} / ${totalPages}
             </div>
 
             <button
-                class="w-8 h-8 rounded-md border border-gray-200 flex items-center justify-center ${
+                class="w-8 h-8 rounded-md border border-slate-200 flex items-center justify-center ${
                     currentPage >= totalPages
-                        ? "text-gray-300 cursor-not-allowed bg-gray-50"
-                        : "text-gray-500 hover:bg-gray-50"
+                        ? "text-slate-300 cursor-not-allowed bg-slate-50"
+                        : "text-slate-500 hover:bg-slate-50"
                 }"
                 data-page="${currentPage + 1}"
                 ${currentPage >= totalPages ? "disabled" : ""}
@@ -1084,17 +1084,17 @@ function renderUnpaidBills(unpaidBills = []) {
                 : '---';
 
             return `
-                <tr class="hover:bg-gray-50 transition">
-                    <td class="p-3 text-xs font-medium text-gray-600">${item.id || item.MaHoaDon || ''}</td>
-                    <td class="p-3 text-xs text-gray-600">${item.tenPhong || item.TenPhong || 'Chưa có'}</td>
-                    <td class="p-3 text-xs text-gray-500">${thangNam}</td>
+                <tr class="hover:bg-slate-50 transition">
+                    <td class="p-3 text-xs font-medium text-slate-500">${item.id || item.MaHoaDon || ''}</td>
+                    <td class="p-3 text-xs text-slate-500">${item.tenPhong || item.TenPhong || 'Chưa có'}</td>
+                    <td class="p-3 text-xs text-slate-500">${thangNam}</td>
                     <td class="p-3 text-xs text-red-400 font-semibold text-right">${formatMoney(tongTien)}</td>
                 </tr>
             `;
         }).join("")
         : `
             <tr>
-                <td colspan="4" class="p-4 text-center text-xs text-gray-400 italic">
+                <td colspan="4" class="p-4 text-center text-xs text-slate-500 italic">
                     Không có công nợ
                 </td>
             </tr>
@@ -1120,17 +1120,17 @@ function renderUnpaidBills(unpaidBills = []) {
 function renderUnpaidBillsPagination(totalPages, currentPage, totalItems, startIndex, endIndex) {
     if (totalPages <= 1) {
         return `
-            <div class="text-gray-400">
+            <div class="text-slate-500">
                 Hiển thị ${totalItems === 0 ? 0 : startIndex + 1}-${endIndex}/${totalItems} hóa đơn
             </div>
             <div class="flex items-center gap-2">
-                <button class="w-8 h-8 rounded-md border border-gray-200 text-gray-300 cursor-not-allowed" disabled>
+                <button class="w-8 h-8 rounded-md border border-slate-200 text-slate-300 cursor-not-allowed" disabled>
                     &lt;
                 </button>
-                <div class="px-4 py-1.5 rounded-lg border border-gray-200 bg-white text-blue-500 font-medium">
+                <div class="px-4 py-1.5 rounded-lg border border-slate-200 bg-white text-emerald-500 font-medium">
                     1 / 1
                 </div>
-                <button class="w-8 h-8 rounded-md border border-gray-200 text-gray-300 cursor-not-allowed" disabled>
+                <button class="w-8 h-8 rounded-md border border-slate-200 text-slate-300 cursor-not-allowed" disabled>
                     &gt;
                 </button>
             </div>
@@ -1139,17 +1139,17 @@ function renderUnpaidBillsPagination(totalPages, currentPage, totalItems, startI
 
 
     return `
-        <div class="text-gray-400">
+        <div class="text-slate-500">
             Hiển thị ${startIndex + 1}-${endIndex}/${totalItems} hóa đơn
         </div>
 
 
         <div class="flex items-center gap-2">
             <button
-                class="w-8 h-8 rounded-md border border-gray-200 flex items-center justify-center ${
+                class="w-8 h-8 rounded-md border border-slate-200 flex items-center justify-center ${
                     currentPage <= 1
-                        ? "text-gray-300 cursor-not-allowed bg-gray-50"
-                        : "text-gray-500 hover:bg-gray-50"
+                        ? "text-slate-300 cursor-not-allowed bg-slate-50"
+                        : "text-slate-500 hover:bg-slate-50"
                 }"
                 data-page="${currentPage - 1}"
                 ${currentPage <= 1 ? "disabled" : ""}
@@ -1158,16 +1158,16 @@ function renderUnpaidBillsPagination(totalPages, currentPage, totalItems, startI
             </button>
 
 
-            <div class="px-4 py-1.5 rounded-lg border border-gray-200 bg-white text-blue-500 font-medium">
+            <div class="px-4 py-1.5 rounded-lg border border-slate-200 bg-white text-emerald-500 font-medium">
                 ${currentPage} / ${totalPages}
             </div>
 
 
             <button
-                class="w-8 h-8 rounded-md border border-gray-200 flex items-center justify-center ${
+                class="w-8 h-8 rounded-md border border-slate-200 flex items-center justify-center ${
                     currentPage >= totalPages
-                        ? "text-gray-300 cursor-not-allowed bg-gray-50"
-                        : "text-gray-500 hover:bg-gray-50"
+                        ? "text-slate-300 cursor-not-allowed bg-slate-50"
+                        : "text-slate-500 hover:bg-slate-50"
                 }"
                 data-page="${currentPage + 1}"
                 ${currentPage >= totalPages ? "disabled" : ""}
@@ -1379,15 +1379,15 @@ function processAndRenderRealData(data) {
             // Tạo HTML cho từng dòng
             htmlArea += `
         <tr class="border-b last:border-0">
-            <td class="py-2 text-xs font-semibold text-gray-500 uppercase">Khu ${Khu}</td>
-            <td class="text-xs text-gray-400">${T}</td>
-            <td class="text-xs text-blue-500 font-semibold">${S}</td>
+            <td class="py-2 text-xs font-semibold text-slate-500 uppercase">Khu ${Khu}</td>
+            <td class="text-xs text-slate-500">${T}</td>
+            <td class="text-xs text-emerald-500 font-semibold">${S}</td>
             <td class="w-28">
                 <div class="flex items-center gap-2">
-                    <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                    <div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
                         <div class="${color} h-full" style="width:${ratio}%"></div>
                     </div>
-                    <span class="text-[10px] font-semibold text-gray-500">${ratio}%</span>
+                    <span class="text-[10px] font-semibold text-slate-500">${ratio}%</span>
                 </div>
             </td>
         </tr>`;
@@ -1458,7 +1458,7 @@ function drawChartRoiBo() {
                     position: "top",
                     align: "end",
                     labels: {
-                        color: "#6b7280",
+                        color: "#64748b",
                         font: { size: 11 },
                         usePointStyle: true,
                         pointStyle: "circle",
@@ -1487,7 +1487,7 @@ function drawChartRoiBo() {
             scales: {
                 x: {
                     grid: { display: false },
-                    ticks: { color: "#9ca3af", font: { size: 11 } },
+                    ticks: { color: "#64748b", font: { size: 11 } },
                     border: { display: false },
                 },
                 y: {
@@ -1495,12 +1495,12 @@ function drawChartRoiBo() {
                     min: 0,
                     max: 100,
                     ticks: {
-                        color: "#9ca3af",
+                        color: "#64748b",
                         font: { size: 11 },
                         stepSize: 20,
                         callback: (v) => v + "%",
                     },
-                    grid: { color: "#e5e7eb", borderDash: [5, 5] },
+                    grid: { color: "#e2e8f0", borderDash: [5, 5] },
                     border: { display: false },
                 },
             },
@@ -1532,7 +1532,7 @@ function drawRealCharts(data) {
         data: {
             datasets: [{
                 data: [data.usageRate, 100 - data.usageRate],
-                backgroundColor: ['#3b82f6', '#e5e7eb'],
+                backgroundColor: ['#10b981', '#e2e8f0'],
                 borderWidth: 0,
                 cutout: '80%'
             }]
@@ -1608,7 +1608,7 @@ function renderReportPreviewContent() {
                 <td class="p-2">${getVal(item, 'TenPhong')}</td>
                 <td class="p-2 text-right">${getVal(item, 'ConLai', 'conLai') ?? 0} ngày</td>
             </tr>`).join("")
-        : `<tr><td colspan="5" class="p-3 text-center text-gray-400">Không có dữ liệu</td></tr>`;
+        : `<tr><td colspan="5" class="p-3 text-center text-slate-500">Không có dữ liệu</td></tr>`;
 
     const unpaidHtml = unpaidBills.length
         ? unpaidBills.map((item, index) => {
@@ -1623,36 +1623,36 @@ function renderReportPreviewContent() {
                     <td class="p-2 text-right">${formatMoney(tongTien)}</td>
                 </tr>`;
         }).join("")
-        : `<tr><td colspan="5" class="p-3 text-center text-gray-400">Không có dữ liệu</td></tr>`;
+        : `<tr><td colspan="5" class="p-3 text-center text-slate-500">Không có dữ liệu</td></tr>`;
 
     container.innerHTML = `
         <div class="mb-6">
-            <h2 class="text-2xl font-bold text-center text-gray-800 mb-2">BÁO CÁO TỔNG HỢP</h2>
-            <p class="text-center text-gray-500">Năm ${year}</p>
+            <h2 class="text-2xl font-bold text-center text-slate-900 mb-2">BÁO CÁO TỔNG HỢP</h2>
+            <p class="text-center text-slate-500">Năm ${year}</p>
         </div>
 
 
         <div class="grid grid-cols-3 gap-4 mb-8">
-            <div class="border rounded-xl p-4 bg-gray-50">
-                <p class="text-sm text-gray-500 mb-1">Tổng doanh thu</p>
+            <div class="border rounded-xl p-4 bg-slate-50">
+                <p class="text-sm text-slate-500 mb-1">Tổng doanh thu</p>
                 <p class="text-2xl font-bold text-green-600">${formatMoney(totalRevenue)}</p>
             </div>
-            <div class="border rounded-xl p-4 bg-gray-50">
-                <p class="text-sm text-gray-500 mb-1">Tổng số sinh viên</p>
-                <p class="text-2xl font-bold text-blue-600">${totalStudents}</p>
+            <div class="border rounded-xl p-4 bg-slate-50">
+                <p class="text-sm text-slate-500 mb-1">Tổng số sinh viên</p>
+                <p class="text-2xl font-bold text-emerald-600">${totalStudents}</p>
             </div>
-            <div class="border rounded-xl p-4 bg-gray-50">
-                <p class="text-sm text-gray-500 mb-1">Tổng số phòng</p>
+            <div class="border rounded-xl p-4 bg-slate-50">
+                <p class="text-sm text-slate-500 mb-1">Tổng số phòng</p>
                 <p class="text-2xl font-bold text-purple-600">${totalRooms}</p>
             </div>
         </div>
 
 
         <div class="mb-8">
-            <h3 class="text-lg font-bold text-gray-800 mb-3">Sinh viên sắp hết hạn hợp đồng</h3>
+            <h3 class="text-lg font-bold text-slate-900 mb-3">Sinh viên sắp hết hạn hợp đồng</h3>
             <div class="overflow-x-auto border rounded-lg">
                 <table class="w-full text-sm">
-                    <thead class="bg-gray-50 text-gray-600">
+                    <thead class="bg-slate-50 text-slate-500">
                         <tr>
                             <th class="p-2 text-left">STT</th>
                             <th class="p-2 text-left">MSSV</th>
@@ -1668,10 +1668,10 @@ function renderReportPreviewContent() {
 
 
         <div>
-            <h3 class="text-lg font-bold text-gray-800 mb-3">Danh sách công nợ</h3>
+            <h3 class="text-lg font-bold text-slate-900 mb-3">Danh sách công nợ</h3>
             <div class="overflow-x-auto border rounded-lg">
                 <table class="w-full text-sm">
-                    <thead class="bg-gray-50 text-gray-600">
+                    <thead class="bg-slate-50 text-slate-500">
                         <tr>
                             <th class="p-2 text-left">STT</th>
                             <th class="p-2 text-left">Mã HĐ</th>
@@ -1701,7 +1701,7 @@ function printReportPreview() {
                 body {
                     font-family: Arial, sans-serif;
                     padding: 24px;
-                    color: #111827;
+                    color: #0f172a;
                 }
                 h2, h3 {
                     margin-bottom: 12px;
@@ -1717,7 +1717,7 @@ function printReportPreview() {
                     text-align: left;
                 }
                 th {
-                    background: #f3f4f6;
+                    background: #f1f5f9;
                 }
                 .text-right {
                     text-align: right;
@@ -1732,7 +1732,7 @@ function printReportPreview() {
                     border: 1px solid #ddd;
                     border-radius: 12px;
                     padding: 16px;
-                    background: #f9fafb;
+                    background: #f8fafc;
                 }
             </style>
         </head>

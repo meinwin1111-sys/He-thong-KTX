@@ -90,12 +90,12 @@ function renderButtons(roomName) {
     return `
         <div class="flex justify-center gap-2">
             <button onclick="showRoomDetail('${safeName}')"
-                class="px-2 py-1 bg-white border border-gray-200 rounded text-[11px] text-gray-600 flex items-center gap-1 hover:bg-gray-50 hover:border-blue-300 transition-all shadow-sm">
+                class="px-2 py-1 bg-white border border-slate-200 rounded text-[11px] text-slate-500 flex items-center gap-1 hover:bg-slate-50 hover:border-emerald-300 transition-all shadow-sm">
                 <i class="fa-regular fa-eye text-[10px]"></i> Xem
             </button>
 
             <button onclick="openEditRoom('${safeName}')"
-                class="px-2 py-1 bg-white border border-gray-200 rounded text-[11px] text-gray-600 flex items-center gap-1 hover:bg-gray-50 hover:border-blue-300 transition-all shadow-sm">
+                class="px-2 py-1 bg-white border border-slate-200 rounded text-[11px] text-slate-500 flex items-center gap-1 hover:bg-slate-50 hover:border-emerald-300 transition-all shadow-sm">
                 <i class="fa-solid fa-pen text-[10px]"></i> Sửa
             </button>
         </div>
@@ -115,11 +115,11 @@ function renderRoomTable() {
 
     // Chuyển đổi mảng dữ liệu thành chuỗi HTML
     tbody.innerHTML = paginatedData.map((r) => `
-        <tr class="group border-b border-gray-50 hover:bg-blue-50/30 transition-all">
-            <td class="px-6 py-4 font-bold text-gray-700">${r.TenPhong}</td>
-            <td class="px-6 py-4 text-gray-600">${r.Khu || '-'}</td>
-            <td class="px-6 py-4 text-gray-600">${r.LoaiPhong}</td>
-            <td class="px-6 py-4 text-gray-600 font-medium">${r.SoSinhVienHienTai}/${r.SucChuaToiDa}</td>
+        <tr class="group border-b border-slate-200 hover:bg-emerald-50/30 transition-all">
+            <td class="px-6 py-4 font-bold text-slate-900">${r.TenPhong}</td>
+            <td class="px-6 py-4 text-slate-500">${r.Khu || '-'}</td>
+            <td class="px-6 py-4 text-slate-500">${r.LoaiPhong}</td>
+            <td class="px-6 py-4 text-slate-500 font-medium">${r.SoSinhVienHienTai}/${r.SucChuaToiDa}</td>
             <td class="px-6 py-4">
                 <span class="font-bold text-xs ${
                     r.TrangThaiPhong === 'Đầy' ? 'text-rose-500' :
@@ -128,7 +128,7 @@ function renderRoomTable() {
                     ${r.TrangThaiPhong}
                 </span>
             </td>
-            <td class="px-6 py-4 text-gray-500 text-sm">
+            <td class="px-6 py-4 text-slate-500 text-sm">
                 ${r.GhiChu && r.GhiChu.trim() !== "" ? r.GhiChu : "-"}
             </td>
             <td class="px-6 py-4">
@@ -169,7 +169,7 @@ async function showRoomDetail(roomName) {
 
     const detNote = document.getElementById('detNote');
     detNote.innerText = room.GhiChu || "-";
-    detNote.className = "text-gray-500 text-sm leading-relaxed";
+    detNote.className = "text-slate-500 text-sm leading-relaxed";
 
     const badge = document.getElementById('detStatusBadge');
     badge.innerText = room.TrangThaiPhong;
@@ -183,7 +183,7 @@ async function showRoomDetail(roomName) {
     const studentTable = document.getElementById('detStudentList');
     if (studentTable) {
         // Thay đổi colspan từ 5 xuống 4 vì đã xóa 1 cột
-        studentTable.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400 text-sm">Đang truy xuất dữ liệu...</td></tr>`;
+        studentTable.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500 text-sm">Đang truy xuất dữ liệu...</td></tr>`;
 
         try {
             const response = await fetch(`${BASE_URL}/api/SinhVien/Phong/${roomName}`);
@@ -197,10 +197,10 @@ async function showRoomDetail(roomName) {
                     const statusClass = statusHĐ === "Còn hiệu lực" ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600";
 
                     return `
-                    <tr class="hover:bg-gray-50 border-b border-gray-100 last:border-0">
-                        <td class="p-3 pl-4 text-gray-600 text-sm">${sv.MaSinhVien || sv.MSSV}</td>
-                        <td class="p-3 text-gray-800 text-sm font-semibold">${sv.HoTen || sv.TenSV}</td>
-                        <td class="p-3 text-gray-600 text-sm">${sv.SoDienThoai || 'N/A'}</td>
+                    <tr class="hover:bg-slate-50 border-b border-slate-200 last:border-0">
+                        <td class="p-3 pl-4 text-slate-500 text-sm">${sv.MaSinhVien || sv.MSSV}</td>
+                        <td class="p-3 text-slate-900 text-sm font-semibold">${sv.HoTen || sv.TenSV}</td>
+                        <td class="p-3 text-slate-500 text-sm">${sv.SoDienThoai || 'N/A'}</td>
                         <td class="p-3 pl-4">
                             <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${statusClass}">
                                 ${statusHĐ}
@@ -210,7 +210,7 @@ async function showRoomDetail(roomName) {
                 }).join('');
             } else {
                 // Thay đổi colspan xuống 4
-                studentTable.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-gray-400 text-sm italic">Phòng hiện đang trống.</td></tr>`;
+                studentTable.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-slate-500 text-sm italic">Phòng hiện đang trống.</td></tr>`;
             }
         } catch (err) {
             console.error("Lỗi:", err);
@@ -413,7 +413,7 @@ function openEditRoom(roomName) {
     roomNameInput.value = room.TenPhong || "";
     roomNameInput.disabled = true;
     roomNameInput.style.cursor = "not-allowed";
-    roomNameInput.style.backgroundColor = "#f9fafb";
+    roomNameInput.style.backgroundColor = "#f8fafc";
 
     // 2. Khu: CHO PHÉP SỬA
     const roomKhu = document.getElementById('editRoomKhu');
@@ -435,7 +435,7 @@ function openEditRoom(roomName) {
     if (room.SoSinhVienHienTai > 0) {
         roomType.disabled = true;
         roomType.style.cursor = "not-allowed";
-        roomType.style.backgroundColor = "#f9fafb";
+        roomType.style.backgroundColor = "#f8fafc";
         roomType.title = "Không thể đổi loại phòng khi đang có sinh viên";
     } else {
         roomType.disabled = false;
@@ -454,7 +454,7 @@ function openEditRoom(roomName) {
     const roomCurrent = document.getElementById('editRoomCurrent');
     roomCurrent.value = room.SoSinhVienHienTai;
     roomCurrent.disabled = true;
-    roomCurrent.style.backgroundColor = "#f9fafb";
+    roomCurrent.style.backgroundColor = "#f8fafc";
     roomCurrent.style.cursor = "not-allowed";
 
 
@@ -624,19 +624,19 @@ function renderPaginationFooter() {
         <div class="flex items-center gap-2">
             <button onclick="goToPage(${Math.max(1, currentPage - 1)})"
                 ${currentPage === 1 ? 'disabled' : ''}
-                class="px-3 py-1 rounded bg-gray-100 text-gray-500 disabled:opacity-30 hover:bg-gray-200 transition-all border border-gray-200">
+                class="px-3 py-1 rounded bg-slate-100 text-slate-500 disabled:opacity-30 hover:bg-slate-200 transition-all border border-slate-200">
                 <i class="fa-solid fa-chevron-left text-[10px]"></i>
             </button>
 
             <div class="flex items-center px-4 py-1 bg-50 border border-200 rounded-lg">
-                <span class="text-blue-700 font-bold text-sm">${currentPage}</span>
-                <span class="mx-2 text-gray-300">/</span>
-                <span class="text-gray-500 text-sm">${totalPages}</span>
+                <span class="text-emerald-700 font-bold text-sm">${currentPage}</span>
+                <span class="mx-2 text-slate-300">/</span>
+                <span class="text-slate-500 text-sm">${totalPages}</span>
             </div>
 
             <button onclick="goToPage(${Math.min(totalPages, currentPage + 1)})"
                 ${currentPage === totalPages ? 'disabled' : ''}
-                class="px-3 py-1 rounded bg-gray-100 text-gray-500 disabled:opacity-30 hover:bg-gray-200 transition-all border border-gray-200">
+                class="px-3 py-1 rounded bg-slate-100 text-slate-500 disabled:opacity-30 hover:bg-slate-200 transition-all border border-slate-200">
                 <i class="fa-solid fa-chevron-right text-[10px]"></i>
             </button>
         </div>
@@ -688,9 +688,9 @@ const PhongHTML = `
             <!-- Tiêu đề trang + nút thêm phòng -->
             <div class="flex justify-between items-start mb-6">
                 <div>
-                    <h2 class="text-3xl font-bold text-gray-800">Quản lý Phòng ở</h2>
-                    <p class="text-gray-400 mt-1 font-medium">
-                        <span class="hover:text-blue-600 cursor-pointer" onclick="switchPage('Trang Chu', document.querySelectorAll('.nav-item')[0])">Trang chủ</span>
+                    <h2 class="text-3xl font-bold text-slate-900">Quản lý Phòng ở</h2>
+                    <p class="text-slate-500 mt-1 font-medium">
+                        <span class="hover:text-emerald-600 cursor-pointer" onclick="switchPage('Trang Chu', document.querySelectorAll('.nav-item')[0])">Trang chủ</span>
                         <span class="mx-1">></span>
                         <span>Phòng ở</span>
                     </p>
@@ -698,7 +698,7 @@ const PhongHTML = `
 
                 <!-- Nút mở modal thêm phòng -->
                 <button onclick="openAddRoom()"
-                    class="bg-[#2563eb] text-white px-5 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700 transition-all border-none shadow-lg">
+                    class="bg-[#059669] text-white px-5 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-emerald-700 transition-all border-none shadow-lg">
                     <i class="fa-solid fa-circle-plus"></i> Thêm phòng
                 </button>
             </div>
@@ -706,23 +706,23 @@ const PhongHTML = `
             <!-- ================= THỐNG KÊ PHÒNG ================= -->
             <div class="flex gap-4 mb-8">
             <div onclick="goToReportPage()" class="stat-card text-left cursor-pointer hover:shadow-md transition-all">
-                <p class="text-[10px] font-bold text-gray-400 text-left">TỔNG PHÒNG</p>
+                <p class="text-[10px] font-bold text-slate-500 text-left">TỔNG PHÒNG</p>
                 <p class="text-3xl font-bold" id="statTotal">0</p>
             </div>
             <div onclick="goToReportPage()" class="stat-card border-l-4 border-green-500 text-left cursor-pointer hover:shadow-md transition-all">
-                <p class="text-[10px] font-bold text-gray-400">PHÒNG TRỐNG</p>
+                <p class="text-[10px] font-bold text-slate-500">PHÒNG TRỐNG</p>
                 <p class="text-3xl font-bold text-green-500" id="statEmpty">0</p>
             </div>
             <div onclick="goToReportPage()" class="stat-card border-l-4 border-red-500 text-left cursor-pointer hover:shadow-md transition-all">
-                <p class="text-[10px] font-bold text-gray-400">PHÒNG ĐẦY</p>
+                <p class="text-[10px] font-bold text-slate-500">PHÒNG ĐẦY</p>
                 <p class="text-3xl font-bold text-red-500" id="statFull">0</p>
             </div>
-            <div onclick="goToReportPage()" class="stat-card border-l-4 border-blue-500 text-left cursor-pointer hover:shadow-md transition-all">
-                <p class="text-[10px] font-bold text-gray-400">TỔNG SV</p>
-                <p class="text-3xl font-bold text-blue-500" id="statSV">0</p>
+            <div onclick="goToReportPage()" class="stat-card border-l-4 border-emerald-500 text-left cursor-pointer hover:shadow-md transition-all">
+                <p class="text-[10px] font-bold text-slate-500">TỔNG SV</p>
+                <p class="text-3xl font-bold text-emerald-500" id="statSV">0</p>
             </div>
             <div onclick="goToReportPage()" class="stat-card border-l-4 border-purple-400 text-left cursor-pointer hover:shadow-md transition-all">
-                <p class="text-[10px] font-bold text-gray-400">TỶ LỆ</p>
+                <p class="text-[10px] font-bold text-slate-500">TỶ LỆ</p>
                 <p class="text-3xl font-bold text-purple-500" id="statRate">0%</p>
             </div>
         </div>
@@ -731,17 +731,17 @@ const PhongHTML = `
             <div class="flex gap-4 mb-6">
 
                 <!-- Tìm kiếm theo tên phòng -->
-                <input type="text" id="searchRoom" oninput="filterData()" placeholder="Tìm tên phòng..." class="border-none rounded px-4 py-2 w-64 outline-none bg-white shadow-sm focus:ring-1 focus:ring-blue-400">
+                <input type="text" id="searchRoom" oninput="filterData()" placeholder="Tìm tên phòng..." class="border-none rounded px-4 py-2 w-64 outline-none bg-white shadow-sm focus:ring-1 focus:ring-emerald-400">
 
                 <!-- Lọc theo loại phòng -->
-                <select id="filterType" onchange="filterData()" class="border-none rounded px-4 py-2 text-gray-600 outline-none bg-white shadow-sm cursor-pointer">
+                <select id="filterType" onchange="filterData()" class="border-none rounded px-4 py-2 text-slate-500 outline-none bg-white shadow-sm cursor-pointer">
                     <option value="">Tất cả loại phòng</option>
                     <option value="Nam">Nam</option>
                     <option value="Nữ">Nữ</option>
                 </select>
 
                 <!-- Lọc theo trạng thái -->
-                <select id="filterStatus" onchange="filterData()" class="border-none rounded px-4 py-2 text-gray-600 outline-none bg-white shadow-sm cursor-pointer">
+                <select id="filterStatus" onchange="filterData()" class="border-none rounded px-4 py-2 text-slate-500 outline-none bg-white shadow-sm cursor-pointer">
                     <option value="">Tất cả trạng thái</option>
                     <option value="Trống">Trống</option>
                     <option value="Đầy">Đầy</option>
@@ -750,18 +750,18 @@ const PhongHTML = `
                 </select>
 
                 <!-- Nút reset bộ lọc -->
-                <button onclick="resetPhongFilters()" class="text-gray-400 hover:text-red-500 transition-colors px-2 flex items-center gap-1">
+                <button onclick="resetPhongFilters()" class="text-slate-500 hover:text-red-500 transition-colors px-2 flex items-center gap-1">
                     <i class="fa-solid fa-rotate-left"></i> Reset lọc
                 </button>
             </div>
 
             <!-- ================= BẢNG DỮ LIỆU PHÒNG ================= -->
-            <div class="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-100">
+            <div class="bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
 
                 <!-- Bảng hiển thị danh sách phòng -->
                 <table class="w-full text-left">
-                    <thead class="bg-gray-50 border-b border-gray-100">
-                        <tr class="text-[12px] font-bold text-gray-400 uppercase">
+                    <thead class="bg-slate-50 border-b border-slate-200">
+                        <tr class="text-[12px] font-bold text-slate-500 uppercase">
                             <th class="px-5 py-4">Tên phòng</th>
                             <th class="px-5 py-4">Khu</th>
                             <th class="px-5 py-4">Loại phòng</th>
@@ -773,11 +773,11 @@ const PhongHTML = `
                     </thead>
 
                     <!-- Body sẽ được render bằng JavaScript -->
-                    <tbody id="roomTableBody" class="divide-y divide-gray-100"></tbody>
+                    <tbody id="roomTableBody" class="divide-y divide-slate-100"></tbody>
                 </table>
 
                 <!-- Footer hiển thị phân trang -->
-                <footer class="px-8 py-4 flex justify-between items-center text-gray-400 bg-white border-t border-gray-50">
+                <footer class="px-8 py-4 flex justify-between items-center text-slate-500 bg-white border-t border-slate-200">
                     <span id="showingCount">Đang tải dữ liệu...</span>
                     <div class="flex gap-1 text-xs" id="pagination"></div>
                 </footer>
@@ -792,10 +792,10 @@ const PhongHTML = `
         <div class="bg-white rounded-xl p-8 w-[700px] shadow-2xl relative" onclick="event.stopPropagation()">
 
             <!-- Header modal -->
-            <div class="flex justify-between items-start mb-6 border-b border-gray-100 pb-4">
+            <div class="flex justify-between items-start mb-6 border-b border-slate-200 pb-4">
                 <div>
-                    <h3 class="text-2xl font-bold text-blue-800" id="detName">Chi tiết phòng</h3>
-                    <p class="text-gray-400 text-xs mt-1 italic">Thông tin chi tiết</p>
+                    <h3 class="text-2xl font-bold text-emerald-800" id="detName">Chi tiết phòng</h3>
+                    <p class="text-slate-500 text-xs mt-1 italic">Thông tin chi tiết</p>
                 </div>
 
                 <!-- Badge trạng thái -->
@@ -807,32 +807,32 @@ const PhongHTML = `
 
                 <!-- Cột thông tin bên trái -->
                 <div class="space-y-4">
-                    <div><p class="text-gray-400 text-[10px] font-bold uppercase mb-1">Loại phòng</p><p id="detType" class="font-semibold text-gray-800"></p></div>
-                    <div><p class="text-gray-400 text-[10px] font-bold uppercase mb-1">Khu</p><p id="detKhu" class="font-semibold text-gray-800"></p></div>
+                    <div><p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Loại phòng</p><p id="detType" class="font-semibold text-slate-900"></p></div>
+                    <div><p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Khu</p><p id="detKhu" class="font-semibold text-slate-900"></p></div>
                 </div>
 
                 <!-- Cột thông tin bên phải -->
                 <div class="space-y-4">
-                    <div><p class="text-gray-400 text-[10px] font-bold uppercase mb-1">Sức chứa tối đa</p><p id="detMax" class="font-semibold text-gray-800"></p></div>
-                    <div><p class="text-gray-400 text-[10px] font-bold uppercase mb-1">Số sinh viên hiện tại</p><p id="detCurrent" class="font-semibold text-gray-800"></p></div>
+                    <div><p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Sức chứa tối đa</p><p id="detMax" class="font-semibold text-slate-900"></p></div>
+                    <div><p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Số sinh viên hiện tại</p><p id="detCurrent" class="font-semibold text-slate-900"></p></div>
                 </div>
             </div>
 
             <!-- Ghi chú phòng -->
-            <div class="bg-gray-50 p-4 rounded-lg mb-8 border border-dashed border-gray-200">
-                <p class="text-gray-400 text-[10px] font-bold uppercase mb-2">Ghi chú phòng</p>
-                <p id="detNote" class="text-gray-600 italic leading-relaxed"></p>
+            <div class="bg-slate-50 p-4 rounded-lg mb-8 border border-dashed border-slate-200">
+                <p class="text-slate-500 text-[10px] font-bold uppercase mb-2">Ghi chú phòng</p>
+                <p id="detNote" class="text-slate-500 italic leading-relaxed"></p>
             </div>
 
             <!-- Danh sách sinh viên trong phòng -->
             <div class="mb-6">
-                <p class="text-gray-400 text-[12px] font-bold uppercase mb-3">Danh sách sinh viên đang ở</p>
+                <p class="text-slate-500 text-[12px] font-bold uppercase mb-3">Danh sách sinh viên đang ở</p>
 
                 <!-- Bảng sinh viên -->
-                <div class="max-h-60 overflow-y-auto border border-gray-100 rounded-lg">
+                <div class="max-h-60 overflow-y-auto border border-slate-200 rounded-lg">
                     <table class="w-full text-[11px]">
-                        <thead class="bg-gray-50 sticky top-0">
-                            <tr class="text-left text-gray-500">
+                        <thead class="bg-slate-50 sticky top-0">
+                            <tr class="text-left text-slate-500">
                                 <th class="p-3 pl-4">MSSV</th>
                                 <th class="p-3">Họ tên</th>
                                 <th class="p-3">SDT</th>
@@ -842,7 +842,7 @@ const PhongHTML = `
                         </thead>
 
                         <!-- Render bằng JS -->
-                        <tbody id="detStudentList" class="divide-y divide-gray-50 bg-white">
+                        <tbody id="detStudentList" class="divide-y divide-slate-50 bg-white">
                             </tbody>
                     </table>
                 </div>
@@ -857,9 +857,9 @@ const PhongHTML = `
     <div id="addRoomModal" class="modal" onclick="toggleModal('addRoomModal')">
         <div class="bg-white rounded-xl p-8 w-[550px] shadow-2xl" onclick="event.stopPropagation()">
 
-            <div class="mb-6 border-b border-gray-100 pb-4">
-                <h3 class="text-2xl font-bold text-gray-800">Thêm phòng mới</h3>
-                <p class="text-gray-400 text-xs mt-1">
+            <div class="mb-6 border-b border-slate-200 pb-4">
+                <h3 class="text-2xl font-bold text-slate-900">Thêm phòng mới</h3>
+                <p class="text-slate-500 text-xs mt-1">
                     Thông tin được đánh dấu <span class="text-red-500 font-bold">*</span> là bắt buộc
                 </p>
             </div>
@@ -868,21 +868,21 @@ const PhongHTML = `
                 <div class="space-y-4">
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                                 Tên phòng <span class="text-red-500">*</span>
                             </label>
                             <input type="text" id="addRoomName" placeholder="Nhập tên phòng..."
-                                class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg outline-none focus:border-blue-500 transition-all">
+                                class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none focus:border-emerald-500 transition-all">
                             <small id="errorAddRoomName" style="color: red; display: block; margin-top: 4px;"></small>
 
                         </div>
 
                         <div>
-                            <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                                 Khu <span class="text-red-500">*</span>
                             </label>
                             <select id="addRoomKhu"
-                                class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg outline-none cursor-pointer focus:border-blue-500">
+                                class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none cursor-pointer focus:border-emerald-500">
                                 <option value="">Chọn khu</option>
                                 <option value="A">Khu A</option>
                                 <option value="B">Khu B</option>
@@ -894,11 +894,11 @@ const PhongHTML = `
 
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                                 Loại phòng <span class="text-red-500">*</span>
                             </label>
                             <select id="addRoomType"
-                                class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg outline-none cursor-pointer focus:border-blue-500">
+                                class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none cursor-pointer focus:border-emerald-500">
                                 <option value="">Chọn loại phòng</option>
                                 <option value="Nam">Nam</option>
                                 <option value="Nữ">Nữ</option>
@@ -907,11 +907,11 @@ const PhongHTML = `
                         </div>
 
                         <div>
-                            <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                                 Trạng thái
                             </label>
                             <select id="addRoomStatus" disabled
-                                class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg cursor-not-allowed text-gray-600">
+                                class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg cursor-not-allowed text-slate-500">
                                 <option value="Trống" selected>Trống</option>
                             </select>
                         </div>
@@ -919,11 +919,11 @@ const PhongHTML = `
 
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                                 Sức chứa tối đa <span class="text-red-500">*</span>
                             </label>
                             <select id="addRoomMax"
-                                class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg outline-none cursor-pointer focus:border-blue-500">
+                                class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none cursor-pointer focus:border-emerald-500">
                                 <option value="">Chọn sức chứa</option>
                                 <option value="4">4 chỗ</option>
                                 <option value="6">6 chỗ</option>
@@ -933,31 +933,31 @@ const PhongHTML = `
                         </div>
 
                         <div>
-                            <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                                 SV hiện tại
                             </label>
                             <input type="number" id="addRoomCurrent" value="0" disabled
-                                class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg cursor-not-allowed text-gray-600">
+                                class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg cursor-not-allowed text-slate-500">
                         </div>
                     </div>
 
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">
+                        <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                             Ghi chú phòng
                         </label>
                         <textarea id="addRoomNote" rows="3"
                             placeholder="Nhập ghi chú (nếu có)..."
-                            class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg outline-none focus:border-blue-500 transition-all resize-none"></textarea>
+                            class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none focus:border-emerald-500 transition-all resize-none"></textarea>
                     </div>
 
-                    <div class="flex gap-3 pt-6 border-t border-gray-100">
+                    <div class="flex gap-3 pt-6 border-t border-slate-200">
                         <button type="submit"
-                            class="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-bold hover:bg-blue-700 transition-all">
+                            class="flex-1 bg-emerald-600 text-white py-2.5 rounded-lg font-bold hover:bg-emerald-700 transition-all">
                             Lưu phòng
                         </button>
                         <button type="button"
                             onclick="toggleModal('addRoomModal')"
-                            class="px-6 py-2.5 bg-gray-100 text-gray-600 rounded-lg font-bold hover:bg-gray-200 transition-all">
+                            class="px-6 py-2.5 bg-slate-100 text-slate-500 rounded-lg font-bold hover:bg-slate-200 transition-all">
                             Hủy
                         </button>
                     </div>
@@ -970,9 +970,9 @@ const PhongHTML = `
     <div id="editRoomModal" class="modal" onclick="toggleModal('editRoomModal')">
     <div class="bg-white rounded-xl p-8 w-[550px] shadow-2xl" onclick="event.stopPropagation()">
 
-        <div class="mb-6 border-b border-gray-100 pb-4">
-            <h3 class="text-2xl font-bold text-gray-800">Cập nhật thông tin phòng</h3>
-            <p class="text-gray-400 text-xs mt-1">Sửa đổi các thông tin cần thiết bên dưới</p>
+        <div class="mb-6 border-b border-slate-200 pb-4">
+            <h3 class="text-2xl font-bold text-slate-900">Cập nhật thông tin phòng</h3>
+            <p class="text-slate-500 text-xs mt-1">Sửa đổi các thông tin cần thiết bên dưới</p>
         </div>
 
         <!-- FORM -->
@@ -984,15 +984,15 @@ const PhongHTML = `
 
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1 ">Tên phòng</label>
+                        <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1 ">Tên phòng</label>
                         <input type="text" id="editRoomName"
-                        class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg outline-none focus:border-blue-500">
+                        class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none focus:border-emerald-500">
                     </div>
 
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1 ">Khu</label>
+                        <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1 ">Khu</label>
                         <select id="editRoomKhu"
-                        class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg outline-none cursor-pointer">
+                        class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none cursor-pointer">
                             <option value="A">Khu A</option>
                             <option value="B">Khu B</option>
                             <option value="C">Khu C</option>
@@ -1003,18 +1003,18 @@ const PhongHTML = `
                 <div class="grid grid-cols-2 gap-4">
 
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1 ">Loại phòng</label>
+                        <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1 ">Loại phòng</label>
                         <select id="editRoomType"
-                        class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg outline-none cursor-pointer">
+                        class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none cursor-pointer">
                             <option value="Nam">Nam</option>
                             <option value="Nữ">Nữ</option>
                         </select>
                     </div>
 
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1 ">Trạng thái</label>
+                        <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1 ">Trạng thái</label>
                         <select id="editRoomStatus"
-                        class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg outline-none cursor-pointer">
+                        class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none cursor-pointer">
                             <option value="Trống">Trống</option>
                             <option value="Đầy">Đầy</option>
                             <option value="Bảo trì">Bảo trì</option>
@@ -1027,12 +1027,12 @@ const PhongHTML = `
                 <div class="grid grid-cols-2 gap-4">
 
                     <div class="flex flex-col">
-                        <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1 ">
+                        <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1 ">
                             Sức chứa tối đa
                         </label>
 
                         <select id="editRoomMax"
-                        class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg outline-none cursor-pointer">
+                        class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none cursor-pointer">
                             <option value="4">4 chỗ</option>
                             <option value="6">6 chỗ</option>
                             <option value="8">8 chỗ</option>
@@ -1042,30 +1042,30 @@ const PhongHTML = `
                     </div>
 
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1 ">SV hiện tại</label>
+                        <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1 ">SV hiện tại</label>
                         <input type="number" id="editRoomCurrent" disabled
-                        class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg cursor-not-allowed">
+                        class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg cursor-not-allowed">
                     </div>
 
                 </div>
 
                 <div>
-                    <label class="block text-[11px] font-bold text-gray-500 uppercase mb-1">Ghi chú phòng</label>
+                    <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Ghi chú phòng</label>
                     <textarea id="editRoomNote" rows="3"
-                    class="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-lg outline-none focus:border-blue-500 resize-none"></textarea>
+                    class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none focus:border-emerald-500 resize-none"></textarea>
                 </div>
 
-                <div class="flex gap-3 pt-6 border-t border-gray-100">
+                <div class="flex gap-3 pt-6 border-t border-slate-200">
 
                     <!-- SUBMIT -->
                     <button type="submit"
-                        class="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-bold hover:bg-blue-700 transition-all">
+                        class="flex-1 bg-emerald-600 text-white py-2.5 rounded-lg font-bold hover:bg-emerald-700 transition-all">
                         Cập nhật thay đổi
                     </button>
 
                     <button type="button"
                     onclick="toggleModal('editRoomModal')"
-                    class="px-6 py-2.5 bg-gray-100 text-gray-600 rounded-lg font-bold hover:bg-gray-200 transition-all">
+                    class="px-6 py-2.5 bg-slate-100 text-slate-500 rounded-lg font-bold hover:bg-slate-200 transition-all">
                     Đóng
                     </button>
 

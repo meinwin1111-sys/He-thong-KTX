@@ -16,10 +16,10 @@ document.addEventListener("DOMContentLoaded", function () {
 /** Hàm tạo HTML cho các nút bấm dựa trên cấu hình (Style Tailwind và Icon FontAwesome) */
 function createButton(type, onClick) {
     const config = {
-        "Sửa": { class: "flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-bold hover:bg-blue-700 flex items-center justify-center gap-2", icon: "fa-pen-to-square" },
-        "Đóng": { class: "flex-1 bg-gray-100 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 font-bold", icon: "" },
-        "Lưu": { class: "flex-[2] bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 shadow-md", icon: "" },
-        "Hủy": { class: "flex-1 bg-gray-100 text-gray-600 py-3 rounded-lg font-bold hover:bg-gray-200", icon: "" },
+        "Sửa": { class: "flex-1 bg-emerald-600 text-white py-2.5 rounded-lg font-bold hover:bg-emerald-700 flex items-center justify-center gap-2", icon: "fa-pen-to-square" },
+        "Đóng": { class: "flex-1 bg-slate-100 py-2.5 rounded-lg text-slate-500 hover:bg-slate-200 font-bold", icon: "" },
+        "Lưu": { class: "flex-[2] bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700 shadow-md", icon: "" },
+        "Hủy": { class: "flex-1 bg-slate-100 text-slate-500 py-3 rounded-lg font-bold hover:bg-slate-200", icon: "" },
         "Xóa": { class: "flex-1 bg-red-500 text-white py-2.5 rounded-lg font-bold hover:bg-red-600", icon: "fa-trash-can" }
     };
     const btn = config[type];
@@ -71,6 +71,9 @@ function switchPage(pageId, element) {
     else if (pageId === "Hoa Don") {
         renderHoaDonModule();
     }
+    else if (pageId === "Duyet & Kiem soat") {
+        renderDuyetKiemSoatModule();
+    }
 
     // Module chưa phát triển
     else {
@@ -79,12 +82,12 @@ function switchPage(pageId, element) {
             <main class="p-6">
                 <div class="flex justify-between items-start mb-6">
                     <div>
-                        <h2 class="text-3xl font-bold text-gray-800">${pageId}</h2>
-                    <p class="text-gray-400 mt-1 font-medium">DMS > ${pageId}</p>
+                        <h2 class="text-3xl font-bold text-slate-900">${pageId}</h2>
+                    <p class="text-slate-500 mt-1 font-medium">DMS > ${pageId}</p>
                     </div>
                 </div>
 
-                <div class="bg-white rounded-lg shadow-sm border border-gray-100 p-20 text-center text-gray-400">
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-20 text-center text-slate-500">
                     Module đang được phát triển
                 </div>
             </main>

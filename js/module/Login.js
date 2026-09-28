@@ -1,6 +1,6 @@
 /* =========================
    MODULE: LOGIN
-   Dùng cho DMSGroup6.html
+   Dùng cho Admin.html
 ========================= */
 
 
@@ -29,7 +29,7 @@ function hideSystemLayout() {
 
     const main = getMainContent();
     if (main) {
-        main.className = "bg-[#4a4a4a] p-0";
+        main.className = "bg-[#f8fafc] p-0";
         main.style.height = "100vh";
         main.style.overflow = "hidden";
     }
@@ -45,7 +45,7 @@ function showSystemLayout() {
 
     const main = getMainContent();
     if (main) {
-        main.className = "flex-1 p-6 bg-gray-50";
+        main.className = "flex-1 p-6 bg-slate-50";
         main.style.height = "";
         main.style.overflow = "";
     }
@@ -133,13 +133,13 @@ function renderLoginModule() {
 
 
     main.innerHTML = `
-        <section id="module-login" class="w-full bg-[#4a4a4a]" style="height:100vh;">
+        <section id="module-login" class="w-full bg-[#f8fafc]" style="height:100vh;">
             <div class="w-full h-full">
                     <div class="grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr] w-full h-full bg-white">
 
 
                         <!-- LEFT PANEL -->
-                        <div class="relative overflow-hidden bg-gradient-to-b from-[#2454b5] to-[#143f98] text-white px-8 pt-6 pb-6 flex flex-col">
+                        <div class="relative overflow-hidden bg-gradient-to-b from-[#059669] to-[#064e3b] text-white px-8 pt-6 pb-6 flex flex-col">
                             <div class="absolute w-[220px] h-[220px] rounded-full bg-white/10 -top-10 -right-12"></div>
                             <div class="absolute w-[170px] h-[170px] rounded-full bg-white/10 -bottom-10 -left-10"></div>
 
@@ -151,7 +151,7 @@ function renderLoginModule() {
                                     </div>
                                     <div>
                                         <h1 class="text-xl font-extrabold text-white leading-tight">DMS</h1>
-                                        <p class="text-[8px] text-blue-200 uppercase">Dormitory Management System</p>
+                                        <p class="text-[8px] text-emerald-200 uppercase">Dormitory Management System</p>
                                     </div>
                                 </div>
                             </div>
@@ -170,14 +170,14 @@ function renderLoginModule() {
                                         <div class="absolute top-[-8px] left-1/2 -translate-x-1/2 w-[42px] h-[12px] bg-slate-300 rounded-full"></div>
 
 
-                                        <div class="w-[78px] h-[102px] bg-gradient-to-b from-blue-100 to-blue-50 rounded-[12px] relative">
+                                        <div class="w-[78px] h-[102px] bg-gradient-to-b from-emerald-100 to-emerald-50 rounded-[12px] relative">
                                             <div class="absolute top-4 left-4 w-5 h-5 rounded-full bg-yellow-400"></div>
-                                            <div class="absolute top-5 left-9 w-5 h-5 rounded-full bg-blue-600"></div>
+                                            <div class="absolute top-5 left-9 w-5 h-5 rounded-full bg-emerald-600"></div>
 
 
-                                            <div class="absolute top-12 left-4 right-4 h-1.5 bg-blue-300 rounded-full"></div>
-                                            <div class="absolute top-[52px] left-4 right-4 h-1.5 bg-blue-300 rounded-full"></div>
-                                            <div class="absolute top-[64px] left-4 right-7 h-1.5 bg-blue-300 rounded-full"></div>
+                                            <div class="absolute top-12 left-4 right-4 h-1.5 bg-emerald-300 rounded-full"></div>
+                                            <div class="absolute top-[52px] left-4 right-4 h-1.5 bg-emerald-300 rounded-full"></div>
+                                            <div class="absolute top-[64px] left-4 right-7 h-1.5 bg-emerald-300 rounded-full"></div>
 
 
                                             <div class="absolute bottom-0 left-4 w-4 h-7 bg-yellow-400 rounded-b"></div>
@@ -191,14 +191,14 @@ function renderLoginModule() {
                         <!-- RIGHT PANEL -->
                         <div class="bg-[#f8fafc] px-10 lg:px-16 py-8 flex items-center justify-center">
                             <div class="w-full max-w-[540px]">
-                                <h2 class="text-[64px] font-extrabold text-[#123b90] leading-none mb-12">
+                                <h2 class="text-[64px] font-extrabold text-[#0f172a] leading-none mb-12">
                                     Đăng nhập
                                 </h2>
 
 
                                 <form id="loginForm" novalidate>
                                     <div class="mb-7">
-                                        <label for="loginEmail" class="block mb-3 text-[15px] font-bold text-slate-700">
+                                        <label for="loginEmail" class="block mb-3 text-[15px] font-bold text-slate-900">
                                             Email
                                         </label>
                                         <input
@@ -207,14 +207,14 @@ function renderLoginModule() {
                                             name="email"
                                             placeholder="Nhập email"
                                             autocomplete="username"
-                                            class="w-full h-14 rounded-[12px] border border-slate-200 bg-white px-5 text-[15px] outline-none focus:border-blue-400"
+                                            class="w-full h-14 rounded-[12px] border border-slate-200 bg-white px-5 text-[15px] outline-none focus:border-emerald-400"
                                         />
                                         <p id="loginEmailError" class="mt-2 text-[12px] text-red-500 font-medium hidden"></p>
                                     </div>
 
 
                                     <div class="mb-5">
-                                        <label for="loginPassword" class="block mb-3 text-[15px] font-bold text-slate-700">
+                                        <label for="loginPassword" class="block mb-3 text-[15px] font-bold text-slate-900">
                                             Mật khẩu
                                         </label>
 
@@ -226,14 +226,14 @@ function renderLoginModule() {
                                                 name="password"
                                                 placeholder="Nhập mật khẩu"
                                                 autocomplete="current-password"
-                                                class="w-full h-14 rounded-[12px] border border-slate-200 bg-white px-5 pr-14 text-[15px] outline-none focus:border-blue-400"
+                                                class="w-full h-14 rounded-[12px] border border-slate-200 bg-white px-5 pr-14 text-[15px] outline-none focus:border-emerald-400"
                                             />
 
 
                                             <button
                                                 type="button"
                                                 id="toggleLoginPassword"
-                                                class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-blue-600"
+                                                class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-emerald-600"
                                                 aria-label="Hiện mật khẩu"
                                             >
                                                 <i class="fa-regular fa-eye"></i>
@@ -247,11 +247,12 @@ function renderLoginModule() {
 
                                     <button
                                         type="submit"
-                                        class="w-full h-14 rounded-[12px] bg-gradient-to-b from-[#2454b5] to-[#17469e] text-white text-[16px] font-bold shadow-[0_10px_20px_rgba(37,84,181,0.28)] hover:opacity-95"
+                                        class="w-full h-14 rounded-[12px] bg-gradient-to-b from-[#059669] to-[#047857] text-white text-[16px] font-bold shadow-[0_10px_20px_rgba(5,150,105,0.28)] hover:opacity-95"
                                     >
                                         Đăng nhập
                                     </button>
                                 </form>
+                                <button type="button" onclick="openStudentRegistration()" class="mt-4 text-emerald-600 font-semibold hover:underline">Đăng ký tài khoản</button>
                             </div>
                         </div>
 
@@ -383,6 +384,18 @@ function bindLoginEvents() {
         clearFieldError(emailInput, emailError);
         clearFieldError(passwordInput, passwordError);
 
+        // Chỉ email trong danh sách Student demo mới đi vào nhánh mock.
+        // Tất cả email khác tiếp tục dùng nguyên luồng API Admin bên dưới.
+        if (window.StudentAuth?.isStudentEmail(email)) {
+            try {
+                StudentAuth.login(email, password);
+                window.location.assign('Student.html#home');
+            } catch (error) {
+                markBothFieldsAsInvalid(error instanceof DOMException ? 'Không thể lưu phiên Student. Vui lòng cho phép lưu trữ trình duyệt.' : error.message);
+            }
+            return;
+        }
+
 
         const submitButton = form.querySelector('button[type="submit"]');
         if (submitButton) {
@@ -433,8 +446,8 @@ function bindLoginEvents() {
                 if (main) {
                     main.innerHTML = `
                         <div class="bg-white p-8 rounded-lg shadow border">
-                            <h2 class="text-2xl font-bold text-gray-800 mb-2">Đăng nhập thành công</h2>
-                            <p class="text-gray-500">Chào mừng bạn đến với hệ thống quản lý ký túc xá.</p>
+                            <h2 class="text-2xl font-bold text-slate-900 mb-2">Đăng nhập thành công</h2>
+                            <p class="text-slate-500">Chào mừng bạn đến với hệ thống quản lý ký túc xá.</p>
                         </div>
                     `;
                 }
@@ -683,54 +696,54 @@ function renderAccountPage() {
         <section class="page-section active">
             <div class="flex justify-between items-start mb-6">
                 <div class="w-full text-center">
-                    <h2 class="text-4xl font-bold text-gray-900 mb-2">Thông tin tài khoản</h2>
-                    <p class="text-gray-400">Xem và quản lý thông tin cá nhân của tài khoản đang đăng nhập</p>
+                    <h2 class="text-4xl font-bold text-slate-900 mb-2">Thông tin tài khoản</h2>
+                    <p class="text-slate-500">Xem và quản lý thông tin cá nhân của tài khoản đang đăng nhập</p>
                 </div>
             </div>
 
 
             <div class="flex justify-center">
-                <div class="w-full max-w-[420px] bg-white rounded-2xl shadow-md border border-gray-100 p-6">
+                <div class="w-full max-w-[420px] bg-white rounded-2xl shadow-md border border-slate-200 p-6">
                     <div class="flex flex-col items-center">
-                        <div class="w-16 h-16 rounded-full bg-blue-600 text-white text-4xl font-bold flex items-center justify-center mb-4">
+                        <div class="w-16 h-16 rounded-full bg-emerald-600 text-white text-4xl font-bold flex items-center justify-center mb-4">
                             ${initials}
                         </div>
 
 
-                        <h3 class="text-[28px] font-bold text-gray-900 text-center mb-2">
+                        <h3 class="text-[28px] font-bold text-slate-900 text-center mb-2">
                             ${user.fullName}
                         </h3>
 
 
-                        <span class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 mb-6">
+                        <span class="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 mb-6">
                             ${user.role}
                         </span>
                     </div>
 
 
                     <div class="space-y-4">
-                        <div class="border-b border-gray-100 pb-3">
-                            <p class="text-[11px] text-gray-400 mb-1">Tên đăng nhập</p>
-                            <p class="text-[14px] font-semibold text-gray-900">${user.username || user.email}</p>
+                        <div class="border-b border-slate-200 pb-3">
+                            <p class="text-[11px] text-slate-500 mb-1">Tên đăng nhập</p>
+                            <p class="text-[14px] font-semibold text-slate-900">${user.username || user.email}</p>
                         </div>
 
 
-                        <div class="border-b border-gray-100 pb-3">
-                            <p class="text-[11px] text-gray-400 mb-1">Email</p>
-                            <p class="text-[14px] font-semibold text-gray-900">${user.email}</p>
+                        <div class="border-b border-slate-200 pb-3">
+                            <p class="text-[11px] text-slate-500 mb-1">Email</p>
+                            <p class="text-[14px] font-semibold text-slate-900">${user.email}</p>
                         </div>
 
 
-                        <div class="border-b border-gray-100 pb-3">
-                            <p class="text-[11px] text-gray-400 mb-1">Số điện thoại</p>
-                            <p class="text-[14px] font-semibold text-gray-900">${user.phone}</p>
+                        <div class="border-b border-slate-200 pb-3">
+                            <p class="text-[11px] text-slate-500 mb-1">Số điện thoại</p>
+                            <p class="text-[14px] font-semibold text-slate-900">${user.phone}</p>
                         </div>
                     </div>
 
 
                     <button
                         onclick="openChangePasswordModal()"
-                        class="w-full mt-6 h-12 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700"
+                        class="w-full mt-6 h-12 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700"
                     >
                         Đổi mật khẩu
                     </button>

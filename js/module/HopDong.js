@@ -15,9 +15,9 @@ function renderHopDongModule() {
 <!-- HEADER -->
 <div class="flex justify-between items-start mb-6">
     <div>
-        <h2 class="text-3xl font-bold text-gray-800">Quản lý Hợp đồng</h2>
-        <p class="text-gray-400 mt-1">
-            <span class="hover:text-blue-600 cursor-pointer" onclick="switchPage('Trang Chu', document.querySelectorAll('.nav-item')[0])">Trang chủ</span>
+        <h2 class="text-3xl font-bold text-slate-900">Quản lý Hợp đồng</h2>
+        <p class="text-slate-500 mt-1">
+            <span class="hover:text-emerald-600 cursor-pointer" onclick="switchPage('Trang Chu', document.querySelectorAll('.nav-item')[0])">Trang chủ</span>
             <span class="mx-1">></span>
             <span>Hợp đồng</span>
         </p>
@@ -26,13 +26,13 @@ function renderHopDongModule() {
 
     <div class="flex gap-3">
         <button onclick="openHistoryModal()"
-        class="px-4 py-2 bg-gray-100 rounded-lg font-medium hover:bg-gray-200">
+        class="px-4 py-2 bg-slate-100 rounded-lg font-medium hover:bg-slate-200">
             <i class="fa-solid fa-clock-rotate-left"></i> Lịch sử
         </button>
 
 
         <button onclick="openAddHopDongModal()"
-            class="bg-[#2563eb] text-white px-5 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700 transition-all border-none shadow-lg">
+            class="bg-[#059669] text-white px-5 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-emerald-700 transition-all border-none shadow-lg">
                 <i class="fa-solid fa-circle-plus"></i> Tạo hợp đồng
         </button>
     </div>
@@ -44,25 +44,25 @@ function renderHopDongModule() {
 
 
     <div class="stat-card text-left cursor-pointer hover:shadow-md transition-all">
-        <p class="text-xs text-gray-400 font-semibold">TỔNG HỢP ĐỒNG</p>
+        <p class="text-xs text-slate-500 font-semibold">TỔNG HỢP ĐỒNG</p>
         <h2 class="text-3xl font-bold mt-2" id="statTotalHD">0</h2>
     </div>
 
 
     <div class="stat-card border-l-4 border-green-500 text-left cursor-pointer hover:shadow-md transition-all">
-        <p class="text-xs text-gray-400 font-semibold">CÒN HIỆU LỰC</p>
+        <p class="text-xs text-slate-500 font-semibold">CÒN HIỆU LỰC</p>
         <h2 class="text-3xl font-bold text-green-500 mt-2" id="statActiveHD">0</h2>
     </div>
 
 
     <div class="stat-card border-l-4 border-orange-400 text-left cursor-pointer hover:shadow-md transition-all">
-        <p class="text-xs text-gray-400 font-semibold">SẮP HẾT HẠN</p>
+        <p class="text-xs text-slate-500 font-semibold">SẮP HẾT HẠN</p>
         <h2 class="text-3xl font-bold text-orange-500 mt-2" id="statWarningHD">0</h2>
     </div>
 
 
     <div class="stat-card border-l-4 border-red-500 text-left cursor-pointer hover:shadow-md transition-all">
-        <p class="text-xs text-gray-400 font-semibold">ĐÃ KẾT THÚC</p>
+        <p class="text-xs text-slate-500 font-semibold">ĐÃ KẾT THÚC</p>
         <h2 class="text-3xl font-bold text-red-500 mt-2" id="statExpiredHD">0</h2>
     </div>
 
@@ -71,15 +71,15 @@ function renderHopDongModule() {
 
 
 <!-- TAB -->
-<div class="flex mb-6 border-b border-gray-200">
+<div class="flex mb-6 border-b border-slate-200">
     <button id="tab-all" onclick="filterHopDong('all')"
-        class="tab-item active-tab py-2 px-6 font-semibold text-gray-600 transition-all">
+        class="tab-item active-tab py-2 px-6 font-semibold text-slate-500 transition-all">
         Danh sách hợp đồng
     </button>
 
 
     <button id="tab-warning" onclick="filterHopDong('warning')"
-        class="tab-item py-2 px-6 font-semibold text-gray-600 transition-all flex items-center gap-2">
+        class="tab-item py-2 px-6 font-semibold text-slate-500 transition-all flex items-center gap-2">
         ⚠️ Sắp hết hạn
     </button>
 </div>
@@ -91,7 +91,7 @@ function renderHopDongModule() {
 
 
 <!-- Header bảng (render bằng JS) -->
-<thead id="tableHead" class="bg-gray-50 text-gray-400 uppercase text-xs"></thead>
+<thead id="tableHead" class="bg-slate-50 text-slate-500 uppercase text-xs"></thead>
 
 
 <!-- Body bảng (data từ API) -->
@@ -102,7 +102,7 @@ function renderHopDongModule() {
 
 
 <!-- ================= FOOTER ================= -->
-<div class="px-6 py-4 flex justify-between items-center text-sm text-gray-400">
+<div class="px-6 py-4 flex justify-between items-center text-sm text-slate-500">
     <!-- Hiển thị số dòng -->
     <span id="showingHD"></span>
 <div id="paginationHD" class="flex items-center gap-2"></div>
@@ -124,7 +124,7 @@ function renderHopDongModule() {
 
 <!-- Nút đóng -->
 <button onclick="closeAddHopDongModal()"
-class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
+class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
 
 
 <h2 class="text-xl font-bold mb-6">Tạo hợp đồng lưu trú</h2>
@@ -135,7 +135,7 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 
 <!-- MSSV -->
 <div>
-    <label class="font-semibold text-gray-700">
+    <label class="font-semibold text-slate-900">
     Mã sinh viên <span class="text-red-500">*</span>
 </label>
 
@@ -152,13 +152,13 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 <div class="grid grid-cols-2 gap-4">
     <div>
         <label>Tên sinh viên</label>
-        <input id="tenSV" disabled class="w-full border rounded-lg px-4 py-2 mt-1 bg-gray-50">
+        <input id="tenSV" disabled class="w-full border rounded-lg px-4 py-2 mt-1 bg-slate-50">
     </div>
 
 
     <div>
         <label>Phòng hiện tại</label>
-        <input id="phongSV" disabled class="w-full border rounded-lg px-4 py-2 mt-1 bg-gray-50">
+        <input id="phongSV" disabled class="w-full border rounded-lg px-4 py-2 mt-1 bg-slate-50">
     </div>
 </div>
 
@@ -190,7 +190,7 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 <!-- Trạng thái mặc định -->
 <div>
     <label>Trạng thái</label>
-    <input value="Còn hiệu lực" disabled class="w-full border rounded-lg px-4 py-2 mt-1 bg-gray-50">
+    <input value="Còn hiệu lực" disabled class="w-full border rounded-lg px-4 py-2 mt-1 bg-slate-50">
 </div>
 
 
@@ -200,14 +200,14 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 
     <!-- Lưu -->
     <button type="button" onclick="saveHopDong(event)"
-    class="px-6 py-2 bg-blue-600 text-white rounded-lg">
+    class="px-6 py-2 bg-emerald-600 text-white rounded-lg">
         Lưu
     </button>
 
 
     <!-- Hủy -->
     <button type="button" onclick="closeAddHopDongModal()"
-    class="px-6 py-2 bg-gray-300 rounded-lg">
+    class="px-6 py-2 bg-slate-300 rounded-lg">
         Hủy
     </button>
 
@@ -230,7 +230,7 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 
 
 <!-- đóng -->
-<button onclick="closeExtend()" class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
+<button onclick="closeExtend()" class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
 
 
 <h2 class="text-xl font-bold mb-6">Gia hạn hợp đồng</h2>
@@ -241,38 +241,38 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 
 
     <div>
-        <label class="text-sm font-semibold text-gray-700">Mã hợp đồng</label>
-        <input id="extendMaHD" disabled class="w-full border rounded-lg px-4 py-2 bg-gray-50">
+        <label class="text-sm font-semibold text-slate-900">Mã hợp đồng</label>
+        <input id="extendMaHD" disabled class="w-full border rounded-lg px-4 py-2 bg-slate-50">
     </div>
 
 
     <div>
-        <label class="text-sm font-semibold text-gray-700">Mã sinh viên</label>
-        <input id="extendMSSV" disabled class="w-full border rounded-lg px-4 py-2 bg-gray-50">
+        <label class="text-sm font-semibold text-slate-900">Mã sinh viên</label>
+        <input id="extendMSSV" disabled class="w-full border rounded-lg px-4 py-2 bg-slate-50">
     </div>
 
 
     <div>
-        <label class="text-sm font-semibold text-gray-700">Tên sinh viên</label>
-        <input id="extendTen" disabled class="w-full border rounded-lg px-4 py-2 bg-gray-50">
+        <label class="text-sm font-semibold text-slate-900">Tên sinh viên</label>
+        <input id="extendTen" disabled class="w-full border rounded-lg px-4 py-2 bg-slate-50">
     </div>
 
 
     <div>
-        <label class="text-sm font-semibold text-gray-700">Phòng</label>
-        <input id="extendPhong" disabled class="w-full border rounded-lg px-4 py-2 bg-gray-50">
+        <label class="text-sm font-semibold text-slate-900">Phòng</label>
+        <input id="extendPhong" disabled class="w-full border rounded-lg px-4 py-2 bg-slate-50">
     </div>
 
 
     <div>
-        <label class="text-sm font-semibold text-gray-700">Ngày bắt đầu</label>
-        <input id="extendStart" disabled class="w-full border rounded-lg px-4 py-2 bg-gray-50">
+        <label class="text-sm font-semibold text-slate-900">Ngày bắt đầu</label>
+        <input id="extendStart" disabled class="w-full border rounded-lg px-4 py-2 bg-slate-50">
     </div>
 
 
     <div>
-        <label class="text-sm font-semibold text-gray-700">Ngày kết thúc hiện tại</label>
-        <input id="extendEnd" disabled class="w-full border rounded-lg px-4 py-2 bg-gray-50">
+        <label class="text-sm font-semibold text-slate-900">Ngày kết thúc hiện tại</label>
+        <input id="extendEnd" disabled class="w-full border rounded-lg px-4 py-2 bg-slate-50">
     </div>
 
 
@@ -281,7 +281,7 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 
 <!-- ngày mới -->
 <div class="mt-4">
-    <label class="text-sm font-semibold text-gray-700">
+    <label class="text-sm font-semibold text-slate-900">
     Ngày kết thúc mới <span class="text-red-500">*</span>
     </label>
     <input id="extendNewDate" type="date" class="w-full border rounded-lg px-4 py-2 mt-1">
@@ -293,13 +293,13 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 
 
     <button onclick="saveExtend()"
-    class="bg-blue-600 text-white px-6 py-2 rounded-lg">
+    class="bg-emerald-600 text-white px-6 py-2 rounded-lg">
         Lưu
     </button>
 
 
     <button onclick="closeExtend()"
-    class="bg-gray-300 px-6 py-2 rounded-lg">
+    class="bg-slate-300 px-6 py-2 rounded-lg">
         Hủy
     </button>
 
@@ -317,52 +317,52 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 
 
     <!-- Close -->
-    <button onclick="closeEnd()" class="absolute top-4 right-4 text-gray-400 text-xl">×</button>
+    <button onclick="closeEnd()" class="absolute top-4 right-4 text-slate-500 text-xl">×</button>
 
 
     <!-- Title -->
     <h2 class="text-xl font-bold mb-1">Xác nhận kết thúc hợp đồng</h2>
-    <p class="text-gray-400 text-sm mb-4">
+    <p class="text-slate-500 text-sm mb-4">
         Bạn có chắc chắn muốn kết thúc hợp đồng này?
     </p>
 
 
     <!-- Box thông tin -->
-    <div class="bg-gray-100 rounded-xl p-4 text-sm space-y-2">
+    <div class="bg-slate-100 rounded-xl p-4 text-sm space-y-2">
 
 
         <div class="flex">
-            <span class="w-32 text-gray-500">Mã HD:</span>
+            <span class="w-32 text-slate-500">Mã HD:</span>
             <span id="endMaHD" class="font-medium"></span>
         </div>
 
 
         <div class="flex">
-            <span class="w-32 text-gray-500">Sinh viên:</span>
+            <span class="w-32 text-slate-500">Sinh viên:</span>
             <span id="endSV"></span>
         </div>
 
 
         <div class="flex">
-            <span class="w-32 text-gray-500">Phòng:</span>
+            <span class="w-32 text-slate-500">Phòng:</span>
             <span id="endPhong"></span>
         </div>
 
 
         <div class="flex">
-            <span class="w-32 text-gray-500">Ngày bắt đầu:</span>
+            <span class="w-32 text-slate-500">Ngày bắt đầu:</span>
             <span id="endStart"></span>
         </div>
 
 
         <div class="flex">
-            <span class="w-32 text-gray-500">Ngày kết thúc:</span>
+            <span class="w-32 text-slate-500">Ngày kết thúc:</span>
             <span id="endEnd"></span>
         </div>
 
 
         <div class="flex">
-            <span class="w-32 text-gray-500">Trạng thái:</span>
+            <span class="w-32 text-slate-500">Trạng thái:</span>
             <span id="endStatus"></span>
         </div>
 
@@ -397,7 +397,7 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
         </button>
 
 
-        <button onclick="closeEnd()" class="bg-gray-300 px-6 py-2 rounded-lg">
+        <button onclick="closeEnd()" class="bg-slate-300 px-6 py-2 rounded-lg">
             Hủy
         </button>
     </div>
@@ -416,9 +416,9 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 
     <!-- HEADER -->
     <div class="px-6 py-4 border-b flex justify-between items-center">
-        <h2 class="text-2xl font-bold text-gray-800">Lịch sử hợp đồng</h2>
+        <h2 class="text-2xl font-bold text-slate-900">Lịch sử hợp đồng</h2>
         <button onclick="closeHistoryModal()"
-            class="text-gray-400 text-xl hover:text-gray-600">✕</button>
+            class="text-slate-500 text-xl hover:text-slate-500">✕</button>
     </div>
 
 
@@ -427,7 +427,7 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
         <table class="w-full text-sm">
 
 
-            <thead class="bg-gray-50 text-gray-400 uppercase text-xs sticky top-0">
+            <thead class="bg-slate-50 text-slate-500 uppercase text-xs sticky top-0">
                 <tr>
                     <th class="px-6 py-3 text-left">MÃ LS</th>
                     <th class="px-6 py-3 text-left">MÃ HD</th>
@@ -451,7 +451,7 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 
 
     <!-- FOOTER (KHÔNG SCROLL) -->
-    <div class="px-6 py-4 flex justify-between items-center text-sm text-gray-500 border-t">
+    <div class="px-6 py-4 flex justify-between items-center text-sm text-slate-500 border-t">
 
 
         <span id="historyCount"></span>
@@ -459,14 +459,14 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 
         <div class="flex items-center gap-2">
             <button onclick="prevHistoryPage()"
-                class="px-3 py-1 border rounded hover:bg-gray-100">‹</button>
+                class="px-3 py-1 border rounded hover:bg-slate-100">‹</button>
 
 
             <span id="historyPageInfo" class="px-3 py-1 border rounded"></span>
 
 
             <button onclick="nextHistoryPage()"
-                class="px-3 py-1 border rounded hover:bg-gray-100">›</button>
+                class="px-3 py-1 border rounded hover:bg-slate-100">›</button>
         </div>
 
 
@@ -482,7 +482,7 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 <div class="bg-white w-[600px] rounded-2xl p-6 relative">
 
 
-    <button onclick="closeDetail()" class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
+    <button onclick="closeDetail()" class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
 
 
     <h2 class="text-xl font-bold mb-4">Chi tiết hợp đồng</h2>
@@ -510,12 +510,12 @@ class="absolute right-5 top-4 text-gray-400 text-xl">×</button>
 
 
     <div class="flex justify-end gap-3 mt-5">
-        <button onclick="saveNote()" class="bg-blue-600 text-white px-5 py-2 rounded-lg">
+        <button onclick="saveNote()" class="bg-emerald-600 text-white px-5 py-2 rounded-lg">
             Lưu
         </button>
 
 
-        <button onclick="closeDetail()" class="bg-gray-300 px-5 py-2 rounded-lg">
+        <button onclick="closeDetail()" class="bg-slate-300 px-5 py-2 rounded-lg">
             Hủy
         </button>
     </div>
@@ -782,7 +782,7 @@ function renderTableWarning() {
         else rowClass = "bg-yellow-50";
 
 
-        const highlight = h.MaHD === lastUpdatedHD ? "bg-gray-200" : "";
+        const highlight = h.MaHD === lastUpdatedHD ? "bg-slate-200" : "";
 
 
         return `
@@ -803,7 +803,7 @@ function renderTableWarning() {
                         ? "bg-green-100 text-green-600"
                         : h.TrangThai === "Sắp hết hạn"
                             ? "bg-orange-100 text-orange-500"
-                            : "bg-gray-200 text-gray-500"
+                            : "bg-slate-200 text-slate-500"
                     }">
                     ${h.TrangThai}
                 </span>
@@ -822,7 +822,7 @@ function renderTableWarning() {
 
                     <button
                         onclick="event.stopPropagation(); openExtend('${h.MaHD}')"
-                        class="px-3 py-1 border rounded text-gray-600 hover:bg-gray-100 flex items-center gap-1 whitespace-nowrap"
+                        class="px-3 py-1 border rounded text-slate-500 hover:bg-slate-100 flex items-center gap-1 whitespace-nowrap"
                     >
                         <i class="fa-solid fa-rotate"></i>
                         Gia hạn
@@ -867,12 +867,12 @@ function renderHopDongTable() {
     tbody.innerHTML = data.map((h) => {
 
 
-        const highlight = h.MaHD === lastUpdatedHD ? "bg-gray-200" : "";
+        const highlight = h.MaHD === lastUpdatedHD ? "bg-slate-200" : "";
 
 
         return `
         <tr
-            class="border-t hover:bg-gray-50 align-top cursor-pointer ${highlight}"
+            class="border-t hover:bg-slate-50 align-top cursor-pointer ${highlight}"
             onclick="openDetail('${h.MaHD}')"
         >
 
@@ -903,14 +903,14 @@ function renderHopDongTable() {
                         ? "bg-green-100 text-green-600"
                         : h.TrangThai === "Sắp hết hạn"
                             ? "bg-orange-100 text-orange-500"
-                            : "bg-gray-200 text-gray-500"
+                            : "bg-slate-200 text-slate-500"
                     }">
                     ${h.TrangThai}
                 </span>
             </td>
 
 
-            <td class="px-6 py-4 text-gray-500 text-center whitespace-normal break-words">
+            <td class="px-6 py-4 text-slate-500 text-center whitespace-normal break-words">
                 ${h.GhiChu || "-"}
             </td>
 
@@ -918,14 +918,14 @@ function renderHopDongTable() {
             <td class="px-6 py-4 text-center min-w-[180px]">
                 ${
                     h.TrangThai === "Đã kết thúc"
-                        ? `<span class="text-gray-400 italic">-</span>`
+                        ? `<span class="text-slate-500 italic">-</span>`
                         : `
                         <div class="flex justify-center gap-2 flex-wrap">
 
 
                             <button
                                 onclick="event.stopPropagation(); openExtend('${h.MaHD}')"
-                                class="px-3 py-1 border rounded text-gray-600 hover:bg-gray-100 flex items-center gap-1 whitespace-nowrap"
+                                class="px-3 py-1 border rounded text-slate-500 hover:bg-slate-100 flex items-center gap-1 whitespace-nowrap"
                             >
                                 <i class="fa-solid fa-rotate"></i>
                                 Gia hạn
@@ -979,13 +979,13 @@ function renderPaginationHD() {
     let html = `
         <button onclick="goToPageHD(${Math.max(1, currentPageHD - 1)})"
             ${currentPageHD === 1 ? "disabled" : ""}
-            class="px-3 py-1 rounded bg-gray-100 text-gray-500 disabled:opacity-30">
+            class="px-3 py-1 rounded bg-slate-100 text-slate-500 disabled:opacity-30">
             ‹
         </button>
 
 
         <div class="px-4 py-1 border rounded-lg">
-            <span class="text-blue-600 font-bold">${currentPageHD}</span>
+            <span class="text-emerald-600 font-bold">${currentPageHD}</span>
             /
             <span>${totalPages}</span>
         </div>
@@ -993,7 +993,7 @@ function renderPaginationHD() {
 
         <button onclick="goToPageHD(${Math.min(totalPages, currentPageHD + 1)})"
             ${currentPageHD === totalPages ? "disabled" : ""}
-            class="px-3 py-1 rounded bg-gray-100 text-gray-500 disabled:opacity-30">
+            class="px-3 py-1 rounded bg-slate-100 text-slate-500 disabled:opacity-30">
             ›
         </button>
     `;
@@ -1487,7 +1487,7 @@ function renderHistoryTable() {
     tbody.innerHTML = pageData
         .map(
             (h) => `
-        <tr class="border-t hover:bg-gray-50 transition">
+        <tr class="border-t hover:bg-slate-50 transition">
 
 
             <td class="px-6 py-4 font-semibold whitespace-nowrap">${h.MaLS}</td>
@@ -1505,7 +1505,7 @@ function renderHistoryTable() {
                     ? "bg-green-100 text-green-600"
                     : h.TrangThaiHopDong === "Sắp hết hạn"
                         ? "bg-orange-100 text-orange-500"
-                        : "bg-gray-200 text-gray-500"
+                        : "bg-slate-200 text-slate-500"
                 }">
                     ${h.TrangThaiHopDong}
                 </span>
@@ -1525,7 +1525,7 @@ function renderHistoryTable() {
             </td>
 
 
-            <td class="px-6 py-4 text-gray-500 whitespace-nowrap">
+            <td class="px-6 py-4 text-slate-500 whitespace-nowrap">
     ${new Date(h.ThoiDiem.replace("Z", "")).toLocaleString("vi-VN")}
 </td>
 

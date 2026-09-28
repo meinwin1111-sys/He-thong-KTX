@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sinh viên - Quản lý Ký Túc Xá</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="student.css">
+    <script defer src="js/student/auth.js"></script>
+    <script defer src="js/student/data.js"></script>
+    <script defer src="js/student/helpers.js"></script>
+    <script defer src="js/student/TrangChu.js"></script>
+    <script defer src="js/student/ThongTinCaNhan.js"></script>
+    <script defer src="js/student/PhongCuaToi.js"></script>
+    <script defer src="js/student/HopDong.js"></script>
+    <script defer src="js/student/HoaDon.js"></script>
+    <script defer src="js/student/YeuCauHoTro.js"></script>
+    <script defer src="js/student/DoiMatKhau.js"></script>
+    <script defer src="js/student/app.js"></script>
+</head>
+<body class="student-app">
+    <header>
+        <div class="st-account" id="student-account">
+            <button type="button" id="student-account-toggle" class="st-account-toggle" aria-expanded="false" aria-controls="student-account-panel">
+                <span class="st-avatar"><i class="fa-solid fa-user" aria-hidden="true"></i></span>
+                <span><strong id="student-name"></strong><small>Sinh viên · Demo</small></span>
+                <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+            </button>
+            <div id="student-account-panel" class="st-account-panel" hidden>
+                <a href="#profile"><i class="fa-solid fa-user" aria-hidden="true"></i>Thông tin cá nhân</a>
+                <a href="#password"><i class="fa-solid fa-key" aria-hidden="true"></i>Đổi mật khẩu</a>
+                <button type="button" data-action="logout"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>Đăng xuất</button>
+            </div>
+        </div>
+    </header>
+    <nav id="main-nav" aria-label="Menu sinh viên">
+        <div class="dms-sidebar-logo st-brand"><span class="st-logo"><i class="fa-solid fa-hotel" aria-hidden="true"></i></span><strong>Quản lý Ký Túc Xá</strong></div>
+        <a class="nav-item" href="#home"><i class="fa-solid fa-house" aria-hidden="true"></i>Trang chủ</a>
+        <a class="nav-item" href="#room"><i class="fa-solid fa-bed" aria-hidden="true"></i>Phòng của tôi</a>
+        <a class="nav-item" href="#contract"><i class="fa-solid fa-file-lines" aria-hidden="true"></i>Hợp đồng</a>
+        <a class="nav-item" href="#invoices"><i class="fa-solid fa-wallet" aria-hidden="true"></i>Hóa đơn &amp; Thanh toán</a>
+        <a class="nav-item" href="#requests"><i class="fa-solid fa-headset" aria-hidden="true"></i>Yêu cầu &amp; Hỗ trợ</a>
+        <button class="nav-item" type="button" data-action="logout"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>Đăng xuất</button>
+    </nav>
+    <main id="main-content">
+        <p class="st-demo">Bản demo Sinh viên · Dữ liệu mẫu, chưa kết nối máy chủ. Thao tác chỉ có hiệu lực trong phiên xem này.</p>
+        <section id="student-page" aria-label="Nội dung sinh viên"></section>
+    </main>
+    <dialog id="student-dialog" aria-labelledby="student-dialog-title"></dialog>
+    <div id="student-toast" role="status" aria-live="polite"></div>
+</body>
+</html>

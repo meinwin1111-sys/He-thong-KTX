@@ -124,7 +124,7 @@ app.post("/api/login", async (req, res) => {
 
 app.get("/", (req, res) => {
     res.sendFile(
-        path.join(__dirname, "DMSGroup6.html")
+        path.join(__dirname, "Admin.html")
     );
 });
 

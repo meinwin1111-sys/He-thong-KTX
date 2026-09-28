@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 240" fill="none">
+<defs>
+ <linearGradient id="wall" x2="0" y2="1"><stop stop-color="#fff9ed"/><stop offset="1" stop-color="#d7e7df"/></linearGradient>
+ <linearGradient id="glass" x2="1" y2="1"><stop stop-color="#86bbb8"/><stop offset="1" stop-color="#286e77"/></linearGradient>
+ <pattern id="windows" width="34" height="35" patternUnits="userSpaceOnUse"><rect x="8" y="7" width="19" height="24" fill="url(#glass)"/><path d="M17 7v24M8 19h19" stroke="#c8e2dc" stroke-width="2"/><path d="M6 32h24" stroke="#d5bba5" stroke-width="3"/></pattern>
+ <g id="tree"><path d="M0 0v55" stroke="#64876a" stroke-width="5"/><ellipse cy="-8" rx="22" ry="34" fill="#74bf8f"/><ellipse cx="-12" cy="2" rx="18" ry="23" fill="#91d2a2"/><path d="M0 48V-12M0 18l-12-11M0 4L11-7" stroke="#588f74" stroke-width="2"/></g>
+</defs>
+<g fill="#fff" opacity=".5"><path d="M47 59h115c-4-15-18-18-29-15-2-28-41-29-48-5-16-4-31 3-38 20Z"/><path d="M306 35h111c-3-12-15-17-27-15-7-27-40-26-48-4-14-4-30 4-36 19Z"/></g>
+<path d="M0 217c75-74 111-20 179-38s90-67 150-39 73 34 135 16 116-5 236 32v52H0Z" fill="#b0ddca"/>
+<g opacity=".55"><use href="#tree" x="92" y="166"/><use href="#tree" x="134" y="181"/><use href="#tree" x="586" y="160"/><use href="#tree" x="636" y="154"/></g>
+<path d="m182 93 32-16 185 15-30 16Z" fill="#f4ecde"/><path d="m182 93 32 10v125h-32Z" fill="#b2cbd0"/>
+<path d="M214 91h166v143H214Z" fill="url(#wall)"/><path d="M220 105h153v118H220Z" fill="url(#windows)"/>
+<path d="M212 137h171m-171 35h171m-171 35h171" stroke="#f4e8d7" stroke-width="7"/>
+<path d="m372 86 30-10 59 11-24 9Z" fill="#f7efdf"/><path d="M372 87h26v147h-26Z" fill="#9dbbc2"/><path d="M398 87h46v147h-46Z" fill="url(#wall)"/><path d="M402 102h34v116h-34Z" fill="url(#windows)"/>
+<path d="M446 139h150v97H446Z" fill="url(#wall)"/><path d="M450 148h140v83H450Z" fill="url(#windows)"/><path d="M443 138h159M445 179h151M445 213h151" stroke="#eee6d7" stroke-width="7"/>
+<path d="M281 213h39v27h-39Z" fill="#477976"/><path d="M266 211h69l-12-9h-45Z" fill="#eee7d5"/>
+<path d="M0 233c110-17 165-6 249 0s137-13 213-6 143-14 238-2v15H0Z" fill="#92ccad"/>
+<use href="#tree" x="155" y="185"/><use href="#tree" x="625" y="172"/><use href="#tree" x="673" y="159"/>
+<g fill="#60ad86"><ellipse cx="210" cy="234" rx="30" ry="12"/><ellipse cx="361" cy="235" rx="26" ry="13"/><ellipse cx="472" cy="234" rx="26" ry="10"/><ellipse cx="551" cy="235" rx="32" ry="13"/></g>
+</svg>
