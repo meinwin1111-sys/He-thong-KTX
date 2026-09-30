@@ -16,7 +16,7 @@
         const contract = data.contract;
         const invoices = Array.isArray(data.invoices) ? data.invoices : [];
         const unpaid = invoices.filter(invoice => !invoice.paid);
-        const debt = unpaid.reduce((sum, invoice) => sum + total(invoice), 0);
+        const debt = ui.billing.summary().debt;
         const hasContract = Boolean(contract?.id && contract?.end);
         const days = hasContract ? ui.helpers.remaining() : null;
         const status = hasContract ? ui.helpers.contractStatus() : 'Chưa có hợp đồng';

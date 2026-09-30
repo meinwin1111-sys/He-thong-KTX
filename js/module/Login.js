@@ -133,135 +133,60 @@ function renderLoginModule() {
 
 
     main.innerHTML = `
-        <section id="module-login" class="w-full bg-[#f8fafc]" style="height:100vh;">
-            <div class="w-full h-full">
-                    <div class="grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr] w-full h-full bg-white">
-
-
-                        <!-- LEFT PANEL -->
-                        <div class="relative overflow-hidden bg-gradient-to-b from-[#059669] to-[#064e3b] text-white px-8 pt-6 pb-6 flex flex-col">
-                            <div class="absolute w-[220px] h-[220px] rounded-full bg-white/10 -top-10 -right-12"></div>
-                            <div class="absolute w-[170px] h-[170px] rounded-full bg-white/10 -bottom-10 -left-10"></div>
-
-
-                            <div class="flex items-center gap-3 mb-12 relative z-10">
-                                <div class="flex items-center gap-2">
-                                    <div class="bg-yellow-400 p-1 rounded">
-                                        <i class="fa-solid fa-hotel text-white text-xl"></i>
-                                    </div>
-                                    <div>
-                                        <h1 class="text-xl font-extrabold text-white leading-tight">DMS</h1>
-                                        <p class="text-[8px] text-emerald-200 uppercase">Dormitory Management System</p>
-                                    </div>
-                                </div>
-                            </div>
-
-
-                            <div class="flex-1 flex items-center justify-center">
-                                <div class="relative rounded-[22px] border border-white/10 bg-white/5 h-[320px] w-full max-w-[540px] overflow-hidden flex items-center justify-center">
-                                    <div class="absolute w-28 h-28 rounded-full bg-white/10 left-8 top-12"></div>
-                                    <div class="absolute w-12 h-12 rounded-full bg-white/10 left-16 bottom-10"></div>
-                                    <div class="absolute w-20 h-20 rounded-full bg-white/10 right-6 bottom-5"></div>
-                                    <div class="absolute w-16 h-16 rounded-full bg-white/10 right-16 top-20"></div>
-                                    <div class="absolute w-[120px] h-[120px] rounded-full bg-white/8 left-24 bottom-5"></div>
-
-
-                                    <div class="relative z-10 w-[120px] h-[145px] bg-slate-50 rounded-[16px] shadow-2xl flex items-center justify-center">
-                                        <div class="absolute top-[-8px] left-1/2 -translate-x-1/2 w-[42px] h-[12px] bg-slate-300 rounded-full"></div>
-
-
-                                        <div class="w-[78px] h-[102px] bg-gradient-to-b from-emerald-100 to-emerald-50 rounded-[12px] relative">
-                                            <div class="absolute top-4 left-4 w-5 h-5 rounded-full bg-yellow-400"></div>
-                                            <div class="absolute top-5 left-9 w-5 h-5 rounded-full bg-emerald-600"></div>
-
-
-                                            <div class="absolute top-12 left-4 right-4 h-1.5 bg-emerald-300 rounded-full"></div>
-                                            <div class="absolute top-[52px] left-4 right-4 h-1.5 bg-emerald-300 rounded-full"></div>
-                                            <div class="absolute top-[64px] left-4 right-7 h-1.5 bg-emerald-300 rounded-full"></div>
-
-
-                                            <div class="absolute bottom-0 left-4 w-4 h-7 bg-yellow-400 rounded-b"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-
-                        <!-- RIGHT PANEL -->
-                        <div class="bg-[#f8fafc] px-10 lg:px-16 py-8 flex items-center justify-center">
-                            <div class="w-full max-w-[540px]">
-                                <h2 class="text-[64px] font-extrabold text-[#0f172a] leading-none mb-12">
-                                    Đăng nhập
-                                </h2>
-
-
-                                <form id="loginForm" novalidate>
-                                    <div class="mb-7">
-                                        <label for="loginEmail" class="block mb-3 text-[15px] font-bold text-slate-900">
-                                            Email
-                                        </label>
-                                        <input
-                                            type="text"
-                                            id="loginEmail"
-                                            name="email"
-                                            placeholder="Nhập email"
-                                            autocomplete="username"
-                                            class="w-full h-14 rounded-[12px] border border-slate-200 bg-white px-5 text-[15px] outline-none focus:border-emerald-400"
-                                        />
-                                        <p id="loginEmailError" class="mt-2 text-[12px] text-red-500 font-medium hidden"></p>
-                                    </div>
-
-
-                                    <div class="mb-5">
-                                        <label for="loginPassword" class="block mb-3 text-[15px] font-bold text-slate-900">
-                                            Mật khẩu
-                                        </label>
-
-
-                                        <div class="relative">
-                                            <input
-                                                type="password"
-                                                id="loginPassword"
-                                                name="password"
-                                                placeholder="Nhập mật khẩu"
-                                                autocomplete="current-password"
-                                                class="w-full h-14 rounded-[12px] border border-slate-200 bg-white px-5 pr-14 text-[15px] outline-none focus:border-emerald-400"
-                                            />
-
-
-                                            <button
-                                                type="button"
-                                                id="toggleLoginPassword"
-                                                class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-emerald-600"
-                                                aria-label="Hiện mật khẩu"
-                                            >
-                                                <i class="fa-regular fa-eye"></i>
-                                            </button>
-                                        </div>
-
-
-                                        <p id="loginPasswordError" class="mt-2 text-[12px] text-red-500 font-medium hidden"></p>
-                                    </div>
-
-
-                                    <button
-                                        type="submit"
-                                        class="w-full h-14 rounded-[12px] bg-gradient-to-b from-[#059669] to-[#047857] text-white text-[16px] font-bold shadow-[0_10px_20px_rgba(5,150,105,0.28)] hover:opacity-95"
-                                    >
-                                        Đăng nhập
-                                    </button>
-                                </form>
-                                <button type="button" onclick="openStudentRegistration()" class="mt-4 text-emerald-600 font-semibold hover:underline">Đăng ký tài khoản</button>
-                            </div>
-                        </div>
-
-
+        <section id="module-login" aria-label="Đăng nhập hệ thống">
+            <aside class="login-intro">
+                <div class="login-brand"><span class="login-logo"><i class="fa-solid fa-hotel" aria-hidden="true"></i></span><span>Quản lý Ký Túc Xá</span></div>
+                <div class="login-intro-copy">
+                    <h1>Hệ thống<br><span>Quản lý Ký Túc Xá</span></h1>
+                    <p>Quản lý thông tin sinh viên, phòng ở, dịch vụ và các tiện ích một cách hiệu quả, nhanh chóng và tiện lợi.</p>
+                    <div class="login-features">
+                        <div class="login-feature"><i class="fa-solid fa-users" aria-hidden="true"></i><div><h2>Quản lý sinh viên</h2><p>Thông tin, hồ sơ, lưu trú</p></div></div>
+                        <div class="login-feature"><i class="fa-solid fa-house" aria-hidden="true"></i><div><h2>Quản lý phòng</h2><p>Trạng thái, phân bổ, tiện ích</p></div></div>
+                        <div class="login-feature"><i class="fa-solid fa-building" aria-hidden="true"></i><div><h2>Dịch vụ tiện ích</h2><p>Hóa đơn, đăng ký, yêu cầu</p></div></div>
+                        <div class="login-feature"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i><div><h2>An toàn &amp; Bảo mật</h2><p>Dữ liệu được bảo vệ</p></div></div>
                     </div>
+                </div>
+                <figure class="login-campus">
+                    <figcaption>Ký túc xá – Ngôi nhà thứ hai của bạn</figcaption>
+                    <img src="files/campus-dashboard.svg" alt="Minh họa khu ký túc xá với các tòa nhà và cây xanh" width="700" height="240">
+                </figure>
+            </aside>
+            <div class="login-form-panel">
+                <div class="login-card">
+                    <div class="login-card-heading">
+                        <span class="login-logo"><i class="fa-solid fa-hotel" aria-hidden="true"></i></span>
+                        <h2>Đăng nhập</h2>
+                        <p>Chào mừng bạn trở lại hệ thống Quản lý Ký Túc Xá</p>
+                    </div>
+                    <form id="loginForm" novalidate>
+                        <div class="login-field">
+                            <label for="loginEmail">Email</label>
+                            <div class="login-input-wrap">
+                                <i class="fa-regular fa-envelope login-input-icon" aria-hidden="true"></i>
+                                <input type="text" id="loginEmail" name="email" placeholder="Nhập email" autocomplete="username" aria-describedby="loginEmailError">
+                            </div>
+                            <p id="loginEmailError" class="login-error hidden" aria-live="polite"></p>
+                        </div>
+                        <div class="login-field">
+                            <label for="loginPassword">Mật khẩu</label>
+                            <div class="login-input-wrap">
+                                <i class="fa-solid fa-lock login-input-icon" aria-hidden="true"></i>
+                                <input type="password" id="loginPassword" name="password" placeholder="Nhập mật khẩu" autocomplete="current-password" aria-describedby="loginPasswordError">
+                                <button type="button" id="toggleLoginPassword" aria-label="Hiện hoặc ẩn mật khẩu"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>
+                            </div>
+                            <p id="loginPasswordError" class="login-error hidden" aria-live="polite"></p>
+                        </div>
+                        <div class="login-options">
+                            <label class="login-remember"><input type="checkbox" id="loginRemember"> Ghi nhớ đăng nhập</label>
+                            <details class="login-forgot"><summary>Quên mật khẩu?</summary><p>Vui lòng liên hệ ban quản lý ký túc xá để được hỗ trợ.</p></details>
+                        </div>
+                        <button type="submit" class="login-submit">Đăng nhập</button>
+                    </form>
+                    <div class="login-register"><span>Chưa có tài khoản? <button type="button" onclick="openStudentRegistration()">Đăng ký ngay</button></span></div>
+                </div>
             </div>
         </section>
     `;
-
 
     bindLoginEvents();
 }

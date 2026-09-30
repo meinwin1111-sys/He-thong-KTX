@@ -69,6 +69,10 @@
 .student-app .st-modal-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 24px; border-bottom: 1px solid var(--theme-border); }
 .student-app .st-modal-heading h2 { margin: 0; }
 .student-app .st-modal-content { padding: 24px; }
+.student-app .st-payment-qr { margin: 24px auto; text-align: center; color: var(--theme-text); }
+.student-app .st-payment-qr [role="img"] { width: min(100%, 300px); margin: 0 auto; background: white; }
+.student-app .st-payment-qr svg { display: block; width: 100%; height: auto; }
+.student-app .st-payment-qr figcaption { margin-top: 12px; font-weight: 600; }
 .student-app #student-toast:not(:empty) { position: fixed; right: 24px; bottom: 24px; max-width: min(420px, calc(100vw - 48px)); padding: 16px; border-radius: 8px; background: var(--theme-sidebar); color: white; box-shadow: 0 4px 16px #0003; z-index: 100; }
 @media (max-width: 1100px) { .student-app .st-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 700px) {
@@ -151,3 +155,9 @@
 @media (max-width: 1150px) { .student-home-dashboard .sh-welcome-art { display: none; } }
 @media (max-width: 900px) { .student-home-dashboard .sh-columns { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .student-home-dashboard .sh-announcements li { flex-wrap: wrap; } .student-home-dashboard .sh-announcement-meta { width: 100%; flex-direction: row; } }
+/* Projector-friendly demo payment presentation. */
+.st-payment-amount { text-align: center; font-size: clamp(28px, 5vw, 42px); font-weight: 800; color: #047857; margin: 16px 0 24px; }
+.st-payment-qr { max-width: 300px; margin: 20px auto; padding: 12px; border: 1px solid #d1fae5; border-radius: 16px; background: white; text-align: center; }
+.st-payment-qr svg { display: block; width: 100%; height: auto; }
+.st-payment-qr figcaption { margin-top: 8px; color: #64748b; font-weight: 700; }
+.st-fields dd { overflow-wrap: anywhere; }

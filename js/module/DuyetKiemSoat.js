@@ -65,9 +65,11 @@
                     <div class="dk-table-wrap"><table class="dk-table"><thead id="dk-head"></thead><tbody id="dk-body"></tbody></table></div>
                     <footer class="dk-footer"><span id="dk-count" role="status"></span><div class="flex items-center gap-3"><button id="dk-prev" class="dk-button" aria-label="Trang trước">‹</button><span id="dk-page"></span><button id="dk-next" class="dk-button" aria-label="Trang sau">›</button></div></footer>
                 </div>
+                <section id="dk-student-payments" aria-label="Thanh toán Student demo"></section>
                 <dialog id="dk-dialog" class="dk-dialog" aria-labelledby="dk-dialog-title"></dialog>
             </section>`;
         root = document.querySelector('.dk-module');
+        window.mountThanhToanDemo(root.querySelector('#dk-student-payments'));
         root.querySelectorAll('[data-tab]').forEach(button => button.addEventListener('click', () => {
             tab = button.dataset.tab;
             configureFilters();

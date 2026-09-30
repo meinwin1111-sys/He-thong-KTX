@@ -48,6 +48,7 @@
     }
     function render() {
         if (signedOut) return;
+        ui.billing.sync();
         closeAccount();
         dialog.close();
         const route = location.hash.slice(1) || 'home';
@@ -96,28 +97,34 @@
 
         }
     });
-    function handleStudentPayment(action, id) {
+    async function handleStudentPayment(action, id) {
+        ui.billing.sync();
         const invoice = data.invoices.find(i => i.id === id);
         if (!invoice) return;
         const info = ui.billing.detail(invoice);
         const button = (actionName, title) => `<button type="button" class="st-button st-primary" data-action="${actionName}" data-id="${esc(id)}">${title}</button>`;
         if (action === 'invoice') { modal('Chi tiết hóa đơn', info + '<div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>'); return; }
-        if (invoice.paid) { toast('Hóa đơn đã thanh toán.'); return; }
+        if (!ui.billing.canPay(invoice)) { toast(ui.billing.status(invoice)); return; }
         if (action === 'payment') {
-            modal('Chọn cách thanh toán', info + '<p class="st-notice">Đây là demo, không thực hiện giao dịch tiền thật.</p><div class="st-actions">' + button('online-step', 'Thanh toán online') + button('cash-step', 'Tiền mặt') + '</div>');
+            modal('Chọn cách thanh toán', info + '<p class="st-notice">Đây là demo, không thực hiện giao dịch tiền thật.</p><div class="st-actions">' + button('online-step', '<i class="fa-solid fa-qrcode" aria-hidden="true"></i> Thanh toán online') + button('cash-step', '<i class="fa-solid fa-money-bill" aria-hidden="true"></i> Thanh toán tiền mặt') + '</div>');
         } else if (action === 'online-step') {
-            dialog.close();
-            modal('Thanh toán online (demo)', info + '<p class="st-notice">Mô phỏng cổng thanh toán. Không nhập thông tin thẻ, không chuyển tiền thật. Xác nhận sẽ đánh dấu hóa đơn đã thanh toán trong dữ liệu demo.</p><label for="student-payment-method">Chọn cổng/phương thức<select id="student-payment-method"><option>Online · Ngân hàng (demo)</option><option>Online · Ví điện tử (demo)</option></select></label><div class="st-actions"><button class="st-button" data-action="close">Hủy</button>' + button('confirm-online', 'Xác nhận thành công (demo)') + '</div>');
+            try {
+                const content = ui.billing.qrModal(id);
+                dialog.close();
+                modal('Thanh toán bằng QR', content + '<div class="st-actions"><button type="button" class="st-button" data-action="close">Đóng</button>' + button('confirm-online', 'DEMO · Giả lập thanh toán thành công') + '</div>');
+            } catch (error) { toast(error.message); }
         } else if (action === 'cash-step') {
             dialog.close();
-            modal('Thanh toán tiền mặt', info + '<p class="st-notice">Vui lòng mang mã hóa đơn và thanh toán trực tiếp tại bộ phận quản lý KTX. Yêu cầu chỉ ở trạng thái Chờ xác nhận; công nợ vẫn giữ nguyên cho đến khi được xác nhận đã thu tiền.</p><div class="st-actions">' + button('confirm-cash', 'Ghi nhận chờ xác nhận (demo)') + '</div><div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>');
+            modal('Thanh toán tại Ban quản lý KTX', info + '<p class="st-notice">Vui lòng đến Ban quản lý KTX để thanh toán hóa đơn. Hóa đơn chỉ được xác nhận sau khi Ban quản lý đã nhận tiền.</p><div class="st-actions">' + button('confirm-cash', 'Đăng ký thanh toán tiền mặt') + '</div><div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>');
         } else {
             try {
-                const method = action === 'confirm-cash' ? 'Tiền mặt' : dialog.querySelector('#student-payment-method')?.value;
-                ui.billing.pay(id, method);
+                const method = action === 'confirm-cash' ? 'CASH' : 'ONLINE';
+                if (!window.confirm(method === 'ONLINE' ? `Mô phỏng cổng thanh toán trả kết quả SUCCESS cho hóa đơn ${id}?` : `Đăng ký thanh toán tiền mặt cho hóa đơn ${id}?`)) return;
+                const result = await ui.billing.pay(id, method);
                 dialog.close();
                 render();
-                toast(action === 'confirm-cash' ? 'Đã ghi nhận chờ xác nhận. Công nợ chưa thay đổi.' : 'Thanh toán demo thành công. Đã cập nhật hóa đơn, công nợ và lịch sử.');
+                if (method === 'ONLINE') modal('Thanh toán thành công', ui.billing.receipt(result) + '<div class="st-dialog-close"><button class="st-button" data-action="close">Đóng</button></div>');
+                else toast('Chờ thanh toán tiền mặt. Vui lòng đến Ban quản lý KTX để hoàn tất thanh toán. Công nợ chưa thay đổi.');
             } catch (error) { toast(error.message); }
         }
     }
@@ -141,5 +148,9 @@
         }
     });
     window.addEventListener('hashchange', render);
+    window.addEventListener('storage', event => {
+        if (event.key === null || event.key.startsWith(KTXPaymentDemo.prefix)) { ui.billing.sync(); render(); }
+    });
+    window.addEventListener('focus', () => { ui.billing.sync(); if (!dialog.open) render(); });
     render();
 })();
