@@ -680,7 +680,7 @@ function bindBaoCaoEvents() {
 // ======================================================
 async function loadAvailableYears() {
     try {
-        const response = await fetch(`${BASE_URL}/api/nam-co-du-lieu`);
+        const response = await ApiClient.fetch(`${BASE_URL}/api/nam-co-du-lieu`);
         if (!response.ok) throw new Error("Không lấy được danh sách năm");
 
         const years = await response.json();
@@ -703,11 +703,9 @@ async function loadAvailableYears() {
         if (dropoutYearText) dropoutYearText.textContent = baoCaoState.selectedYear;
 
     } catch (err) {
-        console.error("Lỗi load danh sách năm:", err);
-        // Fallback: dùng năm hiện tại
         const select = document.getElementById("selectRevenueYear");
-        const y = baoCaoState.selectedYear;
-        if (select) select.innerHTML = `<option value="${y}" selected>${y}</option>`;
+        if (select) select.innerHTML = '<option value="">Không tải được danh sách năm</option>';
+        showToast(err.message || "Không thể tải danh sách năm có dữ liệu.", "error");
     }
 }
 
@@ -716,7 +714,7 @@ async function loadAvailableYears() {
 // ======================================================
 async function loadBaoCaoThongKe() {
     try {
-        const response = await fetch(`${BASE_URL}/api/Phong`);
+        const response = await ApiClient.fetch(`${BASE_URL}/api/Phong`);
 
         if (!response.ok) throw new Error("Không thể kết nối API");
 
@@ -729,7 +727,7 @@ async function loadBaoCaoThongKe() {
         processAndRenderRealData(data);
         updateBaoCaoUI();
     } catch (error) {
-        console.error("Lỗi:", error);
+        showToast(error.message || "Không thể tải dữ liệu báo cáo.", "error");
     }
 }
 
@@ -740,7 +738,7 @@ async function loadTyLeRoiBoTheoNam(year) {
     console.log("🔥 CALL API:", year);
 
     try {
-        const response = await fetch(
+        const response = await ApiClient.fetch(
             `${BASE_URL}/api/tyle-roi-bo/${year}`,
         );
 
@@ -755,7 +753,7 @@ async function loadTyLeRoiBoTheoNam(year) {
         // Vẽ chart
         drawChartRoiBo();
     } catch (error) {
-        console.error("Lỗi load tỷ lệ rời bỏ:", error);
+        showToast(error.message || "Không thể tải tỷ lệ rời khỏi ký túc xá.", "error");
     }
 }
 
@@ -764,7 +762,7 @@ async function loadTyLeRoiBoTheoNam(year) {
 // ======================================================
 async function loadGioiTinhSinhVien() {
     try {
-        const response = await fetch(
+        const response = await ApiClient.fetch(
             `${BASE_URL}/api/gioi-tinh-sinh-vien`,
         );
 
@@ -781,7 +779,7 @@ async function loadGioiTinhSinhVien() {
         // Vẽ chart
         drawChartGioiTinh();
     } catch (error) {
-        console.error("Lỗi load giới tính sinh viên:", error);
+        showToast(error.message || "Không thể tải thống kê giới tính.", "error");
     }
 }
 
@@ -994,7 +992,7 @@ function bindExpiringContractsPagination(totalPages) {
 // Hàm gọi API để lấy danh sách hợp đồng sắp hết hạn và render
 async function loadExpiringContracts(year) {
     try {
-        const response = await fetch(`${BASE_URL}/api/HopDong`);
+        const response = await ApiClient.fetch(`${BASE_URL}/api/HopDong`);
         if (!response.ok) throw new Error("Không thể lấy dữ liệu hợp đồng");
 
         const data = await response.json();
@@ -1050,7 +1048,7 @@ async function loadExpiringContracts(year) {
         expiringContractsState.currentPage = 1;
         renderExpiringContracts(expiring);
     } catch (error) {
-        console.error("Lỗi load hợp đồng sắp hết hạn:", error);
+        showToast(error.message || "Không thể tải danh sách hợp đồng sắp hết hạn.", "error");
     }
 }
 
@@ -1200,7 +1198,7 @@ function bindUnpaidBillsPagination(totalPages) {
 
 async function loadUnpaidBills(year) {
     try {
-        const response = await fetch(`${BASE_URL}/api/HoaDon`);
+        const response = await ApiClient.fetch(`${BASE_URL}/api/HoaDon`);
         if (!response.ok) throw new Error("Không thể lấy dữ liệu hóa đơn");
 
         const data = await response.json();
@@ -1215,7 +1213,7 @@ async function loadUnpaidBills(year) {
         unpaidBillsState.currentPage = 1;
         renderUnpaidBills(unpaid);
     } catch (error) {
-        console.error("Lỗi load công nợ:", error);
+        showToast(error.message || "Không thể tải danh sách công nợ.", "error");
     }
 }
 
@@ -1229,7 +1227,7 @@ async function loadDoanhThuTheoNam(year) {
         console.log("Đang load doanh thu năm:", year);
 
         // Gọi API backend lấy dữ liệu doanh thu theo năm
-        const response = await fetch(`${BASE_URL}/api/doanhthu/${year}`);
+        const response = await ApiClient.fetch(`${BASE_URL}/api/doanhthu/${year}`);
 
         // Nếu response lỗi (status != 200)
         if (!response.ok) {

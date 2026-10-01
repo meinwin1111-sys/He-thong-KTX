@@ -30,7 +30,7 @@
 .student-app .st-notice { background: #fffbeb; border-color: #fde68a; color: #92400e; }
 .student-app .st-intro, .student-app .st-muted { color: var(--theme-text-muted); }
 .student-app .st-card { background: var(--theme-surface); padding: 24px; border: 1px solid var(--theme-border); border-radius: 12px; margin-bottom: 24px; }
-.student-app .st-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.student-app .st-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .student-app .st-summary a { text-decoration: none; color: var(--theme-text-muted); }
 .student-app .st-summary strong { display: block; font-size: 28px; margin: 12px 0; color: var(--theme-primary); }
 .student-app .st-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin: 24px 0; }
@@ -54,7 +54,35 @@
 .student-app input, .student-app select, .student-app textarea { display: block; width: 100%; margin-top: 8px; padding: 11px 12px; border: 1px solid var(--theme-border); border-radius: 7px; background: white; color: var(--theme-text); font: inherit; }
 .student-app textarea { resize: vertical; }
 .student-app :is(a, button, input, select, textarea):focus-visible { outline: 2px solid var(--theme-primary); outline-offset: 3px; }
-.student-app dialog { width: min(620px, calc(100vw - 32px)); max-height: 85vh; padding: 0; border: 0; border-radius: 12px; color: var(--theme-text); }
+.student-app .st-invoice-page { padding-bottom: 8px; }
+.student-app .st-invoice-list { display: grid; gap: 12px; margin: 16px 0 96px; }
+.student-app .st-invoice { border: 1px solid var(--theme-border); border-radius: 12px; background: var(--theme-surface); overflow: hidden; }
+.student-app .st-invoice > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 16px; cursor: pointer; list-style: none; }
+.student-app .st-invoice > summary::-webkit-details-marker { display: none; }
+.student-app .st-invoice > summary > span:first-child { font-weight: 700; margin-right: auto; }
+.student-app .st-invoice-items { list-style: none; margin: 0; padding: 0 16px 16px; }
+.student-app .st-invoice-item + .st-invoice-item { border-top: 1px solid var(--theme-border); }
+.student-app .st-invoice-item label, .student-app .st-check-all { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 12px 0; font-weight: 500; cursor: pointer; }
+.student-app .st-check-all { padding: 0 16px 8px; }
+.student-app .st-check-all-page { padding: 0 0 8px; }
+.student-app .st-invoice-item input, .student-app .st-check-all input { display: inline-block; width: auto; margin: 3px 0 0; flex-shrink: 0; }
+.student-app .st-invoice-item label > span:nth-child(2) { min-width: 0; }
+.student-app .st-invoice-item small { display: block; color: var(--theme-text-muted); font-weight: 400; }
+.student-app .st-item-amount { margin-left: auto; font-weight: 700; white-space: nowrap; }
+.student-app .st-pay-bar { position: sticky; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border: 1px solid var(--theme-border); border-radius: 12px; background: var(--theme-surface); box-shadow: 0 -8px 24px rgb(15 23 42 / 8%); }
+.student-app .st-pay-bar p { margin: 0; font-weight: 700; }
+.student-app .st-pay-bar .st-actions { margin: 0; }
+.student-app .st-pay-bar .st-button:disabled { opacity: .45; cursor: not-allowed; }
+.student-app .st-pay-items { display: grid; gap: 12px; margin: 16px 0; }
+.student-app .st-pay-group { padding: 12px; border: 1px solid var(--theme-border); border-radius: 10px; }
+.student-app .st-pay-group h3 { margin: 0 0 8px; font-size: 14px; }
+.student-app .st-pay-group ul { list-style: none; margin: 0; padding: 0; }
+.student-app .st-pay-group li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; }
+.student-app .st-pay-group small { display: block; color: var(--theme-text-muted); }
+.student-app dialog { width: min(720px, calc(100vw - 32px)); max-height: 85vh; padding: 0; border: 0; border-radius: 12px; color: var(--theme-text); overflow: auto; }
+@media (max-width: 700px) {
+    .student-app .st-pay-bar { position: sticky; bottom: 0; }
+}
 .student-app dialog::backdrop { background: rgb(15 23 42 / 50%); }
 .student-app dialog.st-logout-dialog { width: min(448px, calc(100vw - 32px)); padding: 24px; border-radius: 12px; background: white; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 10%), 0 8px 10px -6px rgb(0 0 0 / 10%); }
 .student-app dialog.st-logout-dialog::backdrop { background: rgb(0 0 0 / 40%); }
@@ -76,7 +104,13 @@
 .student-app #student-toast:not(:empty) { position: fixed; right: 24px; bottom: 24px; max-width: min(420px, calc(100vw - 48px)); padding: 16px; border-radius: 8px; background: var(--theme-sidebar); color: white; box-shadow: 0 4px 16px #0003; z-index: 100; }
 @media (max-width: 1100px) { .student-app .st-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 700px) {
-    body.student-app:has(> #main-nav:not([style*="display: none"])) { grid-template-columns: 220px minmax(280px, 1fr); }
+    body.student-app:has(> #main-nav:not([style*="display: none"])) {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto auto minmax(0, 1fr);
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
+    }
     .student-app .st-brand { padding: 12px 16px; font-size: 14px; }
     .student-app .st-summary, .student-app .st-fields { grid-template-columns: 1fr; }
 }
@@ -150,6 +184,11 @@
 .student-home-dashboard .sh-residence > div { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; border: 0; padding: 7px 0; }
 .student-home-dashboard .sh-residence dt { font-size: 11px; margin: 0; }
 .student-home-dashboard .sh-residence dd { font-size: 11px; }
+.student-home-dashboard .sh-shared-content { margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e8f0; }
+.student-home-dashboard .sh-shared-content h3 { margin: 12px 0 6px; font-size: 12px; font-weight: 700; }
+.student-home-dashboard .sh-shared-content ul { margin: 0; padding-left: 18px; color: #475569; font-size: 11px; }
+.student-home-dashboard .sh-shared-content dl > div { display: grid; grid-template-columns: minmax(75px, .7fr) minmax(0, 1.3fr); gap: 8px; padding: 5px 0; font-size: 11px; }
+.student-home-dashboard .sh-shared-content dd { overflow-wrap: anywhere; }
 .student-home-dashboard .sh-links { border-top: 1px solid #e2e8f0; padding-top: 14px; gap: 8px; margin-top: 12px; }
 .student-home-dashboard .sh-links a { flex: 1; text-align: center; padding: 12px 6px; border-radius: 8px; border: 1px solid #d1fae5; background: #ecfdf5; font-size: 11px; text-decoration: none; }
 @media (max-width: 1150px) { .student-home-dashboard .sh-welcome-art { display: none; } }

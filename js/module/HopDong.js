@@ -1,4 +1,4 @@
-﻿let rawHopDong = []; // Dữ liệu gốc
+let rawHopDong = []; // Dữ liệu gốc
 let filteredHopDong = []; // Dữ liệu sau khi lọc/tab
 let currentPageHD = 1; // Trang hiện tại
 const rowsPerPageHD = 10; // Số dòng mỗi trang
@@ -7,6 +7,17 @@ const historyPageSize = 5;
 let currentTab = "all"; //
 let lastUpdatedHD = null; //
 let currentEndId = null; // ID hợp đồng đang kết thúc
+
+async function getApiErrorMessage(response, fallback) {
+    const text = await response.text();
+    try {
+        const body = JSON.parse(text);
+        return body.message || fallback;
+    } catch {
+        return text || fallback;
+    }
+}
+
 function renderHopDongModule() {
     document.getElementById("main-content").innerHTML = `
 <section class="p-6">
@@ -538,7 +549,7 @@ async function loadHopDong() {
         console.log("🔄 Đang tải dữ liệu hợp đồng từ server...");
 
 
-        const res = await fetch(`${BASE_URL}/api/HopDong`);
+        const res = await ApiClient.fetch(`${BASE_URL}/api/HopDong`);
         if (!res.ok) throw new Error("Lỗi khi lấy dữ liệu từ server");
 
 
@@ -619,8 +630,7 @@ async function loadHopDong() {
             rawHopDong.map((h) => ({ MaHD: h.MaHD, TrangThai: h.TrangThai })),
         );
     } catch (err) {
-        console.error("LỖI loadHopDong:", err);
-        showToast("Lỗi tải dữ liệu hợp đồng", "error");
+        showToast(err.message || "Không thể tải dữ liệu hợp đồng.", "error");
     }
     lastUpdatedHD = null;
 }
@@ -1037,7 +1047,7 @@ async function handleMSSVInput() {
 
 
     try {
-        const res = await fetch(`${BASE_URL}/api/SinhVienById/${mssv}`);
+        const res = await ApiClient.fetch(`${BASE_URL}/api/SinhVienById/${mssv}`);
         const sv = await res.json();
 
 
@@ -1070,8 +1080,7 @@ async function handleMSSVInput() {
             showToast("Sinh viên đã có hợp đồng còn hiệu lực", "error");
         }
     } catch (err) {
-        console.error(err);
-        showToast("Lỗi khi lấy sinh viên", "error");
+        showToast(err.message || "Không thể lấy thông tin sinh viên.", "error");
     }
 }
 
@@ -1122,7 +1131,6 @@ function saveHopDong(e) {
 
 
     const mssv = document.getElementById("mssvInput").value.trim();
-    const tenSVVal = document.getElementById("tenSV").value.trim();
     const phongSVVal = document.getElementById("phongSV").value.trim();
     const start = document.getElementById("startDate").value;
     const end = document.getElementById("endDate").value;
@@ -1155,32 +1163,20 @@ function saveHopDong(e) {
     };
 
 
-    fetch(`${BASE_URL}/api/HopDong`, {
+    ApiClient.fetch(`${BASE_URL}/api/HopDong`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newHD),
     })
         .then(async (res) => {
             if (!res.ok) {
-                const text = await res.text();
-                throw new Error(text || "Lỗi server");
+                throw new Error(await getApiErrorMessage(res, "Lỗi server"));
             }
             return res.json();
         })
         .then(async (data) => {
             lastUpdatedHD = data.MaHopDong;
             // ✅ FIX: dùng MaHopDong thật từ BE
-            saveHistory(
-                {
-                    ...newHD,
-                    MaHD: data.MaHopDong,
-                    MSSV: mssv,
-                    TenSV: tenSVVal,
-                    TenPhong: phongSVVal,
-                    TrangThai: "Còn hiệu lực",
-                },
-                "Tạo mới",
-            );
 
 
             await loadHopDong();
@@ -1198,7 +1194,7 @@ function saveHopDong(e) {
         })
         .catch((err) => {
             console.error(err);
-            showToast("Lỗi khi tạo hợp đồng", "error");
+            showToast(err.message || "Lỗi khi tạo hợp đồng", "error");
         });
 }
 
@@ -1274,16 +1270,14 @@ function saveExtend() {
 
 
     // ===== CALL API =====
-    fetch(`${BASE_URL}/api/HopDong/extend/${id}`, {
+    ApiClient.fetch(`${BASE_URL}/api/HopDong/extend/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ NgayKetThuc: newDate }),
     })
     .then(async (res) => {
+        if (!res.ok) throw new Error(await getApiErrorMessage(res, "Không thể gia hạn hợp đồng."));
         const text = await res.text();
-
-
-        if (!res.ok) throw new Error(text);
 
 
         return text;
@@ -1316,24 +1310,13 @@ function saveExtend() {
         await loadHopDong();
 
 
-        // ===== LƯU LỊCH SỬ =====
-        saveHistory(
-            {
-                ...hd,
-                NgayKetThuc: newDate,
-                TrangThai: diff <= 7 ? "Sắp hết hạn" : "Còn hiệu lực",
-            },
-            "Gia hạn"
-        );
-
-
         // ===== UI =====
         showToast("Gia hạn hợp đồng thành công", "success");
         closeExtend();
     })
     .catch((err) => {
         console.error("LỖI GIA HẠN:", err);
-        showToast("Lỗi khi gia hạn", "error");
+        showToast(err.message || "Lỗi khi gia hạn", "error");
     });
 }
 
@@ -1401,23 +1384,19 @@ async function confirmEnd() {
         const hd = rawHopDong.find((h) => h.MaHD === id);
 
         // 1. Gọi API lưu lên database
-        const res = await fetch(`${BASE_URL}/api/HopDong/end/${encodeURIComponent(id)}`, {
+        const res = await ApiClient.fetch(`${BASE_URL}/api/HopDong/end/${encodeURIComponent(id)}`, {
             method: "PUT",
         });
 
         if (!res.ok) {
-            const errText = await res.text();
-            throw new Error(errText || "Lỗi server");
+            throw new Error(await getApiErrorMessage(res, "Lỗi server"));
         }
 
         // 2. Thông báo thành công
         showToast("Kết thúc hợp đồng thành công", "success");
         closeEnd();
 
-        // 3. Lưu lịch sử
-        saveHistory({ ...hd, TrangThai: "Đã kết thúc" }, "Kết thúc");
-
-        // 4. Load lại dữ liệu từ database
+        // 3. Load lại dữ liệu từ database
         currentTab = "all";
         lastUpdatedHD = null;
         await loadHopDong();
@@ -1428,41 +1407,22 @@ async function confirmEnd() {
         showToast("Lỗi: " + err.message, "error");
     }
 }
-function saveHistory(hd, action) {
-    fetch(`${BASE_URL}/api/history`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            MaHopDong: hd.MaHD,
-            MaSinhVien: hd.MSSV,
-            HoTen: hd.TenSV,
-            TenPhong: hd.TenPhong,
-            NgayBatDau: hd.NgayBatDau,
-            NgayKetThuc: hd.NgayKetThuc,
-            TrangThaiHopDong: hd.TrangThai,
-            ThaoTac: action,
-        }),
-    });
-}
 // ======================= MỞ MODAL LỊCH SỬ =======================
 async function openHistoryModal() {
-    const res = await fetch(`${BASE_URL}/api/history`);
-    const data = await res.json();
+    try {
+        const res = await ApiClient.fetch(`${BASE_URL}/api/history`);
+        const data = await res.json();
+        if (data.length === 0) {
+            showToast("Không có lịch sử hợp đồng", "error");
+            return;
+        }
 
-
-    if (data.length === 0) {
-        showToast("Không có lịch sử hợp đồng", "error");
-        return;
+        historyHD = data;
+        renderHistoryTable();
+        document.getElementById("historyModal").classList.remove("hidden");
+    } catch (error) {
+        showToast(error.message || "Không thể tải lịch sử hợp đồng.", "error");
     }
-
-
-    historyHD = data;
-    renderHistoryTable();
-
-
-    document.getElementById("historyModal").classList.remove("hidden");
 }
 
 
@@ -1567,7 +1527,7 @@ function prevHistoryPage() {
 
 
 async function openHistoryModal() {
-    const res = await fetch(`${BASE_URL}/api/history`);
+    const res = await ApiClient.fetch(`${BASE_URL}/api/history`);
     const data = await res.json();
 
 
@@ -1627,13 +1587,13 @@ function saveNote() {
     loadHopDong();
 
 
-    fetch(`${BASE_URL}/api/HopDong/note/${currentDetailId}`, {
+    ApiClient.fetch(`${BASE_URL}/api/HopDong/note/${currentDetailId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ GhiChu: ghiChu })
     })
-    .then(res => {
-        if (!res.ok) throw new Error();
+    .then(async res => {
+        if (!res.ok) throw new Error(await getApiErrorMessage(res, "Không thể lưu ghi chú hợp đồng."));
         return res.text();
     })
     .then(() => {
@@ -1643,8 +1603,8 @@ function saveNote() {
         closeDetail();
         loadHopDong(); // reload lại bảng
     })
-    .catch(() => {
-        showToast("Lỗi khi cập nhật ghi chú", "error");
+    .catch((error) => {
+        showToast(error.message || "Lỗi khi cập nhật ghi chú", "error");
     });
 }
 

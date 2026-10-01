@@ -127,12 +127,18 @@ function renderHoaDonModule() {
 
 
             <div class="p-6 space-y-4">
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Mã sinh viên <span class="text-red-500">*</span></label>
+                <input type="text" id="add-maSV" maxlength="30" oninput="handleAutoFillRoom(); clearFieldError('add-maSV')" placeholder="Nhập mã sinh viên" class="w-full border rounded-lg px-3 py-2 uppercase">
+                <p id="err-add-maSV" class="hidden text-xs text-red-500 mt-1"></p>
+                <p id="maSV-error" class="hidden text-xs text-red-500 mt-1"></p>
+            </div>
             <div class="grid grid-cols-2 gap-4">
     <div>
-        <label class="block text-xs font-bold text-slate-500 mb-1">Mã hóa đơn</label>
+        <label class="block text-xs font-bold text-slate-500 mb-1">Mã hóa đơn (do hệ thống cấp)</label>
         <input type="text" id="add-id"
             class="w-full border rounded-lg px-3 py-2 bg-slate-50 font-bold text-emerald-600 cursor-not-allowed"
-            readonly>
+            placeholder="Cấp sau khi lưu" readonly>
     </div>
 
     <div>
@@ -245,7 +251,6 @@ function renderHoaDonModule() {
                     <label class="block text-xs font-bold text-slate-500 mb-1">Phương thức thanh toán</label>
                     <select id="pay-method" class="w-full border rounded-lg px-3 py-2">
                         <option value="Tiền mặt">Tiền mặt</option>
-                        <option value="Chuyển khoản">Chuyển khoản</option>
                     </select>
                 </div>
                 <div>
@@ -368,8 +373,8 @@ function renderHoaDonModule() {
                         <h3 id="edit-display-tongTien" class="text-xl font-black text-red-600">0 đ</h3>
                     </div>
                 <div>
-                    <label class="block text-xs font-bold text-slate-500 mb-1">Trạng thái</label>
-                    <select id="edit-trangThai" class="w-full border rounded-lg px-3 py-2 bg-slate-50 text-slate-500 pointer-events-none cursor-not-allowed">
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Trạng thái thanh toán (từ giao dịch)</label>
+                    <select id="edit-trangThai" disabled class="w-full border rounded-lg px-3 py-2 bg-slate-50 text-slate-500 cursor-not-allowed">
                         <option value="Chưa thanh toán">Chưa thanh toán</option>
                         <option value="Đã thanh toán">Đã thanh toán</option>
                     </select>
@@ -385,6 +390,11 @@ function renderHoaDonModule() {
     </section>
     `;
 
+    main.querySelector("#hoadon-table-body").addEventListener("click", event => {
+        const button = event.target.closest("[data-payment-history]");
+        if (!button) return;
+        openInvoicePaymentHistory(decodeURIComponent(button.dataset.paymentHistory));
+    });
 
     // Gọi các hàm xử lý dữ liệu
     updateInvoiceStats();
@@ -397,7 +407,7 @@ function renderHoaDonModule() {
 async function fetchHoaDonFromServer() {
     try {
         // 1. Gửi yêu cầu GET đến Server
-        const response = await fetch(API_URL);
+        const response = await ApiClient.fetch(API_URL);
 
 
         // 2. Kiểm tra nếu phản hồi từ Server không OK (ví dụ lỗi 404, 500)
@@ -433,9 +443,11 @@ async function fetchHoaDonFromServer() {
         renderHoaDonTable();
 
 
-        console.log("Dữ liệu đã nạp:", dsHoaDon);
     } catch (error) {
-        console.error("Lỗi fetch:", error);
+        dsHoaDon = [];
+        updateInvoiceStats();
+        renderHoaDonTable();
+        showToast(error.message || "Không thể tải danh sách hóa đơn.", "error");
     }
 }
 
@@ -620,7 +632,7 @@ function renderHoaDonTable() {
                            </button>`
                         : `<button onclick="openPaymentModal('${hd.id}')"
                             class="px-3 py-1 border border-green-300 text-green-600 rounded hover:bg-green-50 flex items-center gap-1 text-xs">
-                            <i class="fa-solid fa-money-bill-wave"></i> Thanh toán
+                            <i class="fa-solid fa-clipboard-check"></i> Kiểm tra yêu cầu
                            </button>`
                     }
                     <button onclick="openPrintModal('${hd.id}')"
@@ -636,6 +648,10 @@ function renderHoaDonTable() {
                             <i class="fa-solid fa-pen"></i> Sửa
                            </button>`
                     }
+                    <button type="button" data-payment-history="${encodeURIComponent(hd.id)}"
+                        class="px-3 py-1 border border-blue-200 text-blue-700 rounded hover:bg-blue-50 flex items-center gap-1 text-xs">
+                        <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Lịch sử thanh toán
+                    </button>
                 </div>
             </td>
         </tr>
@@ -647,6 +663,126 @@ function renderHoaDonTable() {
 }
 
 
+async function openInvoicePaymentHistory(invoiceId) {
+    const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[character]));
+    const dialog = document.createElement('dialog');
+    dialog.className = 'w-[min(900px,95vw)] max-h-[85vh] rounded-2xl p-0 shadow-2xl';
+    dialog.innerHTML = `
+        <section class="bg-white rounded-2xl overflow-hidden">
+            <header class="px-6 py-4 border-b flex justify-between items-center">
+                <div><h2 class="text-xl font-bold text-slate-900">Lịch sử thanh toán</h2>
+                    <p class="text-sm text-slate-500">Hóa đơn ${escape(invoiceId)}</p></div>
+                <button type="button" data-close class="text-slate-500 text-2xl" aria-label="Đóng">×</button>
+            </header>
+            <div data-history-content class="p-6 overflow-auto"><p role="status">Đang tải lịch sử từ máy chủ...</p></div>
+            <footer class="px-6 py-4 bg-slate-50 flex justify-end">
+                <button type="button" data-close class="px-5 py-2 rounded-lg border">Đóng</button>
+            </footer>
+        </section>`;
+    document.body.append(dialog);
+    dialog.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => {
+        dialog.close();
+        dialog.remove();
+    }));
+    dialog.addEventListener('close', () => dialog.remove(), { once: true });
+    dialog.showModal();
+
+    try {
+        const response = await ApiClient.fetch(`/api/payments/history?MaHoaDon=${encodeURIComponent(invoiceId)}`);
+        const records = await response.json();
+        const content = dialog.querySelector('[data-history-content]');
+        if (!records.length) {
+            content.innerHTML = '<p class="text-slate-500">Hóa đơn này chưa có giao dịch thanh toán được ghi nhận.</p>';
+            return;
+        }
+        const formatDate = value => value ? new Date(value).toLocaleString('vi-VN') : '—';
+        const transactions = new Map();
+        for (const record of records) {
+            let transaction = transactions.get(record.MaGiaoDich);
+            if (!transaction) {
+                transaction = { ...record, items: [], total: 0 };
+                transactions.set(record.MaGiaoDich, transaction);
+            }
+            transaction.items.push(record.TenKhoan);
+            transaction.total += Number(record.SoTien || 0);
+        }
+        content.innerHTML = `
+            <div class="overflow-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-xs uppercase text-slate-500 bg-slate-50"><tr>
+                        <th class="p-3">Giao dịch / sinh viên</th><th class="p-3">Khoản thanh toán</th>
+                        <th class="p-3 text-right">Số tiền</th><th class="p-3">Thời gian</th>
+                        <th class="p-3">Phương thức / trạng thái</th><th class="p-3">Xác nhận / xử lý</th>
+                    </tr></thead>
+                    <tbody>${[...transactions.values()].map(record => `<tr class="border-b align-top" data-transaction-row="${escape(record.MaGiaoDich)}">
+                        <td class="p-3"><strong>${escape(record.MaGiaoDich)}</strong><small class="block">${escape(record.HoTen)} (${escape(record.MaSinhVien)})</small>
+                            <small>${escape(record.TenPhong)}</small><small>Nội dung: ${escape(record.NoiDungCK || '—')}</small>
+                            ${record.MaThamChieuNgoai ? `<small>Mã NH: ${escape(record.MaThamChieuNgoai)}</small>` : ''}</td>
+                        <td class="p-3">${escape(record.items.join(', '))}</td>
+                        <td class="p-3 text-right">${Number(record.total).toLocaleString('vi-VN')} ₫</td>
+                        <td class="p-3">${escape(formatDate(record.NgayThanhToan || record.NgayTao))}</td>
+                        <td class="p-3">${escape(record.PhuongThuc === 'ONLINE' ? 'Chuyển khoản QR' : 'Tiền mặt')}
+                            <strong class="block">${escape(record.TrangThai)}</strong>
+                            ${record.LyDoTuChoi ? `<small>${escape(record.LyDoTuChoi)}</small>` : ''}</td>
+                        <td class="p-3">${record.TrangThai === 'PENDING' && record.PhuongThuc === 'CASH' ? `
+                            <label class="block text-xs mb-1" for="payment-ref-${escape(record.MaGiaoDich)}">Mã biên nhận tiền mặt (nếu có)</label>
+                            <input id="payment-ref-${escape(record.MaGiaoDich)}" data-payment-reference maxlength="100" class="border rounded px-2 py-1 w-48 mb-2">
+                            <button type="button" data-confirm-payment class="block mb-2 px-3 py-1 rounded bg-emerald-600 text-white">Xác nhận đã thu tiền</button>
+                            <button type="button" data-reject-payment class="px-3 py-1 rounded border border-red-300 text-red-700">Từ chối</button>
+                            <p data-action-error role="alert" class="text-red-600 mt-2"></p>` : record.TrangThai === 'PENDING' && record.PhuongThuc === 'ONLINE'
+                                ? 'Chờ xác minh tự động từ ngân hàng'
+                                : record.TrangThai === 'SUCCESS' && record.PhuongThuc === 'ONLINE'
+                                    ? 'Ngân hàng (tự động)'
+                                    : record.TrangThai === 'SUCCESS'
+                                        ? `Quản lý${record.TenNguoiXacNhan ? `: ${escape(record.TenNguoiXacNhan)}` : ' xác nhận'}`
+                                        : '—'}</td>
+                    </tr>`).join('')}</tbody>
+                </table>
+            </div>`;
+        content.addEventListener('click', async event => {
+            const button = event.target.closest('[data-confirm-payment], [data-reject-payment]');
+            if (!button) return;
+            const row = button.closest('[data-transaction-row]');
+            const errorNode = row.querySelector('[data-action-error]');
+            const reject = button.hasAttribute('data-reject-payment');
+            let reason = '';
+            if (reject) {
+                reason = window.prompt('Nhập lý do từ chối để Sinh viên biết cần kiểm tra gì:') || '';
+                if (!reason.trim()) {
+                    errorNode.textContent = 'Cần nhập lý do để từ chối giao dịch.';
+                    return;
+                }
+            } else if (!window.confirm('Chỉ xác nhận sau khi đã nhận tiền mặt thực tế. Tiếp tục?')) {
+                return;
+            }
+            button.disabled = true;
+            errorNode.textContent = '';
+            try {
+                const transactionId = row.dataset.transactionRow;
+                const response = await ApiClient.fetch(`/api/payments/${reject ? 'reject' : 'confirm'}/${encodeURIComponent(transactionId)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(reject
+                        ? { LyDoTuChoi: reason.trim() }
+                        : { MaThamChieuNgoai: row.querySelector('[data-payment-reference]').value.trim() })
+                });
+                const result = await response.json();
+                if (typeof showToast === 'function') showToast(result.message || 'Đã cập nhật giao dịch.', 'success');
+                dialog.close();
+                await fetchHoaDonFromServer();
+                await openInvoicePaymentHistory(invoiceId);
+            } catch (error) {
+                errorNode.textContent = error.message || 'Không thể cập nhật giao dịch.';
+                button.disabled = false;
+            }
+        });
+    } catch (error) {
+        const content = dialog.querySelector('[data-history-content]');
+        content.innerHTML = `<p class="text-red-600" role="alert">${escape(error.message || 'Không thể tải lịch sử thanh toán.')}</p>`;
+    }
+}
 
 
 // ======================================================================================================================
@@ -676,17 +812,6 @@ function clearFieldError(fieldId) {
     if (errEl) { errEl.textContent = ''; errEl.classList.add('hidden'); }
 }
 
-function generateInvoiceId() {
-    const today = new Date();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const year  = today.getFullYear();
-    const prefix = `HD${month}${year}_`;
-
-    const count = dsHoaDon.filter(hd => (hd.id || '').startsWith(prefix)).length;
-
-    return `${prefix}${count + 1}`;
-}
-
 // 👇 function này gọi nó
 
 function openAddInvoiceModal() {
@@ -698,9 +823,8 @@ function openAddInvoiceModal() {
     modal.classList.remove('hidden');
     modal.classList.add('flex');
 
-    // ✅ Tạo mã hóa đơn tự động (HD001, HD002,...)
-    const maHD = generateInvoiceId();
-    document.getElementById('add-id').value = maHD;
+    const addIdEl = document.getElementById('add-id');
+    if (addIdEl) addIdEl.value = '';
 
     // ✅ Ngày hôm nay
     const today = new Date().toISOString().split('T')[0];
@@ -768,6 +892,7 @@ function handleAutoFillRoom() {
             );
             if (found) {
                 if (tenPhongInput) { tenPhongInput.value = found.TenPhong || ""; tenPhongInput.style.color = "#059669"; }
+                handleAutoFillByRoom();
                 if (errorMsg) errorMsg.classList.add('hidden');
                 return;
             }
@@ -803,16 +928,12 @@ function handleAutoFillByRoom() {
     _autoFillRoomTimer = setTimeout(async () => {
         try {
             // Lấy thông tin phòng (tiền phòng theo sức chứa)
-            const resPhong = await fetch(`${BASE_URL}/api/Phong`);
+            const resPhong = await ApiClient.fetch(`${BASE_URL}/api/Phong`);
             if (resPhong.ok) {
                 const phongList = await resPhong.json();
                 const phong = phongList.find(p => (p.TenPhong || '').toUpperCase() === tenPhong);
                 if (phong) {
-                    const sucChua = parseInt(phong.SucChuaToiDa) || 4;
-                    const giaPhong = sucChua >= 8 ? 500000
-                                   : sucChua >= 6 ? 800000
-                                   : 1500000; // mặc định 4 người
-                    document.getElementById('add-tienPhong').value = giaPhong;
+                    document.getElementById('add-tienPhong').value = Number(phong.GiaPhong) || 0;
                     if (errorEl) errorEl.classList.add('hidden');
                 } else {
                     if (errorEl) { errorEl.innerText = 'Không tìm thấy phòng'; errorEl.classList.remove('hidden'); }
@@ -834,7 +955,11 @@ function handleAutoFillByRoom() {
             }
             calculateTotal();
         } catch (e) {
-            console.error('Auto fill lỗi:', e);
+            if (errorEl) {
+                errorEl.innerText = e.message || 'Không thể lấy dữ liệu phòng.';
+                errorEl.classList.remove('hidden');
+            }
+            showToast(e.message || 'Không thể tải dữ liệu phòng.', 'error');
         }
     }, 500);
 }
@@ -860,6 +985,7 @@ function calculateTotal() {
 
     // Tổng cộng
     const tongTien = tienPhong + tienDien + tienNuoc;
+    const maSinhVien = document.getElementById('add-maSV').value.trim();
 
 
     // Hiển thị lên modal
@@ -888,10 +1014,14 @@ async function saveNewInvoice() {
 
     // Validate inline
     let hasError = false;
-    ['add-tenPhong', 'add-tienPhong', 'add-dienMoi', 'add-nuocMoi'].forEach(clearFieldError);
+    ['add-maSV', 'add-tenPhong', 'add-tienPhong', 'add-dienMoi', 'add-nuocMoi'].forEach(clearFieldError);
 
     if (!tenPhong) {
         showFieldError('add-tenPhong', 'Vui lòng nhập tên phòng');
+        hasError = true;
+    }
+    if (!maSinhVien) {
+        showFieldError('add-maSV', 'Vui lòng nhập mã sinh viên');
         hasError = true;
     }
     if (!tienPhong) {
@@ -910,16 +1040,8 @@ async function saveNewInvoice() {
 
     // Ngày lập: ngày 1 của tháng/năm được chọn
     const ngayLap = `${nam}-${String(thang).padStart(2,'0')}-01`;
-    const addIdEl = document.getElementById('add-id');
-    const maHD = (addIdEl && addIdEl.value.trim()) ? addIdEl.value.trim() : generateInvoiceId();
-
-    if (!maHD) {
-        showToast("Không thể tạo mã hóa đơn, vui lòng thử lại!", "error");
-        return;
-    }
-
     const payload = {
-        MaHoaDon:           maHD,
+        MaSinhVien:         maSinhVien,
         TenPhong:           tenPhong,
         NgayLap:            ngayLap,
         Thang:              thang,
@@ -936,7 +1058,7 @@ async function saveNewInvoice() {
     };
 
     try {
-        const res = await fetch(API_URL, {
+        const res = await ApiClient.fetch(API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -953,7 +1075,7 @@ async function saveNewInvoice() {
         fetchHoaDonFromServer();
     } catch (e) {
         console.error(e);
-        showToast("Lỗi kết nối server!", "error");
+        showToast(e.message || "Không thể tạo hóa đơn.", "error");
     }
 }
 
@@ -962,22 +1084,8 @@ async function saveNewInvoice() {
 // POPUP THANH TOÁN
 // ==========================================================
 function openPaymentModal(id) {
-    const hd = dsHoaDon.find(h => h.id === id);
-    if (!hd) return;
-
-    document.getElementById('pay-id').innerText = hd.id;
-    document.getElementById('pay-phong').innerText = hd.tenPhong;
-    document.getElementById('pay-ngay').innerText = hd.ngayLap ? hd.ngayLap.split('T')[0] : '---';
-    document.getElementById('pay-tienPhong').innerText = (hd.tienPhong || 0).toLocaleString() + ' đ';
-    document.getElementById('pay-tienDien').innerText  = (hd.tienDien  || 0).toLocaleString() + ' đ';
-    document.getElementById('pay-tienNuoc').innerText  = (hd.tienNuoc  || 0).toLocaleString() + ' đ';
-    document.getElementById('pay-tong').innerText = (hd.tongTien || 0).toLocaleString() + ' đ';
-    document.getElementById('pay-note').value = '';
-    document.getElementById('pay-method').value = 'Tiền mặt';
-
-    const modal = document.getElementById('paymentModal');
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
+    if (!dsHoaDon.some(invoice => invoice.id === id)) return;
+    openInvoicePaymentHistory(id);
 }
 
 function closePaymentModal() {
@@ -987,48 +1095,22 @@ function closePaymentModal() {
 }
 
 async function confirmPayment() {
-    const id = document.getElementById('pay-id').innerText;
-    const method = document.getElementById('pay-method').value;
-    const note = document.getElementById('pay-note').value;
-
-    try {
-        const res = await fetch(`${API_URL}/${encodeURIComponent(id)}/thanhtoan`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ trangThai: 'Đã thanh toán', phuongThuc: method, ghiChu: note })
-        });
-
-        if (!res.ok) throw new Error();
-
-        // Cập nhật local
-        const hd = dsHoaDon.find(h => h.id === id);
-        if (hd) hd.trangThai = 'Đã thanh toán';
-
-        showToast('Thanh toán thành công!', 'success');
-        closePaymentModal();
-        updateInvoiceStats();
-        renderHoaDonTable();
-    } catch {
-        showToast('Lỗi khi thanh toán, vui lòng thử lại!', 'error');
-    }
+    closePaymentModal();
+    showToast('Quản lý chỉ xác nhận giao dịch tiền mặt đang chờ trong lịch sử thanh toán.', 'info');
 }
 
 // ==========================================================
 // POPUP IN HÓA ĐƠN
 // ==========================================================
 async function openPrintModal(id) {
-    // Fetch dữ liệu thật từ DB theo mã hóa đơn
-    let hd = null;
+    let hd;
     try {
-        const res = await fetch(`${API_URL}/${encodeURIComponent(id)}`);
-        if (res.ok) {
-            hd = await res.json();
-        }
-    } catch (_) {}
-
-    // Fallback về local nếu API không có
-    if (!hd) hd = dsHoaDon.find(h => h.id === id);
-    if (!hd) return;
+        const res = await ApiClient.fetch(`${API_URL}/${encodeURIComponent(id)}`);
+        hd = await res.json();
+    } catch (error) {
+        showToast(error.message || "Không thể tải hóa đơn để in.", "error");
+        return;
+    }
 
     const tienPhong = parseFloat(hd.tienPhong || hd.TienPhong) || 0;
     const tienDien  = parseFloat(hd.tienDien  || hd.TienDien)  || (parseFloat(hd.chiSoDien || hd.ChiSoDien) || 0) * GIA_DIEN;
@@ -1072,14 +1154,10 @@ function toggleQR() {
     const qrBox = document.getElementById('print-qr-box');
     if (!qrBox) return;
     if (method === 'Chuyển khoản') {
-        const d = window._currentPrintData || {};
-        const qrData = `STK:1234567890|NH:Vietcombank|TEN:KTX DUE|SOTIEN:${d.tongTien}|ND:Thanh toan ${d.maHD}`;
-        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(qrData)}`;
         qrBox.innerHTML = `
-            <div class="text-center mt-4 p-4 border rounded-xl bg-emerald-50">
-                <p class="text-xs font-bold text-emerald-600 mb-2">QUÉT MÃ QR ĐỂ CHUYỂN KHOẢN</p>
-                <img src="${qrUrl}" alt="QR Code" class="mx-auto rounded-lg shadow">
-                <p class="text-[11px] text-slate-500 mt-2">STK: 1234567890 - Vietcombank<br>Nội dung: Thanh toán ${d.maHD}</p>
+            <div class="text-center mt-4 p-4 border rounded-xl bg-amber-50" role="status">
+                <p class="text-xs font-bold text-amber-700 mb-2">CHƯA CÓ TÍCH HỢP THANH TOÁN QR</p>
+                <p class="text-[11px] text-slate-600">Hãy xác nhận giao dịch chuyển khoản theo thông tin chính thức của đơn vị trước khi ghi nhận thanh toán trong hệ thống.</p>
             </div>`;
         qrBox.classList.remove('hidden');
     } else {
@@ -1091,10 +1169,9 @@ function doPrint() {
     const d = window._currentPrintData || {};
     const method = document.getElementById('print-pay-method')?.value || 'Tiền mặt';
     const qrHtml = method === 'Chuyển khoản' ? `
-        <div style="text-align:center;margin-top:20px;padding:16px;border:1px solid #d1fae5;border-radius:8px;background:#ecfdf5">
-            <p style="font-size:11px;font-weight:bold;color:#059669;margin-bottom:8px">QUÉT MÃ QR ĐỂ CHUYỂN KHOẢN</p>
-            <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`STK:1234567890|NH:Vietcombank|TEN:KTX DUE|SOTIEN:${d.tongTien}|ND:Thanh toan ${d.maHD}`)}" style="display:block;margin:0 auto;border-radius:6px">
-            <p style="font-size:11px;color:#64748b;margin-top:8px">STK: 1234567890 - Vietcombank<br>Nội dung: Thanh toán ${d.maHD}</p>
+        <div style="text-align:center;margin-top:20px;padding:16px;border:1px solid #fcd34d;border-radius:8px;background:#fffbeb">
+            <p style="font-size:11px;font-weight:bold;color:#b45309;margin-bottom:8px">CHƯA CÓ TÍCH HỢP THANH TOÁN QR</p>
+            <p style="font-size:11px;color:#475569">Chỉ ghi nhận chuyển khoản sau khi xác nhận giao dịch theo thông tin chính thức của đơn vị.</p>
         </div>` : '';
 
     const win = window.open('', '_blank', 'width=620,height=800');
@@ -1158,7 +1235,7 @@ function openEditInvoiceModal(id) {
     document.getElementById('edit-id').value        = hd.id;
     document.getElementById('edit-ngayLap').value   = hd.ngayLap ? hd.ngayLap.split('T')[0] : '';
     document.getElementById('edit-tenPhong').value  = hd.tenPhong || '';
-    document.getElementById('edit-tienPhong').value = hd.tienPhong || 1500000;
+    document.getElementById('edit-tienPhong').value = hd.tienPhong || 0;
     document.getElementById('edit-dienCu').value    = hd.SoDienCu  || hd.soDienCu  || 0;
     document.getElementById('edit-dienMoi').value   = hd.SoDienMoi || hd.soDienMoi || 0;
     document.getElementById('edit-nuocCu').value    = hd.SoNuocCu  || hd.soNuocCu  || 0;
@@ -1222,13 +1299,13 @@ async function saveEditInvoice() {
     };
 
     try {
-        const res = await fetch(`${API_URL}/${encodeURIComponent(id)}`, {
+        const res = await ApiClient.fetch(`${API_URL}/${encodeURIComponent(id)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formData)
         });
 
-        if (!res.ok) throw new Error();
+        if (!res.ok) throw new Error("Không thể cập nhật hóa đơn.");
 
         // Cập nhật local
         const hd = dsHoaDon.find(h => h.id === id);
@@ -1239,7 +1316,6 @@ async function saveEditInvoice() {
         updateInvoiceStats();
         renderHoaDonTable();
     } catch (err) {
-        console.error('Lỗi cập nhật hóa đơn:', err);
-        showToast('Lỗi khi cập nhật, vui lòng thử lại!', 'error');
+        showToast(err.message || 'Không thể cập nhật hóa đơn.', 'error');
     }
 }

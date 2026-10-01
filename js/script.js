@@ -1,7 +1,7 @@
 // ==========================================================
 // BASE URL - tự động dùng đúng host khi deploy
 // ==========================================================
-const BASE_URL = window.location.origin;
+const BASE_URL = window.ApiClient.baseUrl;
 
 // ==========================================================
 // CẤU TRÚC NÚT BẤM DÙNG CHUNG
@@ -10,6 +10,14 @@ const BASE_URL = window.location.origin;
 // const e = require("express");
 
 document.addEventListener("DOMContentLoaded", function () {
+    const session = window.ApiClient?.getSession();
+    if (session) {
+        window.currentUser = session.user;
+        showSystemLayout();
+        renderTrangChuModule();
+        updateAdminHoverPopup();
+        return;
+    }
     renderLoginModule();
 });
 
@@ -34,6 +42,10 @@ function createButton(type, onClick) {
 
 // Hàm chuyển đổi giữa các trang/module trong giao diện
 function switchPage(pageId, element) {
+    if (!window.ApiClient?.getSession()) {
+        renderLoginModule();
+        return;
+    }
 
     // Restore header/nav nếu đang ở trang chủ
     if (typeof window._restoreLayout === "function") {

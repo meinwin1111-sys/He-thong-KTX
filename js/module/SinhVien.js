@@ -18,7 +18,7 @@ let roomCapacity = {};
 // Hàm khởi tạo để tải cấu hình phòng từ Server khi module được kích hoạt
 async function loadRoomConfig() {
     try {
-        const response = await fetch(`${BASE_URL}/api/Phong`);
+        const response = await ApiClient.fetch(`${BASE_URL}/api/Phong`);
         const data = await response.json();
 
         // Lưu toàn bộ data phòng để filter theo giới tính
@@ -37,7 +37,10 @@ async function loadRoomConfig() {
 
         console.log("Đã tải cấu hình phòng thành công:", validRooms.length, "phòng trống");
     } catch (error) {
-        console.error("Không thể lấy cấu hình phòng từ server:", error);
+        validRooms = [];
+        roomCapacity = {};
+        window._allRooms = [];
+        showToast(error.message || "Không thể tải danh sách phòng.", "error");
     }
 }
 
@@ -216,7 +219,7 @@ function normalizeStudentFromAPI(item) {
  */
 async function loadThongKeSinhVien() {
     try {
-        const response = await fetch(`${BASE_URL}/api/sinhvien/thongke`);
+        const response = await ApiClient.fetch(`${BASE_URL}/api/sinhvien/thongke`);
         if (!response.ok) {
             const text = await response.text();
             console.error("API lỗi:", text);
@@ -244,7 +247,7 @@ async function loadThongKeSinhVien() {
         updateText("statLiving", livingCount);
 
     } catch (error) {
-        console.error("Lỗi Frontend:", error);
+        showToast(error.message || "Không thể tải thống kê sinh viên.", "error");
     }
 }
 
@@ -270,7 +273,7 @@ async function loadDanhSachSinhVien(
             url += `&status=${encodeURIComponent(status)}`;
         }
 
-        const response = await fetch(url);
+        const response = await ApiClient.fetch(url);
         const result = await response.json();
 
         // Chuẩn hóa và lưu trữ danh sách
@@ -285,7 +288,10 @@ async function loadDanhSachSinhVien(
         // Vẽ lại bảng dữ liệu
         renderTable(students);
     } catch (error) {
-        console.error("Lỗi load danh sách sinh viên:", error);
+        students = [];
+        currentFilteredStudents = [];
+        renderTable(students);
+        showToast(error.message || "Không thể tải danh sách sinh viên.", "error");
     }
 }
 
@@ -463,7 +469,7 @@ window.openDetailStudentModal = async function (index) {
         const s = students[index];
 
         // 1. Gọi API lấy thông tin chi tiết
-        const response = await fetch(
+        const response = await ApiClient.fetch(
             `${BASE_URL}/api/sinhvien/chitiet/${encodeURIComponent(s.mssv)}`,
         );
         const result = await response.json();
@@ -517,8 +523,7 @@ window.openDetailStudentModal = async function (index) {
         detailStudentModal.classList.add("flex");
 
     } catch (error) {
-        console.error("Lỗi mở chi tiết sinh viên:", error);
-        showToast("Lỗi kết nối server", "error");
+        showToast(error.message || "Không thể tải chi tiết sinh viên.", "error");
     }
 };
 
@@ -1113,7 +1118,7 @@ function initStudentEvents() {
             }
 
             try {
-                const response = await fetch(`${BASE_URL}/api/sinhvien`, {
+                const response = await ApiClient.fetch(`${BASE_URL}/api/sinhvien`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -1141,8 +1146,7 @@ function initStudentEvents() {
                 await loadThongKeSinhVien();
                 await loadDanhSachSinhVien(1, rowsPerPage, "", "");
             } catch (error) {
-                console.error("Lỗi thêm sinh viên:", error);
-                showToast("Lỗi kết nối server", "error");
+                showToast(error.message || "Không thể thêm sinh viên.", "error");
             }
         });
     }
@@ -1166,7 +1170,7 @@ function initStudentEvents() {
 
             try {
                 const oldMssv = students[currentEditIndex].mssv;
-                const response = await fetch(`${BASE_URL}/api/sinhvien/${oldMssv}`, {
+                const response = await ApiClient.fetch(`${BASE_URL}/api/sinhvien/${oldMssv}`, {
                     method: "PUT",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -1194,8 +1198,7 @@ function initStudentEvents() {
                 await loadThongKeSinhVien();
                 await loadDanhSachSinhVien(currentPage, rowsPerPage, "", "");
             } catch (error) {
-                console.error("Lỗi cập nhật:", error);
-                showToast("Lỗi kết nối server", "error");
+                showToast(error.message || "Không thể cập nhật sinh viên.", "error");
             }
         });
     }

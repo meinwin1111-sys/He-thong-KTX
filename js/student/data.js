@@ -11,9 +11,24 @@ window.StudentUI = {};
         room: { number: 'A101', type: 'Phòng 4 người', capacity: 4, members: [{ code: 'SV001', name: 'Nguyễn Văn An' }, { code: 'SV003', name: 'Lê Minh Quân' }, { code: 'SV005', name: 'Hoàng Đức Nam' }] },
         contract: { id: 'HD001', start: date(-165), end: date(15), status: 'Đang hiệu lực', fee: 1500000 },
         invoices: [
-            { id: 'HĐ003', month: date(0).slice(0, 7), room: 1500000, electricity: 100000, water: 50000, due: date(7), paid: false },
-            { id: 'HĐ002', month: date(-32).slice(0, 7), room: 1500000, electricity: 85000, water: 50000, due: date(-20), paid: true },
-            { id: 'HĐ001', month: date(-64).slice(0, 7), room: 1500000, electricity: 90000, water: 50000, due: date(-50), paid: false }
+            { id: 'HĐ003', month: date(0).slice(0, 7), due: date(7), paid: false, items: [
+                { id: 'HĐ003-01', code: 'ROOM', name: 'Tiền phòng', amount: 1500000, status: 'UNPAID' },
+                { id: 'HĐ003-02', code: 'ELECTRICITY', name: 'Tiền điện', amount: 100000, status: 'UNPAID', note: 'Chỉ số 120 → 150' },
+                { id: 'HĐ003-03', code: 'WATER', name: 'Tiền nước', amount: 50000, status: 'UNPAID' },
+                { id: 'HĐ003-04', code: 'INTERNET', name: 'Internet', amount: 30000, status: 'UNPAID' },
+                { id: 'HĐ003-05', code: 'CLEANING', name: 'Vệ sinh', amount: 20000, status: 'UNPAID' }
+            ] },
+            { id: 'HĐ002', month: date(-32).slice(0, 7), due: date(-20), paid: true, items: [
+                { id: 'HĐ002-01', code: 'ROOM', name: 'Tiền phòng', amount: 1500000, status: 'PAID' },
+                { id: 'HĐ002-02', code: 'ELECTRICITY', name: 'Tiền điện', amount: 85000, status: 'PAID' },
+                { id: 'HĐ002-03', code: 'WATER', name: 'Tiền nước', amount: 50000, status: 'PAID' }
+            ] },
+            { id: 'HĐ001', month: date(-64).slice(0, 7), due: date(-50), paid: false, items: [
+                { id: 'HĐ001-01', code: 'ROOM', name: 'Tiền phòng', amount: 1500000, status: 'UNPAID' },
+                { id: 'HĐ001-02', code: 'ELECTRICITY', name: 'Tiền điện', amount: 90000, status: 'UNPAID' },
+                { id: 'HĐ001-03', code: 'WATER', name: 'Tiền nước', amount: 50000, status: 'UNPAID' },
+                { id: 'HĐ001-04', code: 'PENALTY', name: 'Phí phạt/hư hỏng', amount: 100000, status: 'UNPAID', note: 'Hư khóa cửa phòng' }
+            ] }
         ],
         payments: [
             { id: 'GD001', invoiceId: 'HĐ002', date: date(-22), amount: 1635000, method: 'Online · Ngân hàng (demo)', status: 'Thành công' }

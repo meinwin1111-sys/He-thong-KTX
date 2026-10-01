@@ -45,5 +45,9 @@ PRINT N'=== Migration 010 ==='
 GO
 :r db/migrations/010_fixes.sql
 GO
+PRINT N'=== Migration 011 ==='
+GO
+:r db/migrations/011_align_student_request_type_check.sql
+GO
 PRINT N'=== Hết run_all (master seed chạy riêng: db/seed/run_master.sql) ==='
 GO

@@ -1,2 +1,10 @@
 ﻿node_modules/
 .env
+/dist/
+server_out.txt
+server_err.txt
+_extract/
+_extract_samples.ps1
+_extract_schema.ps1
+_schema_extract.txt
+KTX_Group3.sql

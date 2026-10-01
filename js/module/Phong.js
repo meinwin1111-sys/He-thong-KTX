@@ -35,7 +35,7 @@ function updateRoomStats() {
 /** 1. Tải dữ liệu từ Backend API */
 async function loadPhong(type) {
     try {
-        const response = await fetch(`${BASE_URL}/api/${type}`);
+        const response = await ApiClient.fetch(`${BASE_URL}/api/${type}`);
         if (!response.ok) throw new Error("Không thể kết nối Backend");
         const data = await response.json();
         console.log("Dữ liệu nhận được:", data);
@@ -46,8 +46,7 @@ async function loadPhong(type) {
             updateRoomStats();
         }
     } catch (err) {
-        console.error("Lỗi:", err);
-        showToast("Không kết nối được đến cơ sở dữ liệu", "error"); // Đồng nhất thông báo lỗi
+        showToast(err.message || "Không thể tải danh sách phòng.", "error");
         rawPhong = [];
         filterData();
     }
@@ -186,7 +185,7 @@ async function showRoomDetail(roomName) {
         studentTable.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500 text-sm">Đang truy xuất dữ liệu...</td></tr>`;
 
         try {
-            const response = await fetch(`${BASE_URL}/api/SinhVien/Phong/${roomName}`);
+            const response = await ApiClient.fetch(`${BASE_URL}/api/SinhVien/Phong/${roomName}`);
             if (!response.ok) throw new Error("Lỗi API");
 
             const students = await response.json();
@@ -321,6 +320,16 @@ function openAddRoom() {
     toggleModal("addRoomModal");
 }
 
+async function getRoomApiErrorMessage(response, fallback) {
+    const text = await response.text();
+    try {
+        const body = JSON.parse(text);
+        return body.message || fallback;
+    } catch {
+        return text || fallback;
+    }
+}
+
 /** Gửi dữ liệu POST */
 async function saveNewRoom(event) {
     if (event) event.preventDefault();
@@ -339,20 +348,20 @@ async function saveNewRoom(event) {
     };
 
     try {
-        const response = await fetch(`${BASE_URL}/api/Phong`, {
+        const response = await ApiClient.fetch(`${BASE_URL}/api/Phong`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(roomData)
         });
 
-        if (!response.ok) throw new Error("Lỗi Server");
+        if (!response.ok) throw new Error(await getRoomApiErrorMessage(response, "Lỗi Server"));
 
         showToast("Thêm phòng mới thành công!", "success");
         toggleModal('addRoomModal');
         loadPhong('Phong'); // Refresh lại danh sách phòng
 
     } catch (err) {
-        showToast("Không thể lưu dữ liệu!", "error");
+        showToast(err.message || "Không thể lưu dữ liệu!", "error");
         console.error(err);
     }
 }
@@ -558,7 +567,7 @@ async function updateRoomData(event) {
 
     try {
         // 5. Gửi yêu cầu với URL đã được mã hóa Unicode cho TenPhong
-        const response = await fetch(`${BASE_URL}/api/Phong/${encodeURIComponent(id)}`, {
+        const response = await ApiClient.fetch(`${BASE_URL}/api/Phong/${encodeURIComponent(id)}`, {
             method: "PUT",
             headers: {
                 "Content-Type": "application/json"
@@ -568,9 +577,7 @@ async function updateRoomData(event) {
 
         // 6. Xử lý phản hồi từ Server
         if (!response.ok) {
-            // Đọc thông báo lỗi thật từ SQL (ví dụ lỗi CHECK Constraint)
-            const errorMsg = await response.text();
-            throw new Error(errorMsg || "Lỗi Server khi cập nhật");
+            throw new Error(await getRoomApiErrorMessage(response, "Lỗi Server khi cập nhật"));
         }
 
         // Đọc phản hồi thành công (Text: "Cập nhật phòng thành công")
@@ -587,8 +594,7 @@ async function updateRoomData(event) {
         console.error("Thông điệp:", err.message);
         console.log("Dữ liệu gây lỗi:", { roomName: id, LoaiPhong: roomData.LoaiPhong });
 
-        // // Hiển thị thông báo lỗi cụ thể cho người dùng
-        // showToast("Lỗi: " + err.message, "error");
+        showToast(err.message || "Không thể cập nhật phòng.", "error");
     }
 
     // Load lại danh sách để thấy thay đổi (đặc biệt là chữ "Nữ" hoặc "N?")

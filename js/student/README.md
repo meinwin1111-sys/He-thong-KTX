@@ -4,34 +4,37 @@ Open Admin.html on localhost or Live Server and choose the registration link. Re
 
 Required: name, student code, birthday, gender, mobile phone, Gmail, school, class, password and confirmation. Address is optional. Passwords require at least 8 characters. Student code and Gmail must be unique among stored Student accounts. Phone accepts Vietnamese mobile numbers (10 digits or +84). Future and invalid birthdays are rejected.
 
-- auth.js: mock account/profile storage and 24-hour session. Keys: ktx.student.mock.accounts.v1 and ktx.student.mock.session.v1.
+- auth.js: registered demo account/profile storage and 24-hour demo session; backend-linked Sinh viên accounts use the API JWT session instead.
 - DangKy.js: two-column registration form; single column on small screens.
-- data.js: loads the signed-in profile. Other residence records remain sample data.
+- data.js: contains isolated demo data only; database-linked pages use root API responses instead.
 - ThongTinCaNhan.js: displays all registered profile fields.
 - app.js: routes, account dropdown and demo interactions.
 - Other screen files and helpers.js retain their existing responsibilities.
 
-Old registered accounts are retained; missing profile fields display an unavailable label. The original demo student@ktx.com / 123456 remains supported. New registrations require 8-character passwords.
+Registered accounts are retained; missing profile fields display an unavailable label. There is no preconfigured demo password. Register a Student demo account before signing in. New registrations require 8-character passwords.
 
-This is local demo authentication, not Gmail verification. Credentials are stored locally; use test passwords only. Student account emails use the mock branch; other emails continue through the unchanged Admin API. Do not register a real Admin email as a Student demo account. Logout removes only the Student session. Payment and password-change pages remain UI demos.
+Demo registration is local and does not verify Gmail; use test passwords only. Quản lý and database-linked Sinh viên accounts sign in through `POST /api/login` and receive role-scoped JWT sessions. A demo Student session never grants API access. A backend-linked Student session reads profile, room, contracts, requests, password changes, invoices, payment history, shared rules, and contact from the root API. Registration remains demo-only and cannot create a database account.
 
-## Invoice payments — shared DEMO / SANDBOX
+## Invoice payments — DEMO / SANDBOX
 
-Open both Admin.html and Student.html through the same localhost/HTTPS origin in the same browser profile. Use a browser supporting Web Locks (current Chrome/Edge/Firefox). File URLs are not supported for demo payment writes. Student authentication and the Admin login/API remain unchanged.
+Demo Student accounts may still use the browser-only payment sandbox. It does not update the database or process real money. Database-linked Student accounts see only their own invoices and payment history from the API. Opening the QR first creates an online payment request; it remains `PENDING` until a signed bank notification verifies the exact outstanding amount. Cash requests remain `PENDING` until Quản lý confirms receipt in Hóa đơn.
 
-- Online: choose an unpaid/overdue invoice → Thanh toán online → inspect its QR → DEMO · Giả lập thanh toán thành công → confirm. This simulates a SUCCESS result locally, immediately marks that invoice PAID, creates a DEMO-date-UUID receipt and reduces debt. There is no Admin approval or bank call.
-- QR contains JSON with invoiceId, studentId, amount and paymentContent (`KTX [invoiceId] [studentId]`). The amount comes from that invoice's remainingAmount, totalAmount, or room/electricity/water sum. Opening/scanning QR changes nothing. No bank details are invented.
-- Cash: choose Thanh toán tiền mặt → Đăng ký thanh toán tiền mặt → confirm. The invoice becomes WAITING_CASH; debt and successful history stay unchanged.
-- Admin: Duyệt & Kiểm soát → Thanh toán Student · DEMO / SANDBOX → Xác nhận thu tiền mặt. Confirm receipt of the shown amount/student/invoice to mark PAID and create a CASH-date-UUID receipt with the Admin identity. Lịch sử thanh toán in this area shows both Online and Tiền mặt.
-- UNPAID/OVERDUE can start payment. WAITING_CASH blocks both another cash request and online payment. PAID cannot be paid again. No cash cancellation is implemented.
+- Student chọn từng hạng mục trên hóa đơn (danh sách `invoice.items`, không hard-code loại phí). Có checkbox “Chọn tất cả” theo hóa đơn và trên toàn trang. Thanh sticky hiển thị số hạng mục / tổng tiền rồi mới bấm thanh toán.
+- Online: Thanh toán online (QR) → kiểm tra QR đúng các hạng mục đã chọn → DEMO · Giả lập thanh toán thành công → xác nhận. Mô phỏng SUCCESS tại chỗ, đánh dấu đúng item đó là PAID, tạo biên nhận `DEMO-date-UUID` kèm danh sách hạng mục và giảm công nợ tương ứng. Không cần Admin và không gọi ngân hàng. Mở/quét QR không đổi dữ liệu.
+- QR chứa JSON `{ studentId, amount, paymentContent, items: [{ invoiceId, itemId, amount }] }`. `paymentContent` dạng `KTX [mã SV] [mã tham chiếu ngắn]`. Nếu payload quá lớn, QR chỉ còn mã tham chiếu + tổng tiền; danh sách hạng mục vẫn hiện trong modal. Không invent thông tin ngân hàng.
+- Tiền mặt: chọn hạng mục → Thanh toán tiền mặt → Đăng ký. Các item chuyển `WAITING_CASH` (khóa, không trả online/trả trùng); công nợ và lịch sử thành công chưa đổi.
+- Quản lý: Duyệt & Kiểm soát reads and processes database-backed requests; invoice rows show payment history from `GET /api/payments/history?MaHoaDon=...`; Quản lý can confirm or reject pending cash requests. Pending QR transfers are audit-only and become successful only after a signed bank notification verifies them. The Management dashboard manages shared rules and support contact details; Sinh viên can only read these through `GET /api/noi-quy` and `GET /api/lien-he`.
+- Trạng thái hóa đơn suy ra từ item: tất cả PAID → PAID; có item PAID nhưng chưa hết → PARTIAL (“Đã thanh toán một phần”); mọi item còn nợ đều WAITING_CASH → WAITING_CASH; còn lại quá hạn → OVERDUE, chưa hạn → UNPAID.
 
-`js/payment-demo.js` stores one ledger per student under `ktx.billing.demo.v1.[encoded student code]`. Each ledger contains invoices, cash requests and receipts, committed together with one localStorage write. Existing mock invoices and successful history seed the ledger only on first use. Invoice IDs may repeat between students; the student code scopes every operation. Web Locks serialize updates across tabs; each write rechecks the persisted invoice status. Failed storage writes do not change the displayed invoice to PAID. Corrupt stored records are reported instead of silently overwritten.
+`js/payment-demo.js` stores a demo ledger per Student in localStorage. It is strictly separate from the API-backed invoice/history view and must not be treated as a real payment record.
 
-Both screens read this same ledger. Storage events refresh other open tabs; returning focus also refreshes data. Reloading and signing out preserve payments. A different browser/profile/device/origin has independent data; clearing site storage deletes demo records. Admin sees a student's demo ledger after that student first opens the Student page. Browser storage is user-editable and is not a production payment or authorization boundary.
+Demo Student payment state is browser-local and is not loaded by the Admin app. Demo refresh events and checkbox selections apply only to that demo path.
 
-Only this new Student payment flow and its Admin confirmation/history area use the shared demo ledger. The existing Admin invoice module continues to call its real API/database unchanged. Its totals/reports do not include these demo transactions. Older sample approval/history rows remain in Duyệt & Kiểm soát as separate sample data. No database schema, backend, login or authentication files are changed.
+The Admin invoice history and database-linked Student invoice/history views use the existing `GiaoDichThanhToan`, `ChiTietGiaoDich`, and `ChiTietHoaDon` tables. Student list/detail/history and payment-request creation are scoped to the `MaSinhVien` bound to the signed JWT. Bank notification verification and cash confirmation atomically update the transaction and its unpaid invoice items. A Student's click only reads the online transaction status and never confirms payment.
 
-`payment-config.js` remains in demo mode with empty bank fields. Changing the mode alone does not enable real payment. `vendor/qrcode.js` is qrcode-generator 1.4.4 (Kazuhiko Arase, MIT), bundled locally; invoice data is not sent to an external QR service.
+Set `PAYMENT_BANK_BIN`, `PAYMENT_BANK_ACCOUNT_NO`, and `PAYMENT_BANK_ACCOUNT_NAME` in the local `.env` to enable QR transfer; `.env.example` contains placeholders only. Configure `PAYMENT_WEBHOOK_SECRET` for the trusted bank/payment-provider adapter to enable signed transfer notifications. See [PAYMENT_WEBHOOK.md](../../PAYMENT_WEBHOOK.md) for the endpoint and HMAC format. The QR payload is generated locally in the backend and rendered locally in the browser. `vendor/qrcode.js` is qrcode-generator 1.4.4 (Kazuhiko Arase, MIT), running locally.
 
 Run checks: `node --test js/student/billing.test.cjs`.
-Coverage: selected QR payload, SUCCESS/receipt/debt, cash waiting/Admin receipt, refresh persistence, duplicate and concurrent writes, student isolation, storage failure and preservation of existing paid history.
+Coverage: QR đúng item đã chọn, thanh toán một phần / toàn bộ / xuyên hóa đơn, SUCCESS/biên nhận/công nợ, tiền mặt khóa item, Admin xác nhận/từ chối, refresh, trả trùng và ghi đồng thời, cách ly sinh viên, lỗi storage, migration ledger cũ.
+
+The bank notification endpoint is an application-side contract; it does not connect directly to a bank. A trusted provider adapter must securely forward signed verified-transfer events. Without that adapter and secret configuration, online requests stay `PENDING`; never use the browser-only demo "simulate success" flow to record a real payment.

@@ -3,8 +3,15 @@
     const data = ui.repository.data;
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const money = value => value.toLocaleString('vi-VN', { style: 'currency', currency: 'VND' });
-    const date = value => value.split('-').reverse().join('/');
-    const total = invoice => invoice.room + invoice.electricity + invoice.water;
+    const date = value => {
+        const normalized = typeof value === 'string' ? value.slice(0, 10) : '';
+        return /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+            ? normalized.split('-').reverse().join('/')
+            : '—';
+    };
+    const total = invoice => Array.isArray(invoice.items)
+        ? invoice.items.reduce((sum, item) => sum + Number(item.amount || 0), 0)
+        : Number(invoice.room) + Number(invoice.electricity) + Number(invoice.water);
     const badge = status => `<span class="st-badge ${['Đã duyệt', 'Đã thanh toán', 'Đang hiệu lực'].includes(status) ? 'st-success' : status === 'Từ chối' ? 'st-danger' : 'st-warning'}">${esc(status)}</span>`;
     const fields = entries => `<dl class="st-fields">${entries.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`;
     const card = (title, content) => `<article class="st-card"><h2>${title}</h2>${content}</article>`;
