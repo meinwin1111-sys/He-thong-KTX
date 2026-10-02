@@ -3,6 +3,7 @@
     const USER_KEY = "ktx.currentUser";
     const STUDENT_TOKEN_KEY = "ktx.student.accessToken";
     const STUDENT_USER_KEY = "ktx.student.currentUser";
+    const NGROK_HOST_SUFFIXES = [".ngrok-free.dev", ".ngrok-free.app", ".ngrok.app", ".ngrok.io"];
     const configuredApiBaseUrl = window.KTX_CONFIG && window.KTX_CONFIG.apiBaseUrl;
     const API_BASE_URL = typeof configuredApiBaseUrl === "string" && configuredApiBaseUrl.trim()
         ? configuredApiBaseUrl.trim().replace(/\/+$/, "")
@@ -85,6 +86,10 @@
         const session = readSession() || readStudentSession();
         const isApi = url.origin === API_BASE_URL && url.pathname.startsWith("/api/");
         const isLogin = url.pathname === "/api/login";
+
+        if (isApi && NGROK_HOST_SUFFIXES.some(suffix => url.hostname.endsWith(suffix))) {
+            headers.set("ngrok-skip-browser-warning", "true");
+        }
 
         if (isApi && !isLogin && session) {
             headers.set("Authorization", `Bearer ${session.token}`);

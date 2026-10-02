@@ -58,7 +58,7 @@ const dbConfig = {
 const app = express();
 
 const allowedCorsOrigins = new Set(
-    (process.env.CORS_ALLOWED_ORIGINS || "")
+    (process.env.CORS_ALLOWED_ORIGINS || process.env.CORS_ORIGIN || "")
         .split(",")
         .map(origin => origin.trim())
         .filter(Boolean)
@@ -78,8 +78,9 @@ const allowedCorsOrigins = new Set(
 
 app.use(cors({
     origin(origin, callback) {
-        callback(null, !origin || allowedCorsOrigins.has(origin));
-    }
+        callback(null, !origin || allowedCorsOrigins.size === 0 || allowedCorsOrigins.has(origin));
+    },
+    allowedHeaders: ["Content-Type", "Authorization", "ngrok-skip-browser-warning"]
 }));
 app.use(express.json());
 app.use("/js", express.static(path.join(__dirname, "js"), { dotfiles: "deny", index: false }));
