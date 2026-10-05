@@ -7,7 +7,7 @@
     const backendStudent = () => window.StudentAuth?.session()?.isBackend;
     const formatDate = value => value ? date(String(value).slice(0, 10)) : 'Chưa có dữ liệu';
     const renderBackendDashboard = () => `<div class="student-home-dashboard">
-        <section class="sh-welcome"><div><h2>Xin chào, ${esc(data.profile?.name || 'Sinh viên')} 👋</h2><p>Đây là thông tin lưu trú của bạn tại Ký túc xá.</p></div><div class="sh-welcome-art"><blockquote>Chúc bạn có một năm học thật nhiều trải nghiệm và thành công!</blockquote><img data-campus-banner src="${window.KTX_IMAGE_PATHS?.banyan || 'files/cay-bang.webp'}" alt="Tán cây bàng xanh trong khuôn viên ký túc xá" loading="eager"></div></section>
+        <section class="sh-welcome"><div class="sh-welcome-copy"><h2>Xin chào, ${esc(data.profile?.name || 'Sinh viên')} 👋</h2><p>Đây là thông tin lưu trú của bạn tại Ký túc xá.</p></div><blockquote class="sh-welcome-quote">Chúc bạn có một năm học thật nhiều trải nghiệm và thành công!</blockquote><div class="sh-welcome-art"><img data-campus-banner src="${window.KTX_IMAGE_PATHS?.banyan || 'files/cay-bang.webp'}" alt="Tán cây bàng xanh trong khuôn viên ký túc xá" loading="eager"></div></section>
         <p data-dashboard-error class="st-notice" role="alert" hidden></p>
         <div class="sh-overview">
             <a class="sh-stat sh-stat-0" href="#room"><span class="sh-icon"><i class="fa-solid fa-bed" aria-hidden="true"></i></span><div class="sh-stat-copy"><span>Phòng hiện tại</span><strong data-dashboard-room>Đang tải...</strong><span class="sh-status" data-dashboard-room-hint></span><small>Xem chi tiết →</small></div><i class="fa-solid fa-bed sh-watermark" aria-hidden="true"></i></a>
@@ -53,7 +53,7 @@
         const warning = hasContract && days <= 30 ? `<p class="st-notice ${days < 0 ? 'st-contract-expired' : ''}" role="status">⚠ ${days < 0 ? 'Hợp đồng lưu trú của bạn đã hết hạn.' : `Hợp đồng lưu trú của bạn sắp hết hạn vào ngày ${esc(date(contract.end))}. Còn ${days} ngày.`} <a href="#contract">Xem hợp đồng →</a></p>` : '';
         const overdue = summary.overdue;
         return `<div class="student-home-dashboard">
-            <section class="sh-welcome"><div><h2>Xin chào, ${esc(data.profile?.name || 'Sinh viên')} 👋</h2><p>Đây là thông tin lưu trú của bạn tại Ký túc xá.</p></div><div class="sh-welcome-art"><blockquote>Chúc bạn có một năm học thật nhiều trải nghiệm và thành công!</blockquote><img data-campus-banner src="${window.KTX_IMAGE_PATHS?.banyan || 'files/cay-bang.webp'}" alt="Tán cây bàng xanh trong khuôn viên ký túc xá" loading="eager"></div></section>
+            <section class="sh-welcome"><div class="sh-welcome-copy"><h2>Xin chào, ${esc(data.profile?.name || 'Sinh viên')} 👋</h2><p>Đây là thông tin lưu trú của bạn tại Ký túc xá.</p></div><blockquote class="sh-welcome-quote">Chúc bạn có một năm học thật nhiều trải nghiệm và thành công!</blockquote><div class="sh-welcome-art"><img data-campus-banner src="${window.KTX_IMAGE_PATHS?.banyan || 'files/cay-bang.webp'}" alt="Tán cây bàng xanh trong khuôn viên ký túc xá" loading="eager"></div></section>
             <div class="sh-overview">${[
                 ['Phòng hiện tại', roomLabel, 'room', 'fa-bed'],
                 ['Hợp đồng', status, 'contract', 'fa-file-contract'],
