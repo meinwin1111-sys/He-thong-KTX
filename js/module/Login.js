@@ -71,24 +71,41 @@ async function authenticateLogin(email, password) {
 
 
         const data = await response.json();
+        const account = data?.user;
+        if (!data || typeof data !== "object"
+            || typeof data.token !== "string" || !data.token.trim()
+            || !account || typeof account !== "object"
+            || account.MaTaiKhoan === undefined || account.MaTaiKhoan === null
+            || !["Quản lý", "Sinh viên"].includes(account.VaiTro)) {
+            return {
+                success: false,
+                message: "Email hoặc mật khẩu không đúng.",
+                status: 0,
+            };
+        }
         return {
             success: true,
             token: data.token,
             user: {
-                id: data.user.MaTaiKhoan,
-                username: data.user.TenDangNhap || data.user.Email || "",
-                email: data.user.Email || "",
-                fullName: data.user.TenHienThi || "",
-                phone: data.user.SoDienThoai || "",
-                studentId: data.user.MaSinhVien || "",
-                role: data.user.VaiTro || "",
+                id: account.MaTaiKhoan,
+                username: account.TenDangNhap || account.Email || "",
+                email: account.Email || "",
+                fullName: account.TenHienThi || "",
+                phone: account.SoDienThoai || "",
+                studentId: account.MaSinhVien || "",
+                role: account.VaiTro,
             },
         };
     } catch (error) {
+        const status = Number.isInteger(error?.status) ? error.status : 0;
         return {
             success: false,
-            message: error.message || "Không thể đăng nhập. Vui lòng thử lại.",
-            status: error.status || 0,
+            message: status === 401
+                ? "Email hoặc mật khẩu không đúng."
+                : status === 429
+                    ? "Quá nhiều lần đăng nhập không thành công. Vui lòng thử lại sau."
+                    : "Không thể đăng nhập. Vui lòng thử lại.",
+            status,
         };
     }
 }
@@ -131,7 +148,7 @@ function renderLoginModule() {
                 </div>
                 <figure class="login-campus">
                     <figcaption>Ký túc xá – Ngôi nhà thứ hai của bạn</figcaption>
-                    <img src="files/campus-dashboard.svg" alt="Minh họa khu ký túc xá với các tòa nhà và cây xanh" width="700" height="240">
+                    <img src="${window.KTX_IMAGE_PATHS?.dormitory || 'files/ky-tuc-xa.webp'}" alt="Khu ký túc xá với tòa nhà và cây xanh" width="700" height="240" loading="eager">
                 </figure>
             </aside>
             <div class="login-form-panel">
@@ -146,7 +163,7 @@ function renderLoginModule() {
                             <label for="loginEmail">Email</label>
                             <div class="login-input-wrap">
                                 <i class="fa-regular fa-envelope login-input-icon" aria-hidden="true"></i>
-                                <input type="text" id="loginEmail" name="email" placeholder="Nhập email" autocomplete="username" aria-describedby="loginEmailError">
+                                <input type="email" id="loginEmail" name="email" placeholder="Nhập email" autocomplete="username" aria-describedby="loginEmailError" required>
                             </div>
                             <p id="loginEmailError" class="login-error hidden" aria-live="polite"></p>
                         </div>
@@ -154,7 +171,7 @@ function renderLoginModule() {
                             <label for="loginPassword">Mật khẩu</label>
                             <div class="login-input-wrap">
                                 <i class="fa-solid fa-lock login-input-icon" aria-hidden="true"></i>
-                                <input type="password" id="loginPassword" name="password" placeholder="Nhập mật khẩu" autocomplete="current-password" aria-describedby="loginPasswordError">
+                                <input type="password" id="loginPassword" name="password" placeholder="Nhập mật khẩu" autocomplete="current-password" aria-describedby="loginPasswordError" required>
                                 <button type="button" id="toggleLoginPassword" aria-label="Hiện hoặc ẩn mật khẩu"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>
                             </div>
                             <p id="loginPasswordError" class="login-error hidden" aria-live="polite"></p>
@@ -171,6 +188,9 @@ function renderLoginModule() {
         </section>
     `;
 
+    main.querySelector(".login-campus img")?.addEventListener("error", event => {
+        event.currentTarget.hidden = true;
+    }, { once: true });
     bindLoginEvents();
 }
 
@@ -215,6 +235,7 @@ function bindLoginEvents() {
 
 
         input.classList.remove("input-error");
+        input.setAttribute("aria-invalid", "false");
 
 
         errorElement.textContent = "";
@@ -227,6 +248,7 @@ function bindLoginEvents() {
 
 
         input.classList.add("input-error");
+        input.setAttribute("aria-invalid", "true");
 
 
         errorElement.textContent = message;
@@ -237,6 +259,8 @@ function bindLoginEvents() {
     function markBothFieldsAsInvalid(message) {
         emailInput.classList.add("input-error");
         passwordInput.classList.add("input-error");
+        emailInput.setAttribute("aria-invalid", "true");
+        passwordInput.setAttribute("aria-invalid", "true");
 
 
         emailError.textContent = "";
@@ -273,6 +297,10 @@ function bindLoginEvents() {
         }
 
 
+        if (!valid) {
+            if (!email || !isValidEmail(email)) emailInput.focus();
+            else passwordInput.focus();
+        }
         return valid;
     }
 
@@ -308,8 +336,10 @@ function bindLoginEvents() {
         }
 
 
-        if (!result.success) {
-            if (result.status === 401 && window.StudentAuth?.isStudentEmail(email)) {
+        if (!result.success || !result.user || !result.token) {
+            if (result.status === 401 &&
+                window.KTX_CONFIG?.allowStudentDemoAuth === true &&
+                window.StudentAuth?.isStudentEmail(email)) {
                 try {
                     StudentAuth.login(email, password);
                     window.location.assign("Student.html#home");
@@ -319,7 +349,7 @@ function bindLoginEvents() {
                     return;
                 }
             }
-            markBothFieldsAsInvalid(result.message);
+            markBothFieldsAsInvalid(result.message || "Không thể đăng nhập. Vui lòng thử lại.");
             return;
         }
 
@@ -330,7 +360,7 @@ function bindLoginEvents() {
                 markBothFieldsAsInvalid(error.message);
                 return;
             }
-            window.location.assign("Student.html#invoices");
+            window.location.assign("Student.html#home");
             return;
         }
 

@@ -1,19 +1,19 @@
 # Student Front-end
 
-Open Admin.html on localhost or Live Server and choose the registration link. Register with a Gmail address and complete your personal profile. No mock roster matching is required. Sign in using the new Gmail and password.
+Open Admin.html on localhost or Live Server and choose the registration link. Submit a Gmail address and complete the profile. New applications are stored by `POST /api/student/register` with a bcrypt hash and remain pending until a manager approves them in the `Đăng ký sinh viên` tab under `Duyệt & Kiểm soát`. The approval API creates the linked `SinhVien` and `TaiKhoan` rows atomically; only then can the new account sign in.
 
-Required: name, student code, birthday, gender, mobile phone, Gmail, school, class, password and confirmation. Address is optional. Passwords require at least 8 characters. Student code and Gmail must be unique among stored Student accounts. Phone accepts Vietnamese mobile numbers (10 digits or +84). Future and invalid birthdays are rejected.
+Required: name, student code, birthday, gender, mobile phone, email, school, class, password and confirmation. Address is optional. Birthday is entered as `dd/mm/yyyy` and converted to ISO before submission. Passwords require at least 8 characters (and at most 72 UTF-8 bytes for bcrypt). Student code and email must not already exist or have another pending application. Phone accepts Vietnamese mobile numbers (10 digits or +84). Invalid, future, and unreasonable-age birthdays are rejected by both client and server.
 
-- auth.js: registered demo account/profile storage and 24-hour demo session; backend-linked Sinh viên accounts use the API JWT session instead.
+- auth.js: backend-linked Sinh viên accounts use an API JWT session. Legacy local demo credentials and residence/payment data are removed once when the Student auth script loads.
 - DangKy.js: two-column registration form; single column on small screens.
 - data.js: contains isolated demo data only; database-linked pages use root API responses instead.
 - ThongTinCaNhan.js: displays all registered profile fields.
 - app.js: routes, account dropdown and demo interactions.
 - Other screen files and helpers.js retain their existing responsibilities.
 
-Registered accounts are retained; missing profile fields display an unavailable label. There is no preconfigured demo password. Register a Student demo account before signing in. New registrations require 8-character passwords.
+Missing profile fields display an unavailable label. Browser demo login is disabled by default. To explicitly enable the legacy demo authentication in a local development frontend build only, set `KTX_ENABLE_STUDENT_DEMO=true`; Vercel builds always keep it disabled. Production login never falls back to local demo credentials.
 
-Demo registration is local and does not verify Gmail; use test passwords only. Quản lý and database-linked Sinh viên accounts sign in through `POST /api/login` and receive role-scoped JWT sessions. A demo Student session never grants API access. A backend-linked Student session reads profile, room, contracts, requests, password changes, invoices, payment history, shared rules, and contact from the root API. Registration remains demo-only and cannot create a database account.
+Quản lý and approved database-linked Sinh viên accounts sign in through `POST /api/login` and receive role-scoped JWT sessions. A demo Student session never grants API access. A backend-linked Student session reads profile, room, contracts, requests, password changes, invoices, payment history, shared rules, and contact from the root API. The registration approval schema is in `db/migrations/011_student_registration_approval.sql`; review and run it after its documented prerequisite migrations before deploying the new endpoints.
 
 ## Invoice payments — DEMO / SANDBOX
 
