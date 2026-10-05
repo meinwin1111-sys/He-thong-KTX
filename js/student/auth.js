@@ -54,8 +54,78 @@
         return { date, iso };
     }
 
+    function formatDateInput(value, caretPosition = String(value || '').length, { backspace = false, inputType = '' } = {}) {
+        let source = String(value || '');
+        let caret = Math.max(0, Math.min(Number(caretPosition) || 0, source.length));
+        if (backspace && caret > 0 && source[caret - 1] === '/') {
+            const slashIndex = caret - 1;
+            const groups = source.split('/').slice(0, 3).map(group => group.replace(/\D/g, ''));
+            const groupIndex = source.slice(0, slashIndex).split('/').length - 1;
+            if (groupIndex < groups.length && groups[groupIndex]) {
+                groups[groupIndex] = groups[groupIndex].slice(0, -1);
+                const limits = [2, 2, 4];
+                const formatted = groups.map((group, index) => group.slice(0, limits[index])).join('/');
+                const selectionStart = groups.slice(0, groupIndex + 1).reduce((total, group) => total + group.length, groupIndex);
+                return { value: formatted, selectionStart };
+            }
+        }
+
+        const digitsBeforeCaret = source.slice(0, caret).replace(/\D/g, '').length;
+        const digits = source.replace(/\D/g, '').slice(0, 8);
+        const formatted = digits.length > 4
+            ? `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`
+            : digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits;
+        const targetDigit = Math.min(digitsBeforeCaret, digits.length);
+        let selectionStart = 0;
+        let seenDigits = 0;
+        while (selectionStart < formatted.length && seenDigits < targetDigit) {
+            if (/\d/.test(formatted[selectionStart])) seenDigits++;
+            selectionStart++;
+        }
+        if (/^insert/.test(inputType) && [2, 4].includes(targetDigit) && formatted[selectionStart] === '/') {
+            selectionStart++;
+        }
+        return { value: formatted, selectionStart };
+    }
+
+    function bindDateInput(input) {
+        let keepBackspaceFormat = false;
+        input.addEventListener('input', event => {
+            if (keepBackspaceFormat) {
+                keepBackspaceFormat = false;
+                return;
+            }
+            const result = formatDateInput(input.value, input.selectionStart, { inputType: event.inputType });
+            if (input.value !== result.value) input.value = result.value;
+            input.setSelectionRange(result.selectionStart, result.selectionStart);
+        });
+        input.addEventListener('keydown', event => {
+            if (event.key !== 'Backspace' || input.selectionStart !== input.selectionEnd
+                || input.value[input.selectionStart - 1] !== '/') return;
+            event.preventDefault();
+            const result = formatDateInput(input.value, input.selectionStart, { backspace: true });
+            input.value = result.value;
+            input.setSelectionRange(result.selectionStart, result.selectionStart);
+            keepBackspaceFormat = true;
+            input.dispatchEvent(new Event('input', { bubbles: true, inputType: 'deleteContentBackward' }));
+        });
+        input.addEventListener('paste', event => {
+            event.preventDefault();
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            const pasted = event.clipboardData.getData('text');
+            const value = input.value.slice(0, start) + pasted + input.value.slice(end);
+            const result = formatDateInput(value, start + pasted.length, { inputType: 'insertFromPaste' });
+            input.value = result.value;
+            input.setSelectionRange(result.selectionStart, result.selectionStart);
+            input.dispatchEvent(new Event('input', { bubbles: true, inputType: 'insertFromPaste' }));
+        });
+    }
+
     window.StudentDate = Object.freeze({
         parse: parseDate,
+        formatInput: formatDateInput,
+        bindInput: bindDateInput,
         birthDateToIso(value) {
             const parsed = parseDate(value);
             if (!parsed) throw new Error('Ngày sinh phải đúng định dạng dd/mm/yyyy.');

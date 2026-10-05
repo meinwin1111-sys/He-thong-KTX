@@ -9,6 +9,46 @@ function loadSource(file, context) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), context, { filename: file });
 }
 
+test("shared date input formatter handles typing, paste, deletion, invalid characters and digit limits", () => {
+    const context = vm.createContext({
+        localStorage: {
+            getItem() { return null; },
+            removeItem() {},
+            setItem() {},
+            get length() { return 0; },
+            key() { return null; }
+        },
+        sessionStorage: { getItem() { return null; }, removeItem() {}, setItem() {} },
+        console,
+        Date,
+        Event
+    });
+    context.window = context;
+    loadSource("js/student/auth.js", context);
+    const format = context.StudentDate.formatInput;
+
+    let state = { value: "", selectionStart: 0 };
+    for (const digit of "11112005") {
+        state = format(state.value.slice(0, state.selectionStart) + digit + state.value.slice(state.selectionStart),
+            state.selectionStart + 1, { inputType: "insertText" });
+    }
+    assert.deepEqual({ value: state.value, selectionStart: state.selectionStart }, { value: "11/11/2005", selectionStart: 10 });
+
+    for (const pasted of ["11112005", "11/11/2005", "11-11-2005"]) {
+        assert.equal(format(pasted, pasted.length, { inputType: "insertFromPaste" }).value, "11/11/2005");
+    }
+    const afterDayBackspace = format("11/11/2005", 3, { backspace: true });
+    assert.equal(afterDayBackspace.value, "1/11/2005");
+    assert.equal(afterDayBackspace.selectionStart, 1);
+    const afterMonthBackspace = format("11/11/2005", 6, { backspace: true });
+    assert.equal(afterMonthBackspace.value, "11/1/2005");
+    assert.equal(afterMonthBackspace.selectionStart, 4);
+    assert.equal(format("1a1/1-1/2005", 12).value, "11/11/2005");
+    assert.equal(format("11112005999", 11).value, "11/11/2005");
+    assert.equal(format("29/02/2023", 10).value, "29/02/2023");
+    assert.equal(context.StudentDate.parse("29/02/2023"), null);
+});
+
 test("backend Student data starts empty without creating demo data or touching browser storage", () => {
     let storageCalls = 0;
     const context = vm.createContext({

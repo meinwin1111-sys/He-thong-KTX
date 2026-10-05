@@ -27,6 +27,7 @@
             const dateField = form.querySelector('[data-extension-date]');
             const dateInput = form.elements.extensionEndDateText;
             const isoDateInput = form.elements.extensionEndDate;
+            StudentDate.bindInput(dateInput);
             const updateExtensionDate = () => {
                 isoDateInput.value = '';
                 if (!dateInput.value.trim()) {

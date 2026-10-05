@@ -24,7 +24,7 @@ function openStudentRegistration() {
         <form><div class="sr-profile-columns"><div>
             ${field('name', 'Họ và tên', 'text', 'maxlength="100" autocomplete="name"')}
             ${field('code', 'Mã sinh viên', 'text', 'maxlength="20" autocomplete="off"')}
-            ${field('birthday', 'Ngày sinh', 'text', 'maxlength="10" inputmode="numeric" autocomplete="bday" placeholder="dd/mm/yyyy"')}
+            ${field('birthday', 'Ngày sinh', 'text', 'inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" autocomplete="bday"')}
             <div class="sr-profile-field"><label for="sr-gender">Giới tính <span>*</span></label><select id="sr-gender" name="gender" required><option value="">Chọn giới tính</option><option>Nam</option><option>Nữ</option><option>Khác</option></select></div>
             ${field('phone', 'Số điện thoại', 'tel', 'maxlength="20" autocomplete="tel" placeholder="0901234567 hoặc +84901234567"')}
         </div><div>
@@ -39,6 +39,7 @@ function openStudentRegistration() {
         <div class="sr-actions"><button type="button" data-close class="sr-back">Quay lại Login</button><button type="submit" class="sr-submit">Đăng ký</button></div>
         </form></section></div>`;
     document.body.appendChild(dialog);
+    StudentDate.bindInput(dialog.querySelector('#sr-birthday'));
     dialog.addEventListener('cancel', event => {
         event.preventDefault();
         dialog.close();
