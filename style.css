@@ -537,32 +537,35 @@ body > header, #main-nav .dms-sidebar-logo { border-color: var(--theme-sidebar);
 @media (max-width: 900px) { #module-trangchu .home-columns { grid-template-columns: 1fr; } #module-trangchu .home-welcome { flex-wrap: wrap; padding: 24px; } #module-trangchu .home-clock { margin-left: 0; max-width: none; } }
 @media (max-width: 600px) { #module-trangchu .home-stats { grid-template-columns: 1fr; } }
 /* Welcome banner, scoped to Admin Home. */
-#module-trangchu .home-welcome { position: relative; isolation: isolate; overflow: hidden; min-height: 190px; align-items: flex-start; padding: 24px; background: linear-gradient(110deg, #def7ec 0%, #e2f5ee 48%, #e0f2f6 100%); border: 0; }
-#module-trangchu .home-greeting { position: relative; z-index: 2; padding-top: 4px; }
+#module-trangchu .home-welcome { position: relative; isolation: isolate; overflow: visible; min-height: 164px; align-items: center; margin-top: 76px; padding: 18px 24px; background: linear-gradient(110deg, #def7ec 0%, #e2f5ee 48%, #e0f2f6 100%); border: 0; }
+#module-trangchu .home-greeting { position: relative; z-index: 2; width: min(36%, 440px); padding-top: 4px; }
 #module-trangchu .home-greeting-row { display: flex; align-items: center; gap: 12px; }
 #module-trangchu .home-wave { display: grid; place-items: center; width: 50px; height: 52px; flex-shrink: 0; border-radius: 13px; background: rgb(255 255 255 / 75%); font-size: 30px; }
 #module-trangchu .home-welcome h2 { font-size: clamp(20px, 2.1vw, 28px); margin: 0 0 6px; letter-spacing: -.7px; }
-#module-trangchu .home-welcome .home-quote { display: inline-block; margin-top: 24px; padding: 11px 16px; background: rgb(255 255 255 / 65%); border-radius: 12px; font-size: 12px; font-style: italic; color: #475569; }
-#module-trangchu .home-campus-art { position: absolute; right: 285px; bottom: 8px; width: min(25%, 230px); height: calc(100% - 16px); border-radius: 14px; object-fit: cover; object-position: center; opacity: .72; z-index: 0; pointer-events: none; }
-#module-trangchu .home-clock { position: relative; z-index: 2; margin-left: auto; flex-shrink: 0; max-width: none; padding: 10px 16px; gap: 14px; background: rgb(255 255 255 / 78%); border: 0; border-radius: 14px; }
+#module-trangchu .home-welcome .home-quote { display: none; }
+#module-trangchu .home-campus-art { position: absolute; left: 50%; bottom: 0; z-index: 0; width: 34%; height: 164px; max-width: 480px; transform: translateX(-50%) scaleY(1.65); transform-origin: center bottom; object-fit: contain; object-position: center bottom; pointer-events: none; }
+#module-trangchu .home-clock { position: relative; z-index: 2; margin-left: auto; flex-shrink: 0; max-width: 26%; padding: 10px 16px; gap: 14px; background: rgb(255 255 255 / 78%); border: 0; border-radius: 14px; }
 #module-trangchu .home-clock > i { font-size: 20px; color: var(--theme-primary); }
 #module-trangchu .home-clock time { display: flex; align-items: center; gap: 20px; }
 #module-trangchu .home-calendar { display: flex; flex-direction: column; color: var(--theme-text); font-size: 12px; font-weight: 600; line-height: 1.5; text-transform: capitalize; }
 #module-trangchu [data-home-hour] { border-left: 1px solid #dceeea; padding-left: 20px; color: var(--theme-primary); font-size: 30px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
 @media (max-width: 1100px) {
-    #module-trangchu .home-welcome { display: grid; grid-template-columns: minmax(0, 1fr) minmax(130px, 34%); grid-template-rows: auto auto; gap: 12px; min-height: 0; }
-    #module-trangchu .home-greeting { grid-column: 1; grid-row: 1; min-width: 0; }
-    #module-trangchu .home-clock { grid-column: 1; grid-row: 2; margin: 0; justify-self: start; max-width: 100%; padding: 8px; gap: 8px; }
+    #module-trangchu .home-welcome { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; gap: 8px; min-height: 0; margin-top: 70px; padding: 16px 18px; }
+    #module-trangchu .home-greeting { grid-row: 1; width: 100%; min-width: 0; }
+    #module-trangchu .home-clock { position: relative; grid-row: 3; right: auto; bottom: auto; justify-self: end; margin: 0; max-width: min(100%, 300px); padding: 8px; gap: 8px; }
     #module-trangchu .home-clock time { gap: 8px; }
     #module-trangchu [data-home-hour] { padding-left: 8px; font-size: 22px; }
-    #module-trangchu .home-campus-art { position: relative; grid-column: 2; grid-row: 1 / span 2; right: auto; bottom: auto; width: 100%; min-width: 0; height: 150px; opacity: .9; }
+    #module-trangchu .home-campus-art { position: relative; grid-row: 2; left: auto; bottom: auto; justify-self: center; width: min(60%, 300px); height: 150px; max-width: none; transform: none; }
 }
 @media (max-width: 600px) {
-    #module-trangchu .home-welcome { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; padding: 18px; }
-    #module-trangchu .home-greeting { grid-column: 1; grid-row: 1; }
-    #module-trangchu .home-clock { grid-column: 1; grid-row: 2; }
-    #module-trangchu .home-campus-art { grid-column: 1; grid-row: 3; height: 120px; }
+    #module-trangchu .home-welcome { grid-template-rows: auto auto auto; min-height: 0; margin-top: 64px; padding: 16px; }
+    #module-trangchu .home-greeting { width: 100%; }
+    #module-trangchu .home-campus-art { width: min(82%, 280px); height: 135px; }
     #module-trangchu .home-greeting-row { align-items: flex-start; }
+}
+@media (min-width: 1101px) {
+    #module-trangchu .home-greeting { width: min(30%, 440px); }
+    #module-trangchu .home-welcome h2 { font-size: clamp(20px, 1.8vw, 24px); }
 }
 /* Student registration dialog only; shared Login/Admin layout is unchanged. */
 .student-register-dialog { padding: 0; width: min(920px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); border: 1px solid #e2e8f0; border-radius: 16px; color: var(--theme-text); background: white; box-shadow: 0 28px 90px rgb(15 23 42 / 24%); }
@@ -575,7 +578,7 @@ body > header, #main-nav .dms-sidebar-logo { border-color: var(--theme-sidebar);
 .student-register-dialog .sr-fixtures { display: flex; gap: 14px; padding: 16px; margin-top: 20px; border-radius: 12px; background: rgb(167 243 208 / 38%); color: #065f46; font-size: 12px; }
 .student-register-dialog .sr-fixtures > i { font-size: 23px; color: #059669; margin-top: 3px; }
 .student-register-dialog .sr-fixtures ul { list-style: disc; padding-left: 16px; margin-top: 8px; line-height: 1.9; }
-.student-register-dialog .sr-campus { position: absolute; bottom: 0; left: -22%; width: 144%; max-width: none; height: 230px; object-fit: cover; object-position: center bottom; pointer-events: none; }
+.student-register-dialog .sr-campus { position: absolute; bottom: 0; left: 0; width: 100%; max-width: none; height: 230px; object-fit: contain; object-position: center bottom; pointer-events: none; }
 .student-register-dialog .sr-form-panel { position: relative; padding: 30px 34px; min-width: 0; }
 .student-register-dialog .sr-form-panel h3 { font-size: 22px; font-weight: 750; padding-right: 20px; margin-bottom: 4px; }
 .student-register-dialog .sr-subtitle { color: #64748b; font-size: 13px; line-height: 1.6; margin-bottom: 20px; }
@@ -603,7 +606,7 @@ body > header, #main-nav .dms-sidebar-logo { border-color: var(--theme-sidebar);
 .sr-full-profile .sr-intro { display: flex; flex-direction: column; justify-content: center; min-width: 0; padding: 32px 24px 200px; background: linear-gradient(145deg, #ecfdf5, #d1fae5 60%, #bfdbfe); }
 .sr-full-profile .sr-intro h2 { font-size: clamp(21px, 2vw, 28px); }
 .sr-full-profile .sr-intro p { color: #334155; }
-.sr-full-profile .sr-campus { left: 0; width: 100%; height: 190px; object-fit: cover; object-position: center 58%; }
+.sr-full-profile .sr-campus { left: 0; width: 100%; height: 190px; object-fit: contain; object-position: center bottom; }
 .sr-full-profile .sr-form-panel { overflow-y: auto; max-height: min(780px, calc(100dvh - 40px)); }
 .sr-full-profile .sr-form-panel { padding: 28px 32px; }
 .sr-full-profile h2 { font-size: 24px; font-weight: 750; padding-right: 24px; margin-bottom: 8px; }
