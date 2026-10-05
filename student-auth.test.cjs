@@ -3,7 +3,10 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const express = require("express");
+const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const { createApiAuthenticationMiddleware } = require("./api-auth");
 const {
     createIpRateLimiter,
     createLoginHandler,
@@ -110,8 +113,43 @@ function createRegistrationHarness({ students = [], accounts = [] } = {}) {
         bcrypt,
         logDatabaseError: () => {}
     });
-    return { handler, state };
+    return { handler, state, sql, pool: { request: () => new sql.Request() } };
 }
+
+test("Express API keeps registration, login, and health public while protecting student profile", async t => {
+    const { state, sql, pool } = createRegistrationHarness();
+    const app = express();
+    app.use(express.json());
+    app.get("/api/health", (_req, res) => res.status(200).json({ status: "ok" }));
+    app.use("/api", createApiAuthenticationMiddleware({ jwt, getSecret: () => "integration-test-secret" }));
+    registerApiRoutes(app, { getPool: () => pool, sql, bcrypt });
+    app.post("/api/login", (_req, res) => res.status(200).json({ message: "login route is public" }));
+
+    const server = app.listen(0, "127.0.0.1");
+    t.after(() => new Promise((resolve, reject) => {
+        server.close(error => error ? reject(error) : resolve());
+    }));
+    await new Promise((resolve, reject) => {
+        server.once("listening", resolve);
+        server.once("error", reject);
+    });
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const post = (route, body) => fetch(`${baseUrl}${route}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+    });
+
+    const registration = await post("/api/student/register", validRegistration);
+    assert.equal(registration.status, 201);
+    assert.equal(state.accounts.length, 1);
+    assert.equal((await post("/api/login", {})).status, 200);
+    assert.equal((await fetch(`${baseUrl}/api/health`)).status, 200);
+
+    const profile = await fetch(`${baseUrl}/api/student/profile`);
+    assert.equal(profile.status, 401);
+    assert.equal((await profile.json()).message, "Vui lòng đăng nhập để tiếp tục.");
+});
 
 test("registration validation accepts Vietnamese phone formats and normalizes phone", () => {
     assert.equal(validateRegistration(validRegistration, now).value.phone, "0901234567");
