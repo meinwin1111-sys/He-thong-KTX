@@ -91,14 +91,18 @@ function renderHopDongModule() {
 
     <button id="tab-warning" onclick="filterHopDong('warning')"
         class="tab-item py-2 px-6 font-semibold text-slate-500 transition-all flex items-center gap-2">
-        ⚠️ Sắp hết hạn
+        Sắp hết hạn
     </button>
 </div>
 
 
 <!-- ================= TABLE ================= -->
 <div class="bg-white rounded-xl border overflow-x-auto">
-<table class="min-w-[1200px] w-full">
+<table class="min-w-[1500px] w-full table-fixed">
+<colgroup>
+    <col class="w-[140px]"><col class="w-[180px]"><col class="w-[190px]"><col class="w-[120px]">
+    <col class="w-[155px]"><col class="w-[155px]"><col class="w-[150px]"><col class="w-[150px]"><col class="w-[260px]">
+</colgroup>
 
 
 <!-- Header bảng (render bằng JS) -->
@@ -785,6 +789,7 @@ function renderTableWarning() {
 
 
     tbody.innerHTML = data.map((h) => {
+        const status = String(h.TrangThai || "").trim() || "Chưa xác định";
 
 
         let rowClass = "";
@@ -799,23 +804,23 @@ function renderTableWarning() {
         <tr class="${rowClass} ${highlight} border-t">
 
 
-            <td class="px-6 py-4 font-semibold">${h.MaHD}</td>
-            <td class="px-6 py-4">${h.MSSV}</td>
-            <td class="px-6 py-4">${h.TenSV}</td>
-            <td class="px-6 py-4">${h.TenPhong}</td>
-            <td class="px-6 py-4">${formatDate(h.NgayBatDau)}</td>
-            <td class="px-6 py-4">${formatDate(h.NgayKetThuc)}</td>
+            <td class="px-6 py-4 font-semibold whitespace-nowrap">${h.MaHD}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${h.MSSV}</td>
+            <td class="px-6 py-4 truncate" title="${h.TenSV}">${h.TenSV}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${h.TenPhong}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${formatDate(h.NgayBatDau)}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${formatDate(h.NgayKetThuc)}</td>
 
 
             <td class="px-6 py-4">
-                <span class="px-3 py-1 rounded-full text-xs font-semibold
-                    ${h.TrangThai === "Còn hiệu lực"
+                <span class="inline-flex shrink-0 items-center justify-center whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold
+                    ${status === "Còn hiệu lực"
                         ? "bg-green-100 text-green-600"
-                        : h.TrangThai === "Sắp hết hạn"
+                        : status === "Sắp hết hạn"
                             ? "bg-orange-100 text-orange-500"
-                            : "bg-slate-200 text-slate-500"
+                            : status === "Chưa xác định" ? "bg-slate-100 text-slate-600" : "bg-slate-200 text-slate-500"
                     }">
-                    ${h.TrangThai}
+                    ${status}
                 </span>
             </td>
 
@@ -827,7 +832,7 @@ function renderTableWarning() {
 
 
             <td class="px-6 py-4 text-center">
-                <div class="flex justify-center gap-2 whitespace-nowrap">
+                <div class="flex flex-wrap justify-center gap-2">
 
 
                     <button
@@ -875,6 +880,7 @@ function renderHopDongTable() {
 
 
     tbody.innerHTML = data.map((h) => {
+        const status = String(h.TrangThai || "").trim() || "Chưa xác định";
 
 
         const highlight = h.MaHD === lastUpdatedHD ? "bg-slate-200" : "";
@@ -887,45 +893,45 @@ function renderHopDongTable() {
         >
 
 
-            <td class="px-6 py-4 font-semibold">${h.MaHD}</td>
+            <td class="px-6 py-4 font-semibold whitespace-nowrap">${h.MaHD}</td>
 
 
-            <td class="px-6 py-4">${h.MSSV}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${h.MSSV}</td>
 
 
-            <td class="px-6 py-4 whitespace-normal break-words min-w-[180px]">
+            <td class="px-6 py-4 truncate" title="${h.TenSV}">
                 ${h.TenSV}
             </td>
 
 
-            <td class="px-6 py-4">${h.TenPhong}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${h.TenPhong}</td>
 
 
-            <td class="px-6 py-4">${formatDate(h.NgayBatDau)}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${formatDate(h.NgayBatDau)}</td>
 
 
-            <td class="px-6 py-4">${formatDate(h.NgayKetThuc)}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${formatDate(h.NgayKetThuc)}</td>
 
 
             <td class="px-6 py-4">
-                <span class="px-3 py-1 rounded-full text-xs font-semibold inline-block
-                    ${h.TrangThai === "Còn hiệu lực"
+                <span class="inline-flex shrink-0 items-center justify-center whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold
+                    ${status === "Còn hiệu lực"
                         ? "bg-green-100 text-green-600"
-                        : h.TrangThai === "Sắp hết hạn"
+                        : status === "Sắp hết hạn"
                             ? "bg-orange-100 text-orange-500"
-                            : "bg-slate-200 text-slate-500"
+                            : status === "Chưa xác định" ? "bg-slate-100 text-slate-600" : "bg-slate-200 text-slate-500"
                     }">
-                    ${h.TrangThai}
+                    ${status}
                 </span>
             </td>
 
 
-            <td class="px-6 py-4 text-slate-500 text-center whitespace-normal break-words">
+            <td class="px-6 py-4 text-slate-500 text-center truncate" title="${h.GhiChu || "-"}">
                 ${h.GhiChu || "-"}
             </td>
 
 
-            <td class="px-6 py-4 text-center min-w-[180px]">
+            <td class="px-6 py-4 text-center min-w-[260px]">
                 ${
                     h.TrangThai === "Đã kết thúc"
                         ? `<span class="text-slate-500 italic">-</span>`
@@ -1445,8 +1451,10 @@ function renderHistoryTable() {
 
 
     tbody.innerHTML = pageData
-        .map(
-            (h) => `
+        .map((h) => {
+            const status = String(h.TrangThaiHopDong || "").trim() || "Chưa xác định";
+            const action = String(h.ThaoTac || "").trim() || "—";
+            return `
         <tr class="border-t hover:bg-slate-50 transition">
 
 
@@ -1460,27 +1468,27 @@ function renderHistoryTable() {
 
 
             <td class="px-6 py-4 whitespace-nowrap">
-                <span class="px-3 py-1 rounded-full text-xs font-semibold
-                ${h.TrangThaiHopDong === "Còn hiệu lực"
+                <span class="inline-flex items-center justify-center whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold
+                ${status === "Còn hiệu lực"
                     ? "bg-green-100 text-green-600"
-                    : h.TrangThaiHopDong === "Sắp hết hạn"
+                    : status === "Sắp hết hạn"
                         ? "bg-orange-100 text-orange-500"
-                        : "bg-slate-200 text-slate-500"
+                        : status === "Chưa xác định" ? "bg-slate-100 text-slate-600" : "bg-slate-200 text-slate-500"
                 }">
-                    ${h.TrangThaiHopDong}
+                    ${status}
                 </span>
             </td>
 
 
             <td class="px-6 py-4 whitespace-nowrap">
-                <span class="px-3 py-1 rounded-full text-xs font-semibold text-white
-                    ${h.ThaoTac === "Tạo mới"
+                <span class="inline-flex items-center justify-center whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold text-white
+                    ${action === "Tạo mới"
                     ? "bg-green-500"
-                    : h.ThaoTac === "Gia hạn"
+                    : action === "Gia hạn"
                         ? "bg-orange-500"
-                        : "bg-red-500"
+                        : action === "—" ? "bg-slate-100 text-slate-600" : "bg-red-500"
                 }">
-                    ${h.ThaoTac}
+                    ${action}
                 </span>
             </td>
 
@@ -1491,8 +1499,8 @@ function renderHistoryTable() {
 
 
         </tr>
-    `,
-        )
+    `;
+        })
         .join("");
 
 

@@ -110,21 +110,21 @@ async function renderSinhVienModule() {
                 </button>
             </div>
 
-            <div class="bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
-                <table class="w-full text-left table-fixed">
+            <div class="bg-white rounded-lg shadow-sm overflow-x-auto border border-slate-200">
+                <table class="min-w-[1620px] w-full text-left table-fixed">
                     <thead class="bg-slate-50 border-b border-slate-200">
                         <tr class="text-[12px] font-bold text-slate-500 uppercase tracking-wider">
-                            <th class="px-5 py-4 w-[95px]">MSSV</th>
-                            <th class="px-5 py-4 w-[180px]">Tên sinh viên</th>
-                            <th class="px-5 py-4 w-[110px]">Ngày sinh</th>
-                            <th class="px-5 py-4 w-[90px]">Giới tính</th>
-                            <th class="px-5 py-4 w-[125px]">Điện thoại</th>
-                            <th class="px-5 py-4 w-[210px]">Email</th>
-                            <th class="px-5 py-4 w-[140px]">Địa chỉ</th>
-                            <th class="px-5 py-4 w-[85px]">Phòng</th>
-                            <th class="px-5 py-4 w-[115px]">Trạng thái</th>
-                            <th class="px-5 py-4 w-[80px]">Ghi chú</th>
-                            <th class="px-5 py-4 w-[120px] text-center">Thao tác</th>
+                            <th class="px-5 py-4 w-[190px] whitespace-nowrap">MSSV</th>
+                            <th class="px-5 py-4 w-[190px]">Tên sinh viên</th>
+                            <th class="px-5 py-4 w-[120px] whitespace-nowrap">Ngày sinh</th>
+                            <th class="px-5 py-4 w-[85px] whitespace-nowrap">Giới tính</th>
+                            <th class="px-5 py-4 w-[130px] whitespace-nowrap">Điện thoại</th>
+                            <th class="px-5 py-4 w-[220px]">Email</th>
+                            <th class="px-5 py-4 w-[180px]">Địa chỉ</th>
+                            <th class="px-5 py-4 w-[95px] whitespace-nowrap">Phòng</th>
+                            <th class="px-5 py-4 w-[130px] whitespace-nowrap">Trạng thái</th>
+                            <th class="px-5 py-4 w-[130px]">Ghi chú</th>
+                            <th class="px-5 py-4 w-[150px] text-center">Thao tác</th>
                         </tr>
                     </thead>
                     <tbody id="studentTableBody" class="divide-y divide-slate-100">
@@ -299,16 +299,24 @@ async function loadDanhSachSinhVien(
  * Tạo nhãn Badge màu sắc cho cột trạng thái
  */
 function getStatusBadge(status) {
-    if (status === "Đang ở") {
+    const label = String(status || "").trim() || "Chưa xếp phòng";
+    if (label === "Đang ở") {
         return `
-                <span class="inline-flex items-center justify-center min-w-[72px] h-[24px] px-3 rounded-full text-[11px] font-medium bg-[#DDF8E8] text-[#2BBE66]">
-                    ${status}
+                <span class="inline-flex items-center justify-center whitespace-nowrap min-w-[100px] h-[24px] px-3 rounded-full text-[11px] font-medium bg-[#DDF8E8] text-[#166534]">
+                    ${label}
+                </span>
+            `;
+    }
+    if (label === "Chưa xếp phòng") {
+        return `
+                <span class="inline-flex items-center justify-center whitespace-nowrap min-w-[100px] h-[24px] px-3 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600">
+                    ${label}
                 </span>
             `;
     }
     return `
-            <span class="inline-flex items-center justify-center min-w-[72px] h-[24px] px-3 rounded-full text-[11px] font-medium bg-[#FFE3E3] text-[#FF6B6B]">
-                ${status}
+            <span class="inline-flex items-center justify-center whitespace-nowrap min-w-[100px] h-[24px] px-3 rounded-full text-[11px] font-medium bg-[#FFE3E3] text-[#991b1b]">
+                ${label}
             </span>
         `;
 }
@@ -365,16 +373,16 @@ function renderTable(data) {
     data.forEach((s, index) => {
         tableBody.innerHTML += `
                 <tr class="hover:bg-slate-50 border-b border-slate-200 transition-colors text-[13px] text-slate-500">
-                    <td class="px-5 py-4 text-left font-bold text-slate-900">${s.mssv}</td>
-                    <td class="px-5 py-4 text-left font-medium text-slate-900">${s.name}</td>
-                    <td class="px-5 py-4 text-left">${s.birthday}</td>
-                    <td class="px-5 py-4 text-left">${s.gender}</td>
-                    <td class="px-5 py-4 text-left">${s.phone}</td>
-                    <td class="px-5 py-4 text-left">${s.email}</td>
-                    <td class="px-5 py-4 text-left truncate max-w-[130px]" title="${s.address}">${s.address}</td>
-                    <td class="px-5 py-4 text-left font-bold text-emerald-600">${s.room}</td>
-                    <td class="px-5 py-4 text-left">${getStatusBadge(s.status)}</td>
-                    <td class="px-5 py-4 text-left text-slate-500 italic">${s.note}</td>
+                    <td class="px-5 py-4 text-left font-bold text-slate-900 whitespace-nowrap">${s.mssv}</td>
+                    <td class="px-5 py-4 text-left font-medium text-slate-900 truncate whitespace-nowrap" title="${s.name}">${s.name}</td>
+                    <td class="px-5 py-4 text-left whitespace-nowrap">${s.birthday}</td>
+                    <td class="px-5 py-4 text-left whitespace-nowrap">${s.gender}</td>
+                    <td class="px-5 py-4 text-left whitespace-nowrap">${s.phone}</td>
+                    <td class="px-5 py-4 text-left truncate whitespace-nowrap" title="${s.email}">${s.email}</td>
+                    <td class="px-5 py-4 text-left truncate whitespace-nowrap" title="${s.address}">${s.address}</td>
+                    <td class="px-5 py-4 text-left font-bold text-emerald-600 whitespace-nowrap">${s.room}</td>
+                    <td class="px-5 py-4 text-left whitespace-nowrap">${getStatusBadge(s.status)}</td>
+                    <td class="px-5 py-4 text-left text-slate-500 italic truncate whitespace-nowrap" title="${s.note}">${s.note}</td>
                     <td class="px-5 py-4 text-center">
                         ${renderActionButtons(index)}
                     </td>

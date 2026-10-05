@@ -92,7 +92,11 @@ function renderHoaDonModule() {
 
 
     <div class="bg-white rounded-xl border overflow-x-auto shadow-sm">
-        <table class="min-w-[1000px] w-full text-left border-collapse">
+        <table class="min-w-[1320px] w-full table-fixed text-left border-collapse">
+            <colgroup>
+                <col class="w-[160px]"><col class="w-[100px]"><col class="w-[65px]"><col class="w-[70px]">
+                <col class="w-[135px]"><col class="w-[160px]"><col class="w-[170px]"><col class="w-[460px]">
+            </colgroup>
             <thead class="bg-slate-50 text-slate-500 uppercase text-xs">
                 <tr>
                     <th class="px-6 py-4 font-semibold">Mã HĐ</th>
@@ -610,23 +614,25 @@ function renderHoaDonTable() {
     }
 
     // Vẽ dữ liệu từ pageData
-    tbody.innerHTML = pageData.map(hd => `
+    tbody.innerHTML = pageData.map(hd => {
+        const status = String(hd.trangThai || '').trim() || 'Chưa cập nhật';
+        return `
         <tr class="hover:bg-slate-50 border-b transition-colors text-sm">
-            <td class="px-6 py-4 font-bold text-slate-900">${hd.id}</td>
-            <td class="px-6 py-4 text-emerald-600 font-medium">${hd.tenPhong}</td>
-            <td class="px-6 py-4 text-slate-500">${hd.thang || (hd.ngayLap ? new Date(hd.ngayLap).getMonth()+1 : '---')}</td>
-            <td class="px-6 py-4 text-slate-500">${hd.nam || (hd.ngayLap ? new Date(hd.ngayLap).getFullYear() : '---')}</td>
-            <td class="px-6 py-4">${hd.ngayLap ? hd.ngayLap.split('T')[0] : '---'}</td>
-            <td class="px-6 py-4 text-right font-bold text-red-500">${(hd.tongTien || 0).toLocaleString()}</td>
+            <td class="px-4 py-4 font-bold text-slate-900 whitespace-nowrap">${hd.id}</td>
+            <td class="px-4 py-4 text-emerald-600 font-medium whitespace-nowrap">${hd.tenPhong}</td>
+            <td class="px-3 py-4 text-slate-500 whitespace-nowrap">${hd.thang || (hd.ngayLap ? new Date(hd.ngayLap).getMonth()+1 : '---')}</td>
+            <td class="px-3 py-4 text-slate-500 whitespace-nowrap">${hd.nam || (hd.ngayLap ? new Date(hd.ngayLap).getFullYear() : '---')}</td>
+            <td class="px-3 py-4 whitespace-nowrap">${hd.ngayLap ? hd.ngayLap.split('T')[0] : '---'}</td>
+            <td class="px-4 py-4 text-right font-bold text-red-500 whitespace-nowrap">${(hd.tongTien || 0).toLocaleString('vi-VN')}</td>
             <td class="px-6 py-4 text-center">
-                <span class="px-3 py-1 rounded-full text-[11px] font-bold
-                    ${hd.trangThai === 'Đã thanh toán' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}">
-                    ${hd.trangThai}
+                <span class="inline-flex shrink-0 items-center justify-center whitespace-nowrap px-3 py-1 rounded-full text-[11px] font-bold
+                    ${status === 'Đã thanh toán' ? 'bg-green-100 text-green-700' : status === 'Chưa cập nhật' ? 'bg-slate-100 text-slate-600' : 'bg-yellow-100 text-yellow-700'}">
+                    ${status}
                 </span>
             </td>
             <td class="px-6 py-4 text-center">
-                <div class="flex justify-center gap-2 whitespace-nowrap">
-                    ${hd.trangThai === 'Đã thanh toán'
+                <div class="flex flex-wrap justify-center gap-2">
+                    ${status === 'Đã thanh toán'
                         ? `<button disabled class="px-3 py-1 border rounded bg-slate-50 text-slate-500 flex items-center gap-1 cursor-not-allowed text-xs">
                             <i class="fa-solid fa-check"></i> Đã thu tiền
                            </button>`
@@ -639,7 +645,7 @@ function renderHoaDonTable() {
                         class="px-3 py-1 border border-slate-200 text-slate-500 rounded hover:bg-slate-50 flex items-center gap-1 text-xs">
                         <i class="fa-solid fa-print"></i> In
                     </button>
-                    ${hd.trangThai === 'Đã thanh toán'
+                    ${status === 'Đã thanh toán'
                         ? `<button disabled class="px-3 py-1 border rounded bg-slate-50 text-slate-500 flex items-center gap-1 cursor-not-allowed text-xs">
                             <i class="fa-solid fa-pen"></i> Sửa
                            </button>`
@@ -655,7 +661,8 @@ function renderHoaDonTable() {
                 </div>
             </td>
         </tr>
-    `).join('');
+    `;
+    }).join('');
 
 
     // Cập nhật footer dựa trên dataDisplay.length
@@ -710,20 +717,20 @@ async function openInvoicePaymentHistory(invoiceId) {
         }
         content.innerHTML = `
             <div class="overflow-auto">
-                <table class="w-full text-sm text-left">
+                <table class="min-w-[1040px] w-full table-fixed text-sm text-left">
                     <thead class="text-xs uppercase text-slate-500 bg-slate-50"><tr>
                         <th class="p-3">Giao dịch / sinh viên</th><th class="p-3">Khoản thanh toán</th>
                         <th class="p-3 text-right">Số tiền</th><th class="p-3">Thời gian</th>
                         <th class="p-3">Phương thức / trạng thái</th><th class="p-3">Xác nhận / xử lý</th>
                     </tr></thead>
                     <tbody>${[...transactions.values()].map(record => `<tr class="border-b align-top" data-transaction-row="${escape(record.MaGiaoDich)}">
-                        <td class="p-3"><strong>${escape(record.MaGiaoDich)}</strong><small class="block">${escape(record.HoTen)} (${escape(record.MaSinhVien)})</small>
-                            <small>${escape(record.TenPhong)}</small><small>Nội dung: ${escape(record.NoiDungCK || '—')}</small>
+                        <td class="p-3 break-words"><strong class="break-all" title="${escape(record.MaGiaoDich)}">${escape(record.MaGiaoDich)}</strong><small class="block">${escape(record.HoTen)} (${escape(record.MaSinhVien)})</small>
+                            <small class="block">${escape(record.TenPhong)} · Nội dung: ${escape(record.NoiDungCK || '—')}</small>
                             ${record.MaThamChieuNgoai ? `<small>Mã NH: ${escape(record.MaThamChieuNgoai)}</small>` : ''}</td>
                         <td class="p-3">${escape(record.items.join(', '))}</td>
                         <td class="p-3 text-right">${Number(record.total).toLocaleString('vi-VN')} ₫</td>
                         <td class="p-3">${escape(formatDate(record.NgayThanhToan || record.NgayTao))}</td>
-                        <td class="p-3">${escape(record.PhuongThuc === 'ONLINE' ? 'Chuyển khoản QR' : 'Tiền mặt')}
+                        <td class="p-3 whitespace-nowrap">${escape(record.PhuongThuc === 'ONLINE' ? 'Chuyển khoản QR' : 'Tiền mặt')}
                             <strong class="block">${escape(record.TrangThai)}</strong>
                             ${record.LyDoTuChoi ? `<small>${escape(record.LyDoTuChoi)}</small>` : ''}</td>
                         <td class="p-3">${record.TrangThai === 'PENDING' && record.PhuongThuc === 'CASH' ? `
@@ -1120,7 +1127,7 @@ async function openPrintModal(id) {
     const maSV      = hd.maSV || hd.MaSinhVien || '';
     const tenPhong  = hd.tenPhong || hd.TenPhong || '';
     const ngayLap   = (hd.ngayLap || hd.NgayLap || '').split('T')[0];
-    const trangThai = hd.trangThai || hd.TrangThaiThanhToan || '';
+    const trangThai = hd.trangThai || hd.TrangThaiThanhToan || 'Chưa cập nhật';
 
     document.getElementById('print-id').innerText        = maHD;
     document.getElementById('print-phong').innerText     = tenPhong;
