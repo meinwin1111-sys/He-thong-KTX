@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "build:frontend": "node scripts/build-frontend.cjs",
-    "test": "node --test payment-qr.test.cjs payment-webhook.test.cjs js/student/billing.test.cjs",
+    "test": "node --test payment-qr.test.cjs payment-webhook.test.cjs js/student/billing.test.cjs student-auth.test.cjs student-backend.test.cjs",
     "start": "node server.js"
   },
   "keywords": [],

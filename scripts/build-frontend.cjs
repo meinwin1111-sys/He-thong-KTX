@@ -4,6 +4,9 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const output = path.join(root, "dist");
 const apiBaseUrl = (process.env.KTX_API_BASE_URL || "").trim().replace(/\/+$/, "");
+const allowStudentDemoAuth = process.env.NODE_ENV !== "production"
+    && !process.env.VERCEL
+    && process.env.KTX_ENABLE_STUDENT_DEMO === "true";
 
 if (process.env.VERCEL && !apiBaseUrl) {
     throw new Error("Set KTX_API_BASE_URL in Vercel before building the frontend.");
@@ -33,9 +36,10 @@ for (const file of ["Admin.html", "Student.html", "style.css", "student.css"]) {
     fs.copyFileSync(path.join(root, file), path.join(output, file));
 }
 fs.cpSync(path.join(root, "js"), path.join(output, "js"), { recursive: true });
+fs.cpSync(path.join(root, "files"), path.join(output, "files"), { recursive: true });
 fs.writeFileSync(
     path.join(output, "js", "runtime-config.js"),
-    `window.KTX_CONFIG = Object.freeze({ apiBaseUrl: ${JSON.stringify(apiBaseUrl)} });\n`,
+    `window.KTX_CONFIG = Object.freeze({ apiBaseUrl: ${JSON.stringify(apiBaseUrl)}, allowStudentDemoAuth: ${allowStudentDemoAuth} });\nwindow.KTX_IMAGE_PATHS = Object.freeze({ dormitory: "files/ky-tuc-xa.webp", banyan: "files/cay-bang.webp" });\n`,
     "utf8"
 );
 fs.writeFileSync(
