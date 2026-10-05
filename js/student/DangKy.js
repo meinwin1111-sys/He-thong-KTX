@@ -113,12 +113,9 @@ function openStudentRegistration() {
                 throw new Error(result.message || 'Không thể gửi đăng ký. Vui lòng thử lại.');
             }
             dialog.close();
-            const emailInput = document.getElementById('loginEmail');
-            if (emailInput) {
-                emailInput.value = student.email;
-                emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+            if (typeof showRegistrationSuccessMessage === 'function') {
+                showRegistrationSuccessMessage(student.email);
             }
-            showToast('Đăng ký thành công, bạn có thể đăng nhập');
         } catch (error) {
             dialog.querySelector('[data-error]').textContent = error.message || 'Không thể gửi đăng ký. Vui lòng thử lại.';
         }

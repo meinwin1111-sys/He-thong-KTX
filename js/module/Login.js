@@ -146,10 +146,7 @@ function renderLoginModule() {
                         <div class="login-feature"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i><div><h2>An toàn &amp; Bảo mật</h2><p>Dữ liệu được bảo vệ</p></div></div>
                     </div>
                 </div>
-                <figure class="login-campus">
-                    <figcaption>Ký túc xá – Ngôi nhà thứ hai của bạn</figcaption>
-                    <img src="${window.KTX_IMAGE_PATHS?.dormitory || 'files/ky-tuc-xa.webp'}" alt="Khu ký túc xá với tòa nhà và cây xanh" width="700" height="240" loading="eager">
-                </figure>
+                <p class="login-tagline">Ký túc xá – Ngôi nhà thứ hai của bạn</p>
             </aside>
             <div class="login-form-panel">
                 <div class="login-card">
@@ -159,6 +156,7 @@ function renderLoginModule() {
                         <p>Chào mừng bạn trở lại Cổng thông tin Ký Túc Xá</p>
                     </div>
                     <form id="loginForm" novalidate>
+                        <p id="registrationSuccess" class="login-success hidden" role="status" aria-live="polite"></p>
                         <div class="login-field">
                             <label for="loginEmail">Email</label>
                             <div class="login-input-wrap">
@@ -188,10 +186,33 @@ function renderLoginModule() {
         </section>
     `;
 
-    main.querySelector(".login-campus img")?.addEventListener("error", event => {
-        event.currentTarget.hidden = true;
-    }, { once: true });
     bindLoginEvents();
+}
+
+function showRegistrationSuccessMessage(email) {
+    const emailInput = document.getElementById("loginEmail");
+    const passwordInput = document.getElementById("loginPassword");
+    const message = document.getElementById("registrationSuccess");
+    if (!emailInput || !passwordInput || !message) return;
+
+    emailInput.value = email;
+    emailInput.dispatchEvent(new Event("input", { bubbles: true }));
+    passwordInput.value = "";
+    message.textContent = "Đăng ký thành công, vui lòng đăng nhập.";
+    message.classList.remove("hidden");
+
+    const hideMessage = () => {
+        message.textContent = "";
+        message.classList.add("hidden");
+        window.clearTimeout(message.hideTimer);
+        emailInput.removeEventListener("input", hideMessage);
+        passwordInput.removeEventListener("input", hideMessage);
+    };
+    window.clearTimeout(message.hideTimer);
+    emailInput.addEventListener("input", hideMessage, { once: true });
+    passwordInput.addEventListener("input", hideMessage, { once: true });
+    message.hideTimer = window.setTimeout(hideMessage, 5000);
+    passwordInput.focus();
 }
 
 

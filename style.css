@@ -639,15 +639,14 @@ body > header, #main-nav .dms-sidebar-logo { border-color: var(--theme-sidebar);
 #module-login .login-feature > i { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; background: #009568b3; font-size: 19px; }
 #module-login .login-feature h2 { margin: 0 0 4px; font-size: 11px; font-weight: 700; }
 #module-login .login-feature p { margin: 0; color: #c6e6dc; font-size: 10px; line-height: 1.5; }
-#module-login .login-campus { margin: auto calc(-1 * clamp(28px, 5.4vw, 82px)) 0; padding: 24px 0 0; overflow: hidden; border-radius: 14px 14px 0 0; background: linear-gradient(135deg, #dbeafe, #d1fae5); }
-#module-login .login-campus figcaption { padding: 0 24px; text-align: center; font-family: Georgia, serif; font-size: clamp(18px, 1.8vw, 25px); font-style: italic; font-weight: 700; color: #064e3b; }
-#module-login .login-campus img { display: block; width: 100%; height: clamp(150px, 19vh, 240px); object-fit: cover; object-position: center 58%; }
+#module-login .login-tagline { margin: auto 0 32px; color: #d9f5eb; font-size: clamp(18px, 1.8vw, 25px); font-family: Georgia, serif; font-style: italic; font-weight: 700; line-height: 1.45; text-align: center; text-wrap: balance; }
 #module-login .login-form-panel { display: flex; align-items: center; justify-content: center; padding: 36px clamp(24px, 4vw, 64px); background: radial-gradient(ellipse at center, #fff, #f5fafa); }
 #module-login .login-card { width: 100%; max-width: 460px; padding: 34px 26px 24px; background: #ffffffed; border: 1px solid #fff; border-radius: 18px; box-shadow: 0 16px 50px #126e6110; }
 #module-login .login-card-heading { text-align: center; margin-bottom: 30px; }
 #module-login .login-card-heading .login-logo { width: 52px; height: 54px; margin-bottom: 8px; font-size: 32px; }
 #module-login .login-card-heading h2 { margin: 0 0 4px; font-size: 28px; line-height: 1.25; font-weight: 700; letter-spacing: -.5px; }
 #module-login .login-card-heading p { margin: 0; color: #686b86; font-size: 12px; line-height: 1.6; }
+#module-login .login-success { margin: 0 0 18px; padding: 11px 14px; border: 1px solid #a7f3d0; border-radius: 9px; background: #ecfdf5; color: #065f46; font-size: 13px; font-weight: 600; }
 #module-login .login-field { margin-bottom: 20px; }
 #module-login .login-field > label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 700; }
 #module-login .login-input-wrap { position: relative; }
@@ -678,13 +677,11 @@ body > header, #main-nav .dms-sidebar-logo { border-color: var(--theme-sidebar);
 @media (min-width: 901px) and (max-height: 740px) {
     #module-login .login-intro { padding-top: 28px; }
     #module-login .login-intro-copy { margin-top: 28px; }
-    #module-login .login-campus img { max-height: 170px; }
     #module-login .login-card { padding-top: 24px; }
     #module-login .login-form-panel { padding-top: 24px; padding-bottom: 24px; }
 }
 @media (max-width: 1100px) {
     #module-login .login-intro { padding-left: 28px; padding-right: 28px; }
-    #module-login .login-campus { margin-left: -28px; margin-right: -28px; }
     #module-login .login-feature { gap: 8px; padding: 12px 8px; }
     #module-login .login-wide-break { display: none; }
 }
@@ -693,9 +690,7 @@ body > header, #main-nav .dms-sidebar-logo { border-color: var(--theme-sidebar);
     #module-login .login-intro { padding: 22px 24px; }
     #module-login .login-brand { justify-content: center; font-size: 18px; }
     #module-login .login-intro-copy { display: none; }
-    #module-login .login-campus { width: min(100%, 480px); margin: 14px auto 0; padding: 0; border-radius: 12px; }
-    #module-login .login-campus figcaption { padding: 10px 14px 0; font-size: 17px; }
-    #module-login .login-campus img { height: 110px; }
+    #module-login .login-tagline { margin: 14px auto 0; max-width: 28ch; font-size: 16px; }
     #module-login .login-form-panel { padding: 24px 16px; }
 }
 @media (max-width: 380px) {
