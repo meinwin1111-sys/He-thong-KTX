@@ -52,6 +52,7 @@ function allUnpaid(invoices) {
 function setup(code = 'TEST-A', env = environment()) {
     const context = vm.createContext({ TextEncoder, Date, console, Event, crypto: webcrypto,
         navigator: { locks: env.locks }, localStorage: env.storage,
+        KTX_CONFIG: { allowStudentDemoAuth: true },
         StudentAuth: { session: () => ({ code, name: `Sinh viên ${code}`, email: `${code}@example.com` }) },
         dispatchEvent() {}, addEventListener() {}
     });

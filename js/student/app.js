@@ -17,8 +17,7 @@
         ? 'Sinh viên · Đăng nhập máy chủ'
         : 'Sinh viên · Demo';
     if (studentSession.isBackend) {
-        document.getElementById('student-demo-notice').textContent =
-            'Hồ sơ, phòng, hợp đồng, hóa đơn, thanh toán, nội quy, liên hệ và yêu cầu hỗ trợ được tải từ máy chủ.';
+        document.getElementById('student-demo-notice').hidden = true;
     }
     const account = document.getElementById('student-account');
     const accountToggle = document.getElementById('student-account-toggle');
@@ -41,10 +40,19 @@
         if (!account.contains(event.target)) closeAccount();
     });
     document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && dialog.open) {
+            event.preventDefault();
+            dialog.close();
+            return;
+        }
         if (event.key === 'Escape' && !accountPanel.hidden) {
             closeAccount();
             accountToggle.focus();
         }
+    }, true);
+    dialog.addEventListener('cancel', event => {
+        event.preventDefault();
+        dialog.close();
     });
     account.addEventListener('focusout', event => {
         if (!account.contains(event.relatedTarget)) closeAccount();
@@ -114,8 +122,7 @@
         }, message => { contactNode.textContent = message; });
     }
     function paint() {
-        const route = location.hash.slice(1) || 'home';
-        const key = Object.hasOwn(ui.pages, route) ? route : 'home';
+        const key = ui.routeFromHash(location.hash);
         const page = ui.pages[key];
         document.querySelectorAll('#main-nav a').forEach(link => {
             const active = link.hash === `#${key}`;
@@ -123,6 +130,8 @@
             if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
         });
         main.innerHTML = `<h1 tabindex="-1">${esc(page.title)}</h1>${page.render()}`;
+        const campusBanner = main.querySelector('[data-campus-banner]');
+        if (campusBanner) campusBanner.addEventListener('error', () => { campusBanner.hidden = true; }, { once: true });
         if (!backendStudent) ui.billing.afterRender?.(main);
         if (key === 'home') loadStudentDashboardData(main);
         if (backendStudent) page.load?.(main);
@@ -138,9 +147,12 @@
     function modal(title, content) {
         dialog.classList.remove('st-logout-dialog');
         dialog.removeAttribute('aria-describedby');
-        dialog.innerHTML = `<div class="st-modal-heading"><h2 id="student-dialog-title">${title}</h2><button class="st-button" data-action="close" aria-label="Đóng">×</button></div><div class="st-modal-content">${content}</div>`;
+        dialog.innerHTML = `<div class="st-modal-heading"><h2 id="student-dialog-title">${title}</h2><button class="st-button" data-action="close" aria-label="Đóng" autofocus>×</button></div><div class="st-modal-content">${content}</div>`;
         dialog.showModal();
     }
+    dialog.addEventListener('click', event => {
+        if (event.target === dialog) dialog.close();
+    });
     document.addEventListener('click', async event => {
         const button = event.target.closest('[data-action]');
         if (!button) return;
@@ -164,7 +176,8 @@
             dialog.showModal();
         } else if (action === 'confirm-logout') {
             try { StudentAuth.logout(); }
-            catch { toast('Không thể xóa phiên demo. Hãy kiểm tra quyền lưu trữ trình duyệt.'); return; }
+            catch { toast('Không thể xóa phiên và dữ liệu của tài khoản. Hãy kiểm tra quyền lưu trữ trình duyệt.'); return; }
+            window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
             window.location.replace('Admin.html');
         } else if (action === 'backend-payment-qr' && backendStudent) {
             await openBackendPaymentQr(button.dataset.id);

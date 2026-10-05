@@ -11,7 +11,7 @@
 .student-app .st-account-panel[hidden] { display: none; }
 .student-app .st-account-panel a, .student-app .st-account-panel button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px; border: 0; border-radius: 7px; background: transparent; color: var(--theme-text); font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
 .student-app .st-account-panel a:hover { background: var(--theme-primary-soft); color: var(--theme-primary-dark); }
-.student-app .st-account-panel button[data-action="logout"] { color: #dc2626; border-top: 1px solid var(--theme-border); }
+.student-app .st-account-panel button[data-action="logout"] { color: #b91c1c; border-top: 1px solid var(--theme-border); }
 .student-app .st-account-panel button[data-action="logout"]:hover { background: #fef2f2; }
 .student-app { margin: 0; min-height: 100vh; font-size: 13px; }
 .student-app * { box-sizing: border-box; }
@@ -148,8 +148,9 @@
 .student-home-dashboard .sh-welcome { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0; border: 0; background: none; margin-bottom: 16px; min-height: 104px; }
 .student-home-dashboard .sh-welcome h2 { font-size: clamp(22px, 2.1vw, 29px); letter-spacing: -.7px; }
 .student-home-dashboard .sh-welcome-art { position: relative; display: flex; align-items: center; flex: 0 1 45%; min-height: 100px; }
-.student-home-dashboard .sh-welcome-art blockquote { margin: 0; width: 48%; padding: 16px 20px; border-radius: 18px; font-size: 12px; line-height: 1.7; color: #047857; background: #e8f7f1; z-index: 1; }
-.student-home-dashboard .sh-welcome-art img { position: absolute; right: 0; bottom: -8px; height: 112px; width: 65%; object-fit: contain; object-position: right bottom; opacity: .7; }
+.student-home-dashboard .sh-welcome-art blockquote { position: relative; z-index: 1; margin: 0; width: 58%; padding: 18px 20px 18px 34px; border: 1px solid #a7f3d0; border-radius: 18px; font-size: clamp(18px, 1.5vw, 20px); font-style: italic; font-weight: 650; line-height: 1.55; color: #064e3b; background: linear-gradient(135deg, #ecfdf5, #dbeafe); box-shadow: 0 6px 18px rgb(15 23 42 / 8%); }
+.student-home-dashboard .sh-welcome-art blockquote::before { content: "“"; position: absolute; top: 2px; left: 10px; color: #047857; font: 700 34px/1 Georgia, serif; }
+.student-home-dashboard .sh-welcome-art img { position: absolute; right: 0; bottom: -8px; height: 112px; width: 65%; border-radius: 14px; object-fit: cover; object-position: right center; opacity: .9; background: linear-gradient(120deg, #dbeafe, #d1fae5); }
 .student-home-dashboard .sh-overview { gap: 12px; margin-bottom: 14px; }
 .student-home-dashboard .sh-stat { position: relative; overflow: hidden; display: flex; flex-direction: row; gap: 14px; padding: 18px 14px; background: #f3fdf8; border-color: #d1fae5; box-shadow: none; }
 .student-home-dashboard .sh-stat-1 { background: #f5faff; border-color: #dbeafe; }
@@ -191,9 +192,50 @@
 .student-home-dashboard .sh-shared-content dd { overflow-wrap: anywhere; }
 .student-home-dashboard .sh-links { border-top: 1px solid #e2e8f0; padding-top: 14px; gap: 8px; margin-top: 12px; }
 .student-home-dashboard .sh-links a { flex: 1; text-align: center; padding: 12px 6px; border-radius: 8px; border: 1px solid #d1fae5; background: #ecfdf5; font-size: 11px; text-decoration: none; }
-@media (max-width: 1150px) { .student-home-dashboard .sh-welcome-art { display: none; } }
+@media (max-width: 1150px) {
+    .student-home-dashboard .sh-welcome-art { flex-basis: 50%; min-height: 96px; }
+    .student-home-dashboard .sh-welcome-art blockquote { font-size: 16px; }
+    .student-home-dashboard .sh-welcome-art img { height: 104px; }
+}
 @media (max-width: 900px) { .student-home-dashboard .sh-columns { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .student-home-dashboard .sh-announcements li { flex-wrap: wrap; } .student-home-dashboard .sh-announcement-meta { width: 100%; flex-direction: row; } }
+.student-app .st-badge { display: inline-flex; align-items: center; justify-content: center; width: max-content; max-width: 100%; flex: 0 0 auto; white-space: nowrap; line-height: 1.2; }
+.student-app .st-table-wrap { position: relative; }
+.student-app :is(.st-table-wrap, .st-invoice-list) :is(th, td) { vertical-align: middle; }
+.student-app .st-table-wrap td:has(.st-badge) { white-space: nowrap; }
+.student-app .st-table-wrap td.st-amount, .student-app .st-table-wrap th.st-amount { text-align: right; font-variant-numeric: tabular-nums; }
+.student-app .st-payment-history th:nth-child(3) { text-align: right; }
+.student-app dialog .st-modal-heading button:focus-visible { outline-offset: 3px; }
+.student-app dialog[open] { overscroll-behavior: contain; }
+.student-app .st-empty-state { margin: 8px 0; font-weight: 700; color: #334155; }
+.student-app [hidden] { display: none !important; }
+.student-home-dashboard :is([data-dashboard-error], [data-dashboard-contract-warning], [data-dashboard-overdue]):empty { display: none; }
+.student-home-dashboard .sh-stat { align-items: flex-start; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.student-home-dashboard .sh-stat:hover, .student-home-dashboard .sh-stat:focus-visible { border-color: var(--theme-primary); box-shadow: 0 5px 16px rgb(15 23 42 / 9%); transform: translateY(-1px); }
+.student-home-dashboard .sh-stat-copy { display: flex; flex: 1 1 auto; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.student-home-dashboard .sh-stat strong { max-width: 100%; margin: 0; line-height: 1.35; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.student-home-dashboard .sh-stat small { margin-top: 8px; }
+.student-home-dashboard .sh-status { display: inline-flex; align-items: center; max-width: 100%; white-space: normal; line-height: 1.4; }
+.student-home-dashboard .sh-status-danger, .student-home-dashboard .sh-overdue { color: #b91c1c; }
+.student-home-dashboard .sh-welcome-art { background: linear-gradient(120deg, #f0fdf4, #ecfdf5); border-radius: 16px; }
+.student-home-dashboard .sh-welcome-art img[hidden] { display: none; }
+.student-app :is(a, button, input, select, textarea, summary):focus-visible { outline: 3px solid #047857; outline-offset: 3px; }
+@media (max-width: 900px) {
+    .student-home-dashboard .sh-welcome-art blockquote { font-size: 17px; }
+}
+@media (max-width: 700px) {
+    .student-home-dashboard .sh-welcome { flex-direction: column; align-items: stretch; gap: 12px; }
+    .student-home-dashboard .sh-welcome-art { flex: 0 1 auto; width: 100%; min-height: 130px; }
+    .student-home-dashboard .sh-welcome-art blockquote { width: 64%; padding: 14px 16px 14px 30px; font-size: 16px; }
+    .student-home-dashboard .sh-welcome-art img { height: 118px; width: 54%; }
+}
+@media (max-width: 700px) {
+    .student-app .st-table-wrap::after { content: "Vuốt ngang để xem thêm cột"; display: block; padding: 6px 10px; color: #475569; background: var(--theme-background); font-size: 11px; }
+    .student-app .st-table-wrap table { min-width: max-content; }
+    .student-home-dashboard .sh-stat { gap: 12px; padding: 16px 12px; }
+    .student-home-dashboard .sh-stat-copy { flex-basis: 0; }
+    .student-home-dashboard .sh-stat strong { font-size: clamp(18px, 6vw, 23px); }
+}
 /* Projector-friendly demo payment presentation. */
 .st-payment-amount { text-align: center; font-size: clamp(28px, 5vw, 42px); font-weight: 800; color: #047857; margin: 16px 0 24px; }
 .st-payment-qr { max-width: 300px; margin: 20px auto; padding: 12px; border: 1px solid #d1fae5; border-radius: 16px; background: white; text-align: center; }

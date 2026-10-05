@@ -8,6 +8,7 @@
         PARTIAL: 'Đã thanh toán một phần', PAID: 'Đã thanh toán' };
     const itemLabels = { UNPAID: 'Chưa thanh toán', WAITING_CASH: 'Chờ thu tiền mặt', PAID: 'Đã thanh toán' };
     const method = value => value === 'CASH' ? 'Tiền mặt' : 'Online';
+    const backendStudent = () => window.StudentAuth?.session()?.isBackend === true;
     const time = value => new Date(value).toLocaleString('vi-VN');
     const badgeClass = value => value === 'PAID' ? 'st-success' : value === 'WAITING_CASH' || value === 'PARTIAL' ? 'st-warning' : 'st-danger';
     const badge = value => `<span class="st-badge ${badgeClass(value)}">${esc(labels[value] || value)}</span>`;
@@ -16,6 +17,7 @@
     const selected = new Map();
     let storageError = '';
     function sync() {
+        if (backendStudent()) return;
         try {
             const saved = store.initialize(data);
             data.invoices = saved.invoices;
@@ -247,18 +249,18 @@
                     : `Quản lý${payment.TenNguoiXacNhan ? `: ${payment.TenNguoiXacNhan}` : ' xác nhận'}`;
             };
             const historyRows = rows => rows.length
-                ? `<div class="st-table-wrap">${table(
+                ? table(
                     ['Mã giao dịch', 'Khoản thanh toán', 'Số tiền', 'Thời gian', 'Phương thức', 'Trạng thái', 'Nguồn xác nhận'],
                     rows.map(payment => `<tr>
                         <td>${esc(payment.MaGiaoDich)}</td>
                         <td>${esc(payment.TenKhoan)}</td>
-                        <td>${money(Number(payment.SoTien || 0))}</td>
+                        <td class="st-amount">${money(Number(payment.SoTien || 0))}</td>
                         <td>${esc(time(payment.NgayThanhToan || payment.NgayTao))}</td>
                         <td>${esc(payment.PhuongThuc === 'ONLINE' ? 'Chuyển khoản QR' : 'Tiền mặt')}</td>
                         <td>${esc(statusLabel(payment.TrangThai))}${payment.LyDoTuChoi ? `<small>${esc(payment.LyDoTuChoi)}</small>` : ''}</td>
                         <td>${esc(confirmationSource(payment))}</td>
                     </tr>`).join('')
-                )}</div>`
+                ).replace('class="st-table-wrap"', 'class="st-table-wrap st-payment-history"')
                 : '<p class="st-muted">Chưa có giao dịch thanh toán online cho hóa đơn này.</p>';
             const invoiceCards = invoices.map(invoice => {
                 const invoiceId = invoice.MaHoaDon;
@@ -294,7 +296,7 @@
             }).join('');
             root.innerHTML = invoices.length
                 ? `<p class="st-notice">Dữ liệu hóa đơn và lịch sử được tải trực tiếp từ máy chủ.</p><div class="st-invoice-list">${invoiceCards}</div>`
-                : '<p class="st-muted">Tài khoản hiện chưa có hóa đơn trên hệ thống.</p>';
+                : '<article class="st-card"><h2>Hóa đơn</h2><p class="st-empty-state" role="status">Chưa có hóa đơn.</p><p class="st-muted">Hóa đơn sẽ hiển thị tại đây khi được Ban quản lý tạo. Nếu bạn cần kiểm tra khoản thu, vui lòng liên hệ quản lý ký túc xá.</p></article>';
         } catch (error) {
             if (root.isConnected) root.innerHTML = `<p class="st-notice" role="alert">${esc(error.message || 'Không thể tải hóa đơn và lịch sử thanh toán.')}</p>`;
         }

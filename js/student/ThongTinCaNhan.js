@@ -34,7 +34,8 @@
                     ['Số điện thoại', profile.SoDienThoai || 'Chưa cập nhật'],
                     ['Gmail đăng nhập', profile.Email],
                     ['Email trường', profile.EmailTruong || 'Chưa cập nhật'],
-                    ['Trường / lớp', 'Chưa có dữ liệu trong hệ thống'],
+                    ['Trường', profile.Truong || 'Chưa cập nhật'],
+                    ['Lớp', profile.Lop || 'Chưa cập nhật'],
                     ['Địa chỉ', profile.DiaChi || 'Chưa cập nhật']
                 ]);
                 content.removeAttribute('role');

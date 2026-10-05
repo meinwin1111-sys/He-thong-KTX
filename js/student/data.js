@@ -1,12 +1,15 @@
 // Mock repository riêng của Student. Không đọc/ghi dữ liệu Admin hoặc gọi API.
 window.StudentUI = {};
 (() => {
-    const today = new Date();
-    const date = offset => {
+    const session = window.StudentAuth?.session();
+    const dateOffset = offset => {
+        const today = new Date();
         const value = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
         return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
     };
-    const data = {
+    const createDemoData = () => {
+        const date = dateOffset;
+        return {
         profile: { code: 'SV001', name: 'Nguyễn Văn An', birthday: '2005-08-15', gender: 'Nam', phone: '0901234567', email: 'an.sv@example.com', address: 'Hải Châu, Đà Nẵng' },
         room: { number: 'A101', type: 'Phòng 4 người', capacity: 4, members: [{ code: 'SV001', name: 'Nguyễn Văn An' }, { code: 'SV003', name: 'Lê Minh Quân' }, { code: 'SV005', name: 'Hoàng Đức Nam' }] },
         contract: { id: 'HD001', start: date(-165), end: date(15), status: 'Đang hiệu lực', fee: 1500000 },
@@ -38,9 +41,31 @@ window.StudentUI = {};
             { id: 'YC002', type: 'Báo hỏng thiết bị', date: date(-5), content: 'Quạt trần chạy chậm và phát tiếng kêu.', status: 'Đã duyệt', reply: 'Đã chuyển bộ phận kỹ thuật kiểm tra.' },
             { id: 'YC001', type: 'Gia hạn hợp đồng', date: date(-10), content: 'Xin gia hạn hợp đồng học kỳ tiếp theo.', status: 'Từ chối', reply: 'Vui lòng bổ sung thời gian gia hạn cụ thể.' }
         ]
+        };
     };
-    const session = window.StudentAuth?.session();
-    if (session) {
+
+    const emptyData = () => ({
+            profile: {
+                code: session?.code || '',
+                name: session?.name || session?.code || '',
+                email: session?.email || '',
+                phone: session?.phone || '',
+                school: '',
+                className: ''
+            },
+            room: null,
+            contract: null,
+            invoices: [],
+            payments: [],
+            requests: []
+        });
+    const data = session?.isBackend
+        ? emptyData()
+        : window.KTX_CONFIG?.allowStudentDemoAuth === true
+            ? createDemoData()
+            : emptyData();
+
+    if (session && !session.isBackend) {
         data.profile = { code: session.code, name: session.name || session.code, email: session.email,
             birthday: session.birthday || '', gender: session.gender || 'Chưa cập nhật',
             phone: session.phone || 'Chưa cập nhật', address: session.address || 'Chưa cập nhật',
@@ -53,7 +78,7 @@ window.StudentUI = {};
             if (saved?.studentCode === session.code && typeof saved.roomNumber === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saved.start) && /^\d{4}-\d{2}-\d{2}$/.test(saved.end)) residence = saved;
         } catch { /* Không có dữ liệu hợp lệ: dùng hồ sơ demo mới. */ }
         if (!residence) {
-            residence = { studentCode: session.code, roomNumber: `A-${session.code}`, start: date(-165), end: date(15) };
+            residence = { studentCode: session.code, roomNumber: `A-${session.code}`, start: dateOffset(-165), end: dateOffset(15) };
             try { localStorage.setItem(key, JSON.stringify(residence)); } catch { /* Vẫn cho phép xem demo trong bộ nhớ. */ }
         }
         data.room = {
@@ -71,7 +96,8 @@ window.StudentUI = {};
     StudentUI.repository = {
         data,
         addRequest(type, content) {
-            const request = { id: `YC${String(data.requests.length + 1).padStart(3, '0')}`, type, content, date: date(0), status: 'Chờ duyệt', reply: '' };
+            if (session?.isBackend) throw new Error('Yêu cầu tài khoản máy chủ phải được gửi qua API.');
+            const request = { id: `YC${String(data.requests.length + 1).padStart(3, '0')}`, type, content, date: dateOffset(0), status: 'Chờ duyệt', reply: '' };
             data.requests.unshift(request);
             return request;
         }

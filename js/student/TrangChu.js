@@ -7,15 +7,15 @@
     const backendStudent = () => window.StudentAuth?.session()?.isBackend;
     const formatDate = value => value ? date(String(value).slice(0, 10)) : 'Chưa có dữ liệu';
     const renderBackendDashboard = () => `<div class="student-home-dashboard">
-        <section class="sh-welcome"><div><h2>Xin chào, ${esc(data.profile?.name || 'Sinh viên')} 👋</h2><p>Đây là thông tin lưu trú của bạn tại Ký túc xá.</p></div><div class="sh-welcome-art"><blockquote>“Chúc bạn có một năm học thật nhiều trải nghiệm và thành công!”</blockquote><img src="files/campus-dashboard.svg" alt="" aria-hidden="true"></div></section>
-        <p data-dashboard-error class="st-notice" role="alert"></p>
+        <section class="sh-welcome"><div><h2>Xin chào, ${esc(data.profile?.name || 'Sinh viên')} 👋</h2><p>Đây là thông tin lưu trú của bạn tại Ký túc xá.</p></div><div class="sh-welcome-art"><blockquote>Chúc bạn có một năm học thật nhiều trải nghiệm và thành công!</blockquote><img data-campus-banner src="${window.KTX_IMAGE_PATHS?.banyan || 'files/cay-bang.webp'}" alt="Tán cây bàng xanh trong khuôn viên ký túc xá" loading="eager"></div></section>
+        <p data-dashboard-error class="st-notice" role="alert" hidden></p>
         <div class="sh-overview">
             <a class="sh-stat sh-stat-0" href="#room"><span class="sh-icon"><i class="fa-solid fa-bed" aria-hidden="true"></i></span><div class="sh-stat-copy"><span>Phòng hiện tại</span><strong data-dashboard-room>Đang tải...</strong><span class="sh-status" data-dashboard-room-hint></span><small>Xem chi tiết →</small></div><i class="fa-solid fa-bed sh-watermark" aria-hidden="true"></i></a>
             <a class="sh-stat sh-stat-1" href="#contract"><span class="sh-icon"><i class="fa-solid fa-file-contract" aria-hidden="true"></i></span><div class="sh-stat-copy"><span>Hợp đồng</span><strong data-dashboard-contract>Đang tải...</strong><span class="sh-status" data-dashboard-contract-hint></span><small>Xem chi tiết →</small></div><i class="fa-solid fa-file-contract sh-watermark" aria-hidden="true"></i></a>
             <a class="sh-stat sh-stat-2" href="#invoices"><span class="sh-icon"><i class="fa-solid fa-file-invoice" aria-hidden="true"></i></span><div class="sh-stat-copy"><span>Hóa đơn chưa thanh toán</span><strong data-dashboard-unpaid>Đang tải...</strong><span class="sh-status" data-dashboard-unpaid-hint></span><small>Xem chi tiết →</small></div><i class="fa-solid fa-file-invoice sh-watermark" aria-hidden="true"></i></a>
             <a class="sh-stat sh-stat-3" href="#invoices"><span class="sh-icon"><i class="fa-solid fa-wallet" aria-hidden="true"></i></span><div class="sh-stat-copy"><span>Công nợ</span><strong data-dashboard-debt>Đang tải...</strong><span class="sh-status" data-dashboard-debt-hint></span><small>Xem chi tiết →</small></div><i class="fa-solid fa-wallet sh-watermark" aria-hidden="true"></i></a>
         </div>
-        <p data-dashboard-contract-warning></p><p data-dashboard-overdue></p>
+        <p data-dashboard-contract-warning hidden></p><p data-dashboard-overdue hidden></p>
         <div class="sh-columns">
             <section class="sh-panel"><div class="sh-panel-title"><h2><i class="fa-solid fa-bell" aria-hidden="true"></i> Thông báo thanh toán</h2><small>Dựa trên giao dịch thành công</small></div>
                 <ul class="sh-announcements" data-student-payment-notices><li class="st-muted">Đang tải thông tin thanh toán…</li></ul>
@@ -53,7 +53,7 @@
         const warning = hasContract && days <= 30 ? `<p class="st-notice ${days < 0 ? 'st-contract-expired' : ''}" role="status">⚠ ${days < 0 ? 'Hợp đồng lưu trú của bạn đã hết hạn.' : `Hợp đồng lưu trú của bạn sắp hết hạn vào ngày ${esc(date(contract.end))}. Còn ${days} ngày.`} <a href="#contract">Xem hợp đồng →</a></p>` : '';
         const overdue = summary.overdue;
         return `<div class="student-home-dashboard">
-            <section class="sh-welcome"><div><h2>Xin chào, ${esc(data.profile?.name || 'Sinh viên')} 👋</h2><p>Đây là thông tin lưu trú của bạn tại Ký túc xá.</p></div><div class="sh-welcome-art"><blockquote>“Chúc bạn có một năm học thật nhiều trải nghiệm và thành công!”</blockquote><img src="files/campus-dashboard.svg" alt="" aria-hidden="true"></div></section>
+            <section class="sh-welcome"><div><h2>Xin chào, ${esc(data.profile?.name || 'Sinh viên')} 👋</h2><p>Đây là thông tin lưu trú của bạn tại Ký túc xá.</p></div><div class="sh-welcome-art"><blockquote>Chúc bạn có một năm học thật nhiều trải nghiệm và thành công!</blockquote><img data-campus-banner src="${window.KTX_IMAGE_PATHS?.banyan || 'files/cay-bang.webp'}" alt="Tán cây bàng xanh trong khuôn viên ký túc xá" loading="eager"></div></section>
             <div class="sh-overview">${[
                 ['Phòng hiện tại', roomLabel, 'room', 'fa-bed'],
                 ['Hợp đồng', status, 'contract', 'fa-file-contract'],
@@ -91,7 +91,12 @@
         if (!backendStudent()) return;
         const set = (selector, value) => {
             const node = root.querySelector(selector);
-            if (node) node.textContent = value;
+            if (node) {
+                node.textContent = value;
+                if (['[data-dashboard-error]', '[data-dashboard-contract-warning]', '[data-dashboard-overdue]'].includes(selector)) {
+                    node.hidden = !value;
+                }
+            }
         };
         try {
             const [roomResponse, contractResponse, invoiceResponse] = await Promise.all([
@@ -104,10 +109,14 @@
             ]);
             if (!root.isConnected) return;
             const room = roomData.room;
-            const currentContract = contracts.find(item => item.TrangThaiHopDong === 'Còn hiệu lực') || contracts[0] || null;
+            const currentContract = contracts.find(item => item.TrangThaiHopDong === 'Còn hiệu lực') || null;
             const unpaidInvoices = invoices.filter(invoice => Number(invoice.ConNo || 0) > 0);
+            const allInvoicesPaid = invoices.length > 0
+                && invoices.every(invoice => invoice.TrangThaiThanhToan === 'Đã thanh toán'
+                    && Number(invoice.ConNo || 0) <= 0);
             const debt = unpaidInvoices.reduce((sum, invoice) => sum + Number(invoice.ConNo || 0), 0);
-            const today = new Date().toISOString().slice(0, 10);
+            const now = new Date();
+            const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
             const overdueInvoices = unpaidInvoices.filter(invoice => invoice.HanThanhToan
                 && String(invoice.HanThanhToan).slice(0, 10) < today).length;
             const endDate = currentContract?.NgayKetThuc ? String(currentContract.NgayKetThuc).slice(0, 10) : '';
@@ -122,17 +131,23 @@
             set('[data-dashboard-room-hint]', room ? room.TrangThaiPhong : 'Chưa xếp phòng');
             set('[data-dashboard-contract]', contractStatus);
             set('[data-dashboard-contract-hint]', daysRemaining == null ? 'Chưa có hợp đồng' : daysRemaining < 0 ? 'Đã hết hạn' : `Còn ${daysRemaining} ngày`);
-            set('[data-dashboard-unpaid]', `${unpaidInvoices.length} hóa đơn`);
-            set('[data-dashboard-unpaid-hint]', overdueInvoices ? `${overdueInvoices} hóa đơn quá hạn` : unpaidInvoices.length ? 'Chờ thanh toán' : 'Đã thanh toán đủ');
-            set('[data-dashboard-debt]', money(debt));
-            set('[data-dashboard-debt-hint]', debt > 0 ? 'Cần thanh toán' : 'Không có công nợ');
+            set('[data-dashboard-unpaid]', invoices.length ? `${unpaidInvoices.length} hóa đơn` : 'Chưa có');
+            set('[data-dashboard-unpaid-hint]', overdueInvoices
+                ? `${overdueInvoices} hóa đơn quá hạn`
+                : unpaidInvoices.length ? 'Chờ thanh toán'
+                    : allInvoicesPaid ? 'Đã thanh toán đủ'
+                        : invoices.length ? 'Chưa có công nợ' : 'Chưa có hóa đơn');
+            set('[data-dashboard-debt]', invoices.length ? money(debt) : '—');
+            set('[data-dashboard-debt-hint]', debt > 0 ? 'Cần thanh toán' : invoices.length ? 'Không có công nợ' : 'Chưa có hóa đơn');
             set('[data-dashboard-room-detail]', roomLabel);
-            set('[data-dashboard-building]', room ? `Khu ${room.Khu}` : 'Chưa có thông tin');
-            set('[data-dashboard-occupancy]', room ? `${room.SoSinhVienHienTai} / ${room.SucChuaToiDa}` : 'Chưa được xếp phòng');
+            set('[data-dashboard-building]', room ? room.Khu ? `Khu ${room.Khu}` : 'Chưa có thông tin' : 'Chưa được xếp phòng');
+            set('[data-dashboard-occupancy]', room ? `${room.SoSinhVienHienTai ?? '—'} / ${room.SucChuaToiDa ?? '—'}` : 'Chưa được xếp phòng');
             set('[data-dashboard-contract-start]', currentContract ? formatDate(currentContract.NgayBatDau) : 'Chưa có hợp đồng');
             set('[data-dashboard-contract-end]', currentContract ? formatDate(currentContract.NgayKetThuc) : 'Chưa có hợp đồng');
             set('[data-dashboard-contract-status]', contractStatus);
-            set('[data-dashboard-debt-detail]', debt > 0 ? `Còn nợ ${money(debt)}` : 'Không có công nợ');
+            set('[data-dashboard-debt-detail]', debt > 0
+                ? `Còn nợ ${money(debt)}`
+                : invoices.length ? 'Không có công nợ' : 'Chưa có hóa đơn');
             set('[data-dashboard-contract-warning]', daysRemaining != null && daysRemaining <= 30
                 ? `⚠ Hợp đồng lưu trú ${daysRemaining < 0 ? 'đã hết hạn' : `sắp hết hạn vào ngày ${formatDate(endDate)} (${daysRemaining} ngày)`}.`
                 : '');
