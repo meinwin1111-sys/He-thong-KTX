@@ -35,9 +35,12 @@ function responseRecorder() {
         statusCode: 200,
         headers: {},
         body: null,
+        listeners: {},
         status(code) { this.statusCode = code; return this; },
         json(value) { this.body = value; return this; },
-        set(name, value) { this.headers[name] = value; return this; }
+        set(name, value) { this.headers[name] = value; return this; },
+        once(event, callback) { this.listeners[event] = callback; return this; },
+        finish() { this.listeners.finish?.(); }
     };
 }
 
@@ -258,6 +261,29 @@ test("registration rate limiter blocks requests over its configured limit", () =
     assert.equal(blocked.nextCalled, false);
 });
 
+test("login rate limiter counts failed authentication only", () => {
+    const limiter = createIpRateLimiter({ windowMs: 60_000, max: 2, message: "rate limited", countOnlyStatus: 401 });
+    const call = statusCode => {
+        const res = responseRecorder();
+        let nextCalled = false;
+        limiter({ ip: "203.0.113.11" }, res, () => { nextCalled = true; });
+        if (nextCalled) {
+            res.statusCode = statusCode;
+            res.finish();
+        }
+        return { res, nextCalled };
+    };
+
+    assert.equal(call(200).nextCalled, true);
+    assert.equal(call(500).nextCalled, true);
+    assert.equal(call(401).nextCalled, true);
+    assert.equal(call(200).nextCalled, true);
+    assert.equal(call(401).nextCalled, true);
+    const blocked = call(401);
+    assert.equal(blocked.nextCalled, false);
+    assert.equal(blocked.res.statusCode, 429);
+});
+
 async function loginCase(findAccount, password = validRegistration.MatKhau) {
     const accountHash = await bcrypt.hash(validRegistration.MatKhau, 4);
     let comparisons = 0;
@@ -389,6 +415,17 @@ test("login client maps 401 and malformed success payloads to safe messages", as
         status: 401
     });
 
+    for (const [error, expectedMessage, status] of [
+        [Object.assign(new Error("browser detail must not appear"), { name: "ApiError", status: 0 }), "Không kết nối được máy chủ (kiểm tra mạng hoặc máy chủ đang tắt)", 0],
+        [Object.assign(new Error("limited"), { status: 429 }), "Quá nhiều lần thử, vui lòng đợi.", 429]
+    ]) {
+        const authenticate = createClient(async () => { throw error; });
+        const result = await authenticate("user@example.com", "password123");
+        assert.equal(result.message, expectedMessage);
+        assert.equal(result.status, status);
+        assert.equal(result.message.includes("browser detail must not appear"), false);
+    }
+
     for (const body of [{ token: "token-without-user" }, { user: { MaTaiKhoan: 1, VaiTro: "Quản lý" } }]) {
         const authenticate = createClient(async () => ({ json: async () => body }));
         const result = await authenticate("user@example.com", "password123");
@@ -409,6 +446,32 @@ test("login client maps 401 and malformed success payloads to safe messages", as
         assert.equal(result.token, "valid-token");
         assert.equal(result.user.role, role);
     }
+});
+
+test("ApiClient maps browser fetch failures to a safe network ApiError", async () => {
+    const context = vm.createContext({
+        window: {
+            KTX_CONFIG: { apiBaseUrl: "https://api.example.test" },
+            location: { origin: "https://preview.example.test" },
+            fetch: async () => { throw new TypeError("CORS detail must not appear"); },
+            setTimeout() {},
+            dispatchEvent() {}
+        },
+        sessionStorage: { getItem() { return null; }, removeItem() {} },
+        Headers,
+        URL,
+        CustomEvent: class {}
+    });
+    context.window.window = context.window;
+    vm.runInContext(fs.readFileSync(path.join(__dirname, "js/api-client.js"), "utf8"), context);
+
+    await assert.rejects(context.window.ApiClient.fetch("/api/login"), error => {
+        assert.equal(error.name, "ApiError");
+        assert.equal(error.status, 0);
+        assert.equal(error.message, "Không kết nối được máy chủ (kiểm tra mạng hoặc máy chủ đang tắt)");
+        assert.equal(error.message.includes("CORS detail"), false);
+        return true;
+    });
 });
 
 test("newly registered student can log in immediately without approval-table lookups", async () => {

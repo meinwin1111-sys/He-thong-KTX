@@ -95,7 +95,8 @@ const registrationRateLimiter = createIpRateLimiter({
 const loginRateLimiter = createIpRateLimiter({
     windowMs: 15 * 60 * 1000,
     max: 10,
-    message: "Quá nhiều lần đăng nhập không thành công. Vui lòng thử lại sau."
+    message: "Quá nhiều lần đăng nhập không thành công. Vui lòng thử lại sau.",
+    countOnlyStatus: 401
 });
 app.use("/api/student/register", registrationRateLimiter);
 app.use("/api/login", loginRateLimiter);

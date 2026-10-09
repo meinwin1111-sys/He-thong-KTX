@@ -56,7 +56,7 @@ function validateRegistration(body, now = new Date()) {
     return { value: registration };
 }
 
-function createIpRateLimiter({ windowMs, max, message }) {
+function createIpRateLimiter({ windowMs, max, message, countOnlyStatus = null }) {
     const requests = new Map();
     return (req, res, next) => {
         const now = Date.now();
@@ -70,8 +70,26 @@ function createIpRateLimiter({ windowMs, max, message }) {
         res.set("RateLimit-Limit", String(max));
         res.set("RateLimit-Remaining", String(Math.max(0, max - entry.count)));
         if (entry.count > max) {
+            if (countOnlyStatus !== null) entry.count--;
             res.set("RateLimit-Reset", String(Math.ceil((entry.resetAt - now) / 1000)));
             return res.status(429).json({ message });
+        }
+        if (countOnlyStatus !== null) {
+            let responseCompleted = false;
+            const onComplete = () => {
+                if (responseCompleted) return;
+                responseCompleted = true;
+                if (res.statusCode !== countOnlyStatus) {
+                    entry.count = Math.max(0, entry.count - 1);
+                }
+            };
+            if (typeof res.once === "function") {
+                res.once("finish", onComplete);
+                res.once("close", onComplete);
+            } else if (typeof res.on === "function") {
+                res.on("finish", onComplete);
+                res.on("close", onComplete);
+            }
         }
         return next();
     };

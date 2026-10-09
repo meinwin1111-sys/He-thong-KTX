@@ -100,7 +100,7 @@
             response = await window.fetch(url.href, { ...requestOptions, headers });
         } catch (error) {
             if (error.name === "AbortError") throw error;
-            throw new ApiError("Không thể kết nối đến máy chủ. Vui lòng thử lại.", 0);
+            throw new ApiError("Không kết nối được máy chủ (kiểm tra mạng hoặc máy chủ đang tắt)", 0);
         }
 
         if (response.status === 401 && isApi && !isLogin) {

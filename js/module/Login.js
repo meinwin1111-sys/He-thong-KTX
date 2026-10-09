@@ -98,13 +98,15 @@ async function authenticateLogin(email, password) {
         };
     } catch (error) {
         const status = Number.isInteger(error?.status) ? error.status : 0;
+        let message = "Không thể đăng nhập. Vui lòng thử lại.";
+        if (status === 401) message = "Email hoặc mật khẩu không đúng.";
+        else if (status === 429) message = "Quá nhiều lần thử, vui lòng đợi.";
+        else if (error?.name === "ApiError" && status === 0) {
+            message = "Không kết nối được máy chủ (kiểm tra mạng hoặc máy chủ đang tắt)";
+        }
         return {
             success: false,
-            message: status === 401
-                ? "Email hoặc mật khẩu không đúng."
-                : status === 429
-                    ? "Quá nhiều lần đăng nhập không thành công. Vui lòng thử lại sau."
-                    : "Không thể đăng nhập. Vui lòng thử lại.",
+            message,
             status,
         };
     }
