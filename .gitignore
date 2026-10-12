@@ -1,6 +1,5 @@
 ﻿node_modules/
 .env
-/dist/
 server_out.txt
 server_err.txt
 _extract/

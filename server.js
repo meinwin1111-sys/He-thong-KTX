@@ -143,7 +143,9 @@ app.use(async (req, res, next) => {
 
 app.use("/api", (req, res, next) => {
     if ((req.method === "GET" && req.path === "/health")
-        || (req.method === "POST" && (req.path === "/login" || req.path === "/payments/bank-transfer/notify"))) {
+        || (req.method === "POST" && (req.path === "/login"
+            || req.path === "/student/register"
+            || req.path === "/payments/bank-transfer/notify"))) {
         return next();
     }
 

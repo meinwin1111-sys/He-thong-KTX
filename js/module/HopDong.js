@@ -7,17 +7,6 @@ const historyPageSize = 5;
 let currentTab = "all"; //
 let lastUpdatedHD = null; //
 let currentEndId = null; // ID hợp đồng đang kết thúc
-
-async function getApiErrorMessage(response, fallback) {
-    const text = await response.text();
-    try {
-        const body = JSON.parse(text);
-        return body.message || fallback;
-    } catch {
-        return text || fallback;
-    }
-}
-
 function renderHopDongModule() {
     document.getElementById("main-content").innerHTML = `
 <section class="p-6">
@@ -549,7 +538,7 @@ async function loadHopDong() {
         console.log("🔄 Đang tải dữ liệu hợp đồng từ server...");
 
 
-        const res = await ApiClient.fetch(`${BASE_URL}/api/HopDong`);
+        const res = await fetch(`${BASE_URL}/api/HopDong`);
         if (!res.ok) throw new Error("Lỗi khi lấy dữ liệu từ server");
 
 
@@ -630,7 +619,8 @@ async function loadHopDong() {
             rawHopDong.map((h) => ({ MaHD: h.MaHD, TrangThai: h.TrangThai })),
         );
     } catch (err) {
-        showToast(err.message || "Không thể tải dữ liệu hợp đồng.", "error");
+        console.error("LỖI loadHopDong:", err);
+        showToast("Lỗi tải dữ liệu hợp đồng", "error");
     }
     lastUpdatedHD = null;
 }
@@ -1047,7 +1037,7 @@ async function handleMSSVInput() {
 
 
     try {
-        const res = await ApiClient.fetch(`${BASE_URL}/api/SinhVienById/${mssv}`);
+        const res = await fetch(`${BASE_URL}/api/SinhVienById/${mssv}`);
         const sv = await res.json();
 
 
@@ -1080,7 +1070,8 @@ async function handleMSSVInput() {
             showToast("Sinh viên đã có hợp đồng còn hiệu lực", "error");
         }
     } catch (err) {
-        showToast(err.message || "Không thể lấy thông tin sinh viên.", "error");
+        console.error(err);
+        showToast("Lỗi khi lấy sinh viên", "error");
     }
 }
 
@@ -1163,14 +1154,15 @@ function saveHopDong(e) {
     };
 
 
-    ApiClient.fetch(`${BASE_URL}/api/HopDong`, {
+    fetch(`${BASE_URL}/api/HopDong`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newHD),
     })
         .then(async (res) => {
             if (!res.ok) {
-                throw new Error(await getApiErrorMessage(res, "Lỗi server"));
+                const text = await res.text();
+                throw new Error(text || "Lỗi server");
             }
             return res.json();
         })
@@ -1194,7 +1186,7 @@ function saveHopDong(e) {
         })
         .catch((err) => {
             console.error(err);
-            showToast(err.message || "Lỗi khi tạo hợp đồng", "error");
+            showToast("Lỗi khi tạo hợp đồng", "error");
         });
 }
 
@@ -1270,14 +1262,16 @@ function saveExtend() {
 
 
     // ===== CALL API =====
-    ApiClient.fetch(`${BASE_URL}/api/HopDong/extend/${id}`, {
+    fetch(`${BASE_URL}/api/HopDong/extend/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ NgayKetThuc: newDate }),
     })
     .then(async (res) => {
-        if (!res.ok) throw new Error(await getApiErrorMessage(res, "Không thể gia hạn hợp đồng."));
         const text = await res.text();
+
+
+        if (!res.ok) throw new Error(text);
 
 
         return text;
@@ -1316,7 +1310,7 @@ function saveExtend() {
     })
     .catch((err) => {
         console.error("LỖI GIA HẠN:", err);
-        showToast(err.message || "Lỗi khi gia hạn", "error");
+        showToast("Lỗi khi gia hạn", "error");
     });
 }
 
@@ -1384,12 +1378,13 @@ async function confirmEnd() {
         const hd = rawHopDong.find((h) => h.MaHD === id);
 
         // 1. Gọi API lưu lên database
-        const res = await ApiClient.fetch(`${BASE_URL}/api/HopDong/end/${encodeURIComponent(id)}`, {
+        const res = await fetch(`${BASE_URL}/api/HopDong/end/${encodeURIComponent(id)}`, {
             method: "PUT",
         });
 
         if (!res.ok) {
-            throw new Error(await getApiErrorMessage(res, "Lỗi server"));
+            const errText = await res.text();
+            throw new Error(errText || "Lỗi server");
         }
 
         // 2. Thông báo thành công
@@ -1409,20 +1404,21 @@ async function confirmEnd() {
 }
 // ======================= MỞ MODAL LỊCH SỬ =======================
 async function openHistoryModal() {
-    try {
-        const res = await ApiClient.fetch(`${BASE_URL}/api/history`);
-        const data = await res.json();
-        if (data.length === 0) {
-            showToast("Không có lịch sử hợp đồng", "error");
-            return;
-        }
+    const res = await fetch(`${BASE_URL}/api/history`);
+    const data = await res.json();
 
-        historyHD = data;
-        renderHistoryTable();
-        document.getElementById("historyModal").classList.remove("hidden");
-    } catch (error) {
-        showToast(error.message || "Không thể tải lịch sử hợp đồng.", "error");
+
+    if (data.length === 0) {
+        showToast("Không có lịch sử hợp đồng", "error");
+        return;
     }
+
+
+    historyHD = data;
+    renderHistoryTable();
+
+
+    document.getElementById("historyModal").classList.remove("hidden");
 }
 
 
@@ -1527,7 +1523,7 @@ function prevHistoryPage() {
 
 
 async function openHistoryModal() {
-    const res = await ApiClient.fetch(`${BASE_URL}/api/history`);
+    const res = await fetch(`${BASE_URL}/api/history`);
     const data = await res.json();
 
 
@@ -1587,13 +1583,13 @@ function saveNote() {
     loadHopDong();
 
 
-    ApiClient.fetch(`${BASE_URL}/api/HopDong/note/${currentDetailId}`, {
+    fetch(`${BASE_URL}/api/HopDong/note/${currentDetailId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ GhiChu: ghiChu })
     })
-    .then(async res => {
-        if (!res.ok) throw new Error(await getApiErrorMessage(res, "Không thể lưu ghi chú hợp đồng."));
+    .then(res => {
+        if (!res.ok) throw new Error();
         return res.text();
     })
     .then(() => {
@@ -1603,8 +1599,8 @@ function saveNote() {
         closeDetail();
         loadHopDong(); // reload lại bảng
     })
-    .catch((error) => {
-        showToast(error.message || "Lỗi khi cập nhật ghi chú", "error");
+    .catch(() => {
+        showToast("Lỗi khi cập nhật ghi chú", "error");
     });
 }
 

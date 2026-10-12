@@ -1,4 +1,4 @@
-const sql = require('mssql');
+﻿const sql = require('mssql');
 const paymentRepository = require('../repositories/paymentRepository');
 const { mapPaymentStatusToDatabase } = require('../utils/mapping');
 
@@ -12,12 +12,12 @@ const createPaymentTransaction = async (paymentData) => {
         // Check for existing pending transactions
         const existingTransaction = await paymentRepository.checkPendingTransaction(invoiceId);
         if (existingTransaction) {
-            throw new Error('Hạng mục đã thuộc giao dịch PENDING khác.');
+            throw new Error('Háº¡ng má»¥c Ä‘Ã£ thuá»™c giao dá»‹ch PENDING khÃ¡c.');
         }
 
         // Create payment transaction
         const transactionId = await paymentRepository.createTransaction(invoiceId, paymentMethod, transaction);
-        
+
         // Process each item in the transaction
         for (const item of items) {
             await paymentRepository.addTransactionDetail(transactionId, item.id, item.amount, transaction);

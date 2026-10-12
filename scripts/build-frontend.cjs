@@ -33,6 +33,7 @@ for (const file of ["Admin.html", "Student.html", "style.css", "student.css"]) {
     fs.copyFileSync(path.join(root, file), path.join(output, file));
 }
 fs.cpSync(path.join(root, "js"), path.join(output, "js"), { recursive: true });
+fs.cpSync(path.join(root, "files"), path.join(output, "files"), { recursive: true });
 fs.writeFileSync(
     path.join(output, "js", "runtime-config.js"),
     `window.KTX_CONFIG = Object.freeze({ apiBaseUrl: ${JSON.stringify(apiBaseUrl)} });\n`,

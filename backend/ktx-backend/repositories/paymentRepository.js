@@ -1,4 +1,4 @@
-// This file contains functions for managing payment transactions, including creating payment records and updating their statuses.
+﻿// This file contains functions for managing payment transactions, including creating payment records and updating their statuses.
 
 const sql = require('mssql');
 const { mapPaymentStatusToDatabase } = require('../utils/paymentUtils');
@@ -7,7 +7,7 @@ const { mapPaymentStatusToDatabase } = require('../utils/paymentUtils');
 const createPaymentTransaction = async (transactionData) => {
     const { studentId, amount, paymentMethod } = transactionData;
     const request = new sql.Request();
-    
+
     try {
         // Begin transaction
         const transaction = new sql.Transaction();
@@ -33,7 +33,7 @@ const createPaymentTransaction = async (transactionData) => {
 // Function to update payment status
 const updatePaymentStatus = async (paymentId, status) => {
     const request = new sql.Request();
-    
+
     try {
         const result = await request
             .input('PaymentId', sql.NVarChar(50), paymentId)
@@ -49,7 +49,7 @@ const updatePaymentStatus = async (paymentId, status) => {
 // Function to retrieve payment history for a student
 const getPaymentHistory = async (studentId) => {
     const request = new sql.Request();
-    
+
     try {
         const result = await request
             .input('StudentId', sql.NVarChar(30), studentId)

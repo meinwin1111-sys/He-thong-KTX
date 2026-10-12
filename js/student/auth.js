@@ -1,4 +1,4 @@
-// Keeps demo accounts separate while exposing the student's authenticated API session.
+// Demo only. Independent storage; never reads or changes Admin authentication.
 (() => {
     const accountsKey = 'ktx.student.mock.accounts.v1';
     const sessionKey = 'ktx.student.mock.session.v1';
@@ -11,7 +11,7 @@
     function accounts() {
         const saved = JSON.parse(localStorage.getItem(accountsKey) || '[]');
         if (!Array.isArray(saved)) throw new Error('Dữ liệu tài khoản demo không hợp lệ.');
-        return saved.filter(a => a && a.role === 'STUDENT' && typeof a.password === 'string' && typeof a.email === 'string').map(a => ({ ...students.find(s => s.code === a.code), ...a }));
+        return [{ code: 'SV001', name: 'Nguyễn Văn An', email: 'student@ktx.com', password: '123456', role: 'STUDENT' }, ...saved.filter(a => a && a.code !== 'SV001' && a.role === 'STUDENT' && typeof a.password === 'string' && typeof a.email === 'string').map(a => ({ ...students.find(s => s.code === a.code), ...a }))];
     }
     window.StudentAuth = {
         students,
@@ -48,22 +48,10 @@
             if (list.some(a => normalize(a.email) === student.email)) throw new Error('Gmail này đã được đăng ký.');
             if (list.some(a => a.code.toUpperCase() === student.code)) throw new Error('Mã sinh viên này đã được đăng ký.');
             list.push({ ...student, password, role: 'STUDENT' });
-            localStorage.setItem(accountsKey, JSON.stringify(list));
+            localStorage.setItem(accountsKey, JSON.stringify(list.filter(a => a.code !== 'SV001')));
             return student.email;
         },
         session() {
-            const backendUser = window.ApiClient?.getStudentSession()?.user;
-            if (backendUser?.studentId) {
-                return {
-                    id: backendUser.id,
-                    code: backendUser.studentId,
-                    email: backendUser.email,
-                    name: backendUser.fullName || backendUser.studentId,
-                    phone: backendUser.phone || '',
-                    role: 'STUDENT',
-                    isBackend: true
-                };
-            }
             try {
                 const session = JSON.parse(localStorage.getItem(sessionKey) || 'null');
                 const student = accounts().find(s => s.code === session?.code && s.email === session?.email);
@@ -72,12 +60,6 @@
                 return profile;
             } catch { return null; }
         },
-        logout() {
-            if (window.ApiClient?.getStudentSession()) {
-                window.ApiClient.clearStudentSession();
-                return;
-            }
-            localStorage.removeItem(sessionKey);
-        }
+        logout() { localStorage.removeItem(sessionKey); }
     };
 })();

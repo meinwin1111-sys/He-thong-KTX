@@ -1,0 +1,669 @@
+:root {
+    --theme-sidebar: #1e293b;
+    --theme-sidebar-dark: #0f172a;
+    --theme-primary: #059669;
+    --theme-accent: #10b981;
+    --theme-primary-hover: #047857;
+    --theme-primary-dark: #064e3b;
+    --theme-primary-soft: #ecfdf5;
+    --theme-primary-muted: #d1fae5;
+    --theme-primary-border: #a7f3d0;
+    --theme-background: #f8fafc;
+    --theme-surface: #ffffff;
+    --theme-text: #0f172a;
+    --theme-text-muted: #64748b;
+    --theme-border: #e2e8f0;
+}
+
+/* CSS CƠ BẢN: Định dạng font chữ chung cho toàn trang và màu nền tổng thể */
+html {
+    height: 100%;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--theme-background);
+    height: 100%;
+}
+
+/* Ẩn scrollbar trên toàn trang */
+* {
+    scrollbar-width: none;       /* Firefox */
+    -ms-overflow-style: none;    /* IE / Edge */
+}
+*::-webkit-scrollbar {
+    display: none;               /* Chrome / Safari */
+}
+
+/* NAVIGATION: Hiệu ứng chuyển động khi hover/click và định dạng chung cho các mục menu */
+/* Bao gồm: font chữ, màu chữ, căn icon + text, khoảng cách giữa icon và chữ */
+.nav-item {
+    transition: all 0.2s;
+    font-weight: 500;
+    color: var(--theme-surface);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 10px 20px;
+}
+
+/* NAVIGATION ACTIVE: Khi menu được chọn (đang ở trang đó) */
+/* Màu Emerald cho mục đang chọn, chữ trắng. */
+.nav-active {
+    background-color: var(--theme-primary) !important;
+    color: var(--theme-surface) !important;
+    font-weight: 700;
+}
+
+/* COMPONENT: Thẻ thống kê hiển thị các số liệu nhanh trên dashboard */
+/* Ví dụ: tổng phòng, tổng sinh viên, phòng trống... */
+.stat-card {
+    background: white;
+    padding: 1.25rem;
+    border-radius: 0.5rem;
+    min-width: 150px;
+    flex: 1;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* MODAL: Lớp phủ popup hiển thị form thêm/sửa dữ liệu */
+/* fixed + inset:0 giúp modal phủ toàn màn hình */
+.modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    padding: 20px;
+}
+
+/* MODAL ACTIVE: Khi modal được mở thì hiển thị bằng flex */
+.modal.active {
+    display: flex;
+}
+
+/* PAGE SECTION: Mặc định ẩn tất cả các section (module) */
+/* Khi chuyển chức năng thì JS sẽ bật class active */
+.page-section {
+    display: none;
+}
+
+/* Khi section có class active thì hiển thị */
+.page-section.active {
+    display: block;
+}
+
+/* FORM INPUT: Ẩn nút tăng giảm của input number trên Chrome */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* REQUIRED FIELD: Tự động thêm dấu * đỏ sau label bắt buộc */
+.required::after {
+    content: " *";
+    color: #ef4444;
+    font-weight: bold;
+}
+
+/* FORM DISABLED: Định dạng input chỉ đọc hoặc select bị disable */
+/* Làm mờ và đổi con trỏ để thể hiện không chỉnh sửa được */
+input:read-only,
+select:disabled {
+    background-color: #f1f5f9;
+    cursor: not-allowed;
+    color: var(--theme-text-muted);
+}
+
+/* PHÂN TÍCH THỐNG KÊ: Thanh tiến trình hiển thị tỷ lệ giới tính hoặc khu vực */
+.progress-container {
+    background-color: #f1f5f9;
+    height: 8px;
+    border-radius: 4px;
+    width: 120px;
+    overflow: hidden;
+}
+
+/* Thanh tiến trình bên trong container */
+.progress-bar {
+    height: 100%;
+    border-radius: 4px;
+}
+
+/* Màu thanh tiến trình cho sinh viên nam */
+.bg-male {
+    background-color: var(--theme-accent);
+}
+
+/* Màu thanh tiến trình cho sinh viên nữ */
+.bg-female {
+    background-color: #f472b6;
+}
+
+
+/* BIẾN CSS (CSS VARIABLES): Định nghĩa màu sắc chủ đạo cho toàn bộ dashboard */
+/* Giúp dễ thay đổi theme hoặc tái sử dụng màu */
+:root {
+    --primary-blue: var(--theme-primary);
+    /* màu xanh chính của hệ thống */
+    --secondary-yellow: #FFC107;
+    /* màu vàng phụ */
+    --bg-light: var(--theme-background);
+    /* màu nền dashboard */
+    --text-main: var(--theme-text);
+    /* màu chữ chính */
+    --success: #28a745;
+    /* màu trạng thái thành công */
+    --danger: #dc3545;
+    /* màu cảnh báo/lỗi */
+    --warning: #ffc107;
+    /* màu cảnh báo trung bình */
+}
+
+/* CONTAINER DASHBOARD: vùng chứa toàn bộ phần thống kê */
+.dashboard-container {
+    padding: 20px;
+    background-color: var(--bg-light);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* GRID THỐNG KÊ: bố trí các stat-card theo dạng lưới */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    /* 5 cột bằng nhau */
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+/* CARD THỐNG KÊ: thẻ hiển thị các số liệu */
+.stat-card {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    text-align: center;
+}
+
+/* Tiêu đề trong card thống kê */
+.stat-card h3 {
+    font-size: 14px;
+    color: var(--theme-text-muted);
+    margin-bottom: 10px;
+}
+
+/* Giá trị thống kê lớn trong card */
+.stat-card .value {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+/* CARD HIGHLIGHT: thẻ hiển thị tỷ lệ sử dụng phòng nổi bật */
+.usage-rate-card {
+    background: var(--theme-primary-soft);
+    border: 1px solid var(--theme-primary-border);
+}
+
+/* Giá trị hiển thị lớn hơn để nhấn mạnh */
+.usage-rate-card .value {
+    color: var(--theme-primary);
+    font-size: 32px;
+}
+
+/* KHU VỰC BIỂU ĐỒ: chia layout biểu đồ và panel phụ */
+.chart-section {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    /* biểu đồ chính lớn hơn */
+    gap: 20px;
+}
+
+/* PANEL CARD: container chứa biểu đồ hoặc bảng thống kê */
+.card-panel {
+    background: white;
+    padding: 25px;
+    border-radius: 15px;
+    min-height: 300px;
+}
+
+/* CONTAINER THANH TIẾN TRÌNH */
+.progress-bar-container {
+    height: 10px;
+    background: #eee;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+/* PHẦN ĐỔ MÀU CỦA THANH TIẾN TRÌNH */
+.progress-fill {
+    height: 100%;
+    transition: width 0.5s ease-in-out;
+}
+
+/* Ẩn toàn bộ section của các module theo mặc định */
+.page-section {
+    display: none;
+}
+
+/* Khi section có class active thì hiển thị nội dung module */
+.page-section.active {
+    display: block;
+}
+
+/* Container Tab */
+.tab-item {
+    position: relative;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    outline: none;
+}
+
+/* Hiệu ứng gạch chân khi Active */
+.active-tab {
+    color: var(--theme-primary-dark) !important;
+    /* Màu xanh đậm của bạn */
+}
+
+.active-tab::after {
+    content: "";
+    position: absolute;
+    bottom: -1px;
+    /* Đè lên border-b của container */
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background-color: var(--theme-primary-dark);
+    border-radius: 2px 2px 0 0;
+}
+
+/* Hover nhẹ để người dùng biết có thể click */
+.tab-item:hover {
+    color: var(--theme-primary-dark);
+}
+
+/* Màu sắc cảnh báo dựa trên User Story */
+.bg-critical {
+    background-color: #fee2e2;
+    color: #ef4444;
+}
+
+/* Đỏ: <= 3 ngày */
+.bg-warning-custom {
+    background-color: #fef3c7;
+    color: #d97706;
+}
+
+/* Vàng: <= 7 ngày */
+
+/* Badge cho số ngày còn lại */
+.days-left-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: bold;
+    margin-top: 4px;
+    display: inline-block;
+}
+
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+    display: none;
+}
+
+.active-tab {
+    color: var(--theme-primary) !important;
+    border-bottom: 2px solid var(--theme-primary) !important;
+}
+
+/* =========================
+   LOGIN INPUT ERROR FIX
+========================= */
+
+
+/* Input lỗi: luôn đỏ đồng nhất kể cả đang focus */
+.input-error {
+    border-color: #f87171 !important;
+    background-color: #fef2f2 !important;
+}
+
+
+.input-error:focus {
+    border-color: #f87171 !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+
+/* Chặn màu autofill của trình duyệt làm lệch nền */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 1000px var(--theme-surface) inset !important;
+    -webkit-text-fill-color: #000 !important;
+    transition: background-color 5000s ease-in-out 0s;
+}
+
+
+/* Khi input đang lỗi mà bị autofill vẫn giữ màu đỏ */
+.input-error:-webkit-autofill,
+.input-error:-webkit-autofill:hover,
+.input-error:-webkit-autofill:focus,
+.input-error:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 1000px #fef2f2 inset !important;
+    -webkit-text-fill-color: #000 !important;
+}
+/* Duyệt & Kiểm soát: giới hạn style trong module. */
+.dk-module { max-width: 1500px; margin: auto; color: var(--theme-text); }
+.dk-demo { margin: 20px 0; padding: 12px 16px; background: var(--theme-primary-soft); color: var(--theme-primary-hover); border: 1px solid var(--theme-primary-border); border-radius: 10px; }
+.dk-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px; }
+.dk-stat { background: white; border: 1px solid var(--theme-border); border-top: 3px solid var(--theme-primary); border-radius: 10px; padding: 18px; }
+.dk-stat p { color: var(--theme-text-muted); margin-bottom: 8px; }
+.dk-stat strong { font-size: 28px; color: var(--theme-primary-dark); }
+.dk-panel { background: white; border: 1px solid var(--theme-border); border-radius: 12px; overflow: hidden; }
+.dk-tabs { display: flex; gap: 24px; padding: 0 20px; border-bottom: 1px solid var(--theme-border); }
+.dk-tabs button { padding: 18px 0; border-bottom: 3px solid transparent; font-weight: 600; }
+.dk-tabs .dk-active { color: var(--theme-primary); border-color: var(--theme-primary); }
+.dk-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 20px; }
+.dk-filters label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--theme-text-muted); }
+.dk-search { flex: 1; min-width: 200px; }
+.dk-module input, .dk-module select, .dk-module textarea { border: 1px solid var(--theme-border); border-radius: 7px; padding: 9px 12px; background: white; color: var(--theme-text); font: inherit; }
+.dk-module textarea { width: 100%; margin-top: 8px; resize: vertical; }
+.dk-module :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--theme-primary); outline-offset: 3px; }
+.dk-button { border: 1px solid var(--theme-border); border-radius: 7px; padding: 8px 12px; background: white; color: var(--theme-text); font-weight: 600; white-space: nowrap; }
+.dk-button:hover { background: #f1f5f9; }
+.dk-button:disabled { opacity: .4; cursor: not-allowed; }
+.dk-primary, .dk-primary:hover { background: var(--theme-primary); color: white; border-color: var(--theme-primary); }
+.dk-danger, .dk-danger:hover { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
+.dk-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.dk-table-wrap { overflow-x: auto; }
+.dk-table { width: 100%; min-width: 1080px; text-align: left; border-collapse: collapse; }
+.dk-table th { background: var(--theme-background); color: var(--theme-text-muted); font-size: 12px; font-weight: 600; }
+.dk-table th, .dk-table td { padding: 16px; border-bottom: 1px solid #f1f5f9; }
+.dk-table tbody tr:hover { background: var(--theme-background); }
+.dk-table small { display: block; margin-top: 5px; color: var(--theme-text-muted); }
+.dk-badge { display: inline-block; white-space: nowrap; border-radius: 20px; padding: 5px 10px; font-size: 12px; font-weight: 600; }
+.dk-pending { background: #fef3c7; color: #92400e; }
+.dk-approved { background: #dcfce7; color: #166534; }
+.dk-rejected { background: #fee2e2; color: #b91c1c; }
+.dk-table .dk-empty { text-align: center; padding: 48px 20px; color: var(--theme-text-muted); }
+.dk-footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px; color: var(--theme-text-muted); }
+.dk-dialog { border: 0; padding: 0; border-radius: 14px; width: min(620px, calc(100vw - 32px)); max-height: 85vh; overflow-y: auto; color: var(--theme-text); box-shadow: 0 24px 64px #0003; }
+.dk-dialog::backdrop { background: rgb(15 23 42 / 50%); }
+.dk-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px; border-bottom: 1px solid var(--theme-border); }
+.dk-dialog-heading h3 { font-size: 20px; font-weight: 700; color: var(--theme-primary-dark); }
+.dk-dialog-content { padding: 24px; }
+.dk-details { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 20px; }
+.dk-details dt { color: var(--theme-text-muted); font-size: 12px; margin-bottom: 4px; }
+.dk-details dd { font-weight: 600; overflow-wrap: anywhere; }
+.dk-description { background: var(--theme-background); padding: 12px; margin-top: 8px; border-radius: 8px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dk-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+#main-nav {
+    flex-direction: column;
+    padding-left: 0;
+    padding-right: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+#main-nav .nav-item { flex-shrink: 0; }
+/* Chỉ đổi bố cục khi menu đang hiện; giữ layout đăng nhập/Trang chủ. */
+body:has(> #main-nav:not([style*="display: none"])) {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+}
+body > #main-nav {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    height: 100vh;
+    height: 100dvh;
+    z-index: 30;
+}
+body > header {
+    grid-column: 2;
+    grid-row: 1;
+    justify-content: flex-end;
+    min-width: 0;
+}
+body > #main-content {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+@media (max-width: 760px) {
+    body:has(> #main-nav:not([style*="display: none"])) {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto auto minmax(0, 1fr);
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
+    }
+    body > #main-nav {
+        grid-column: 1;
+        grid-row: 2;
+        position: relative;
+        left: auto;
+        bottom: auto;
+        width: auto;
+        height: auto;
+        max-height: 56px;
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: hidden;
+        z-index: auto;
+    }
+    #main-nav .dms-sidebar-logo { display: none; }
+    #main-nav .nav-item {
+        flex: 0 0 auto;
+        min-height: 56px;
+        white-space: nowrap;
+    }
+    body > header {
+        grid-column: 1;
+        grid-row: 1;
+    }
+    body > #main-content {
+        grid-column: 1;
+        grid-row: 3;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+}
+#main-nav .dms-sidebar-logo {
+    min-height: 73px;
+    flex-shrink: 0;
+}
+@media (max-width: 760px) {
+    .dk-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .dk-filters label { flex: 1; min-width: 140px; }
+    .dk-tabs { gap: 16px; }
+    .dk-details { grid-template-columns: 1fr; }
+}
+
+/* Shared shell colors; dimensions and navigation remain unchanged. */
+body { color: var(--theme-text); }
+body > #main-content { background-color: var(--theme-background); }
+body > header, #main-nav { background-color: var(--theme-sidebar); }
+#main-nav .dms-sidebar-logo { background-color: var(--theme-sidebar-dark); }
+body > header, #main-nav .dms-sidebar-logo { border-color: var(--theme-sidebar); }
+#main-nav .nav-item { color: var(--theme-surface); }
+#main-nav .nav-item:hover { background-color: rgb(16 185 129 / 18%); }
+#main-nav .nav-active { background-color: var(--theme-primary) !important; color: var(--theme-surface) !important; }
+#admin-menu-wrapper > button:hover { background-color: rgb(16 185 129 / 18%); }
+/* Admin Home only: dashboard presentation. */
+#module-trangchu .home-dashboard { max-width: 1600px; margin: auto; }
+#module-trangchu .home-welcome { display: flex; align-items: center; gap: 24px; padding: 28px 32px; border: 1px solid var(--theme-primary-border); border-radius: 16px; background: linear-gradient(110deg, #ecfdf5, #fff); margin-bottom: 24px; }
+#module-trangchu .home-welcome h2 { font-size: 26px; font-weight: 700; color: var(--theme-text); margin: 6px 0; }
+#module-trangchu .home-welcome p { color: var(--theme-text-muted); }
+#module-trangchu .home-welcome .home-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .12em; color: var(--theme-primary); }
+#module-trangchu .home-campus { margin-left: auto; font-size: 64px; color: #a7f3d0; }
+#module-trangchu .home-clock { display: flex; align-items: center; gap: 10px; max-width: 220px; padding: 14px; background: white; border: 1px solid var(--theme-border); border-radius: 12px; line-height: 1.8; color: var(--theme-text-muted); }
+#module-trangchu .home-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; margin-bottom: 24px; }
+#module-trangchu .home-stat, #module-trangchu .home-panel { background: var(--theme-surface); border: 1px solid var(--theme-border); border-radius: 14px; padding: 22px; box-shadow: 0 3px 12px rgb(15 23 42 / 4%); }
+#module-trangchu .home-stat-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; background: var(--theme-primary-soft); color: var(--theme-primary); margin-bottom: 16px; font-size: 18px; }
+#module-trangchu .home-stat p, #module-trangchu .home-stat small { color: var(--theme-text-muted); }
+#module-trangchu .home-stat strong { display: block; font-size: clamp(20px, 2vw, 28px); margin: 8px 0; overflow-wrap: anywhere; }
+#module-trangchu .home-stat small { font-size: 11px; }
+#module-trangchu .home-columns { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+#module-trangchu .home-aside { display: grid; gap: 24px; }
+#module-trangchu .home-section-heading { margin-bottom: 20px; }
+#module-trangchu .home-section-title { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+#module-trangchu .home-section-title i { color: var(--theme-primary); }
+#module-trangchu .home-announcements .space-y-3 > div { background: white; border-top: 1px solid var(--theme-border); border-right: 1px solid var(--theme-border); border-bottom: 1px solid var(--theme-border); }
+#module-trangchu .home-documents { padding: 0; overflow: hidden; }
+@media (max-width: 1200px) { #module-trangchu .home-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } #module-trangchu .home-campus { display: none; } #module-trangchu .home-clock { margin-left: auto; } }
+@media (max-width: 900px) { #module-trangchu .home-columns { grid-template-columns: 1fr; } #module-trangchu .home-welcome { flex-wrap: wrap; padding: 24px; } #module-trangchu .home-clock { margin-left: 0; max-width: none; } }
+@media (max-width: 600px) { #module-trangchu .home-stats { grid-template-columns: 1fr; } }
+/* Welcome banner, scoped to Admin Home. */
+#module-trangchu .home-welcome { position: relative; isolation: isolate; overflow: hidden; min-height: 190px; align-items: flex-start; padding: 24px; background: linear-gradient(110deg, #def7ec 0%, #e2f5ee 48%, #e0f2f6 100%); border: 0; }
+#module-trangchu .home-greeting { position: relative; z-index: 2; padding-top: 4px; }
+#module-trangchu .home-greeting-row { display: flex; align-items: center; gap: 12px; }
+#module-trangchu .home-wave { display: grid; place-items: center; width: 50px; height: 52px; flex-shrink: 0; border-radius: 13px; background: rgb(255 255 255 / 75%); font-size: 30px; }
+#module-trangchu .home-welcome h2 { font-size: clamp(20px, 2.1vw, 28px); margin: 0 0 6px; letter-spacing: -.7px; }
+#module-trangchu .home-welcome .home-quote { display: inline-block; margin-top: 24px; padding: 11px 16px; background: rgb(255 255 255 / 65%); border-radius: 12px; font-size: 12px; font-style: italic; color: #475569; }
+#module-trangchu .home-campus-art { position: absolute; right: 0; bottom: -1px; width: 58%; height: 100%; object-fit: contain; object-position: right bottom; z-index: -1; pointer-events: none; }
+#module-trangchu .home-clock { position: relative; z-index: 2; margin-left: auto; flex-shrink: 0; max-width: none; padding: 10px 16px; gap: 14px; background: rgb(255 255 255 / 78%); border: 0; border-radius: 14px; }
+#module-trangchu .home-clock > i { font-size: 20px; color: var(--theme-primary); }
+#module-trangchu .home-clock time { display: flex; align-items: center; gap: 20px; }
+#module-trangchu .home-calendar { display: flex; flex-direction: column; color: var(--theme-text); font-size: 12px; font-weight: 600; line-height: 1.5; text-transform: capitalize; }
+#module-trangchu [data-home-hour] { border-left: 1px solid #dceeea; padding-left: 20px; color: var(--theme-primary); font-size: 30px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
+@media (max-width: 1100px) { #module-trangchu .home-welcome { flex-wrap: wrap; min-height: 230px; } #module-trangchu .home-clock { margin-left: 0; } #module-trangchu .home-campus-art { width: 65%; opacity: .6; } }
+@media (max-width: 600px) { #module-trangchu .home-welcome { padding: 18px; } #module-trangchu .home-campus-art { opacity: .2; width: 100%; } #module-trangchu .home-greeting-row { align-items: flex-start; } }
+/* Student registration dialog only; shared Login/Admin layout is unchanged. */
+.student-register-dialog { padding: 0; width: min(920px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); border: 1px solid #e2e8f0; border-radius: 16px; color: var(--theme-text); background: white; box-shadow: 0 28px 90px rgb(15 23 42 / 24%); }
+.student-register-dialog::backdrop { background: rgb(15 23 42 / 35%); backdrop-filter: blur(3px); }
+.student-register-dialog .sr-layout { display: grid; grid-template-columns: .85fr 1.25fr; }
+.student-register-dialog .sr-intro { position: relative; overflow: hidden; padding: 36px 30px 230px; background: radial-gradient(circle at 85% 0%, #fff 0, #f0fdf8 45%, #d8f5e9 100%); }
+.student-register-dialog .sr-brand-icon { display: grid; place-items: center; width: 60px; height: 60px; border-radius: 16px; background: #d1fae5; color: #059669; font-size: 29px; margin-bottom: 18px; }
+.student-register-dialog .sr-intro h2 { font-size: 26px; line-height: 1.35; font-weight: 800; letter-spacing: -.6px; margin-bottom: 12px; }
+.student-register-dialog .sr-intro p { color: #64748b; font-size: 13px; line-height: 1.75; }
+.student-register-dialog .sr-fixtures { display: flex; gap: 14px; padding: 16px; margin-top: 20px; border-radius: 12px; background: rgb(167 243 208 / 38%); color: #065f46; font-size: 12px; }
+.student-register-dialog .sr-fixtures > i { font-size: 23px; color: #059669; margin-top: 3px; }
+.student-register-dialog .sr-fixtures ul { list-style: disc; padding-left: 16px; margin-top: 8px; line-height: 1.9; }
+.student-register-dialog .sr-campus { position: absolute; bottom: 0; left: -22%; width: 144%; max-width: none; height: 230px; object-fit: cover; object-position: center bottom; pointer-events: none; }
+.student-register-dialog .sr-form-panel { position: relative; padding: 30px 34px; min-width: 0; }
+.student-register-dialog .sr-form-panel h3 { font-size: 22px; font-weight: 750; padding-right: 20px; margin-bottom: 4px; }
+.student-register-dialog .sr-subtitle { color: #64748b; font-size: 13px; line-height: 1.6; margin-bottom: 20px; }
+.student-register-dialog .sr-close { position: absolute; top: 14px; right: 16px; color: #64748b; font-size: 21px; padding: 4px 8px; }
+.student-register-dialog .sr-field { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: start; gap: 13px; margin-bottom: 20px; }
+.student-register-dialog .sr-field-icon { display: grid; place-items: center; width: 44px; height: 44px; margin-top: 23px; background: #f1f5f9; border-radius: 12px; color: #475569; font-size: 17px; }
+.student-register-dialog label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 6px; }
+.student-register-dialog label span { color: #ef4444; }
+.student-register-dialog input { width: 100%; height: 40px; padding: 9px 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: white; color: #0f172a; font: inherit; box-shadow: 0 1px 3px rgb(15 23 42 / 3%); }
+.student-register-dialog small { display: block; font-size: 11px; color: #64748b; margin-top: 5px; line-height: 1.5; }
+.student-register-dialog .sr-password { position: relative; }
+.student-register-dialog .sr-password input { padding-right: 42px; }
+.student-register-dialog .sr-password button { position: absolute; right: 5px; top: 0; height: 40px; width: 34px; color: #94a3b8; }
+.student-register-dialog .sr-error:empty { display: none; }
+.student-register-dialog .sr-error:not(:empty) { border: 1px solid #fecaca; border-radius: 8px; padding: 10px 12px; background: #fef2f2; color: #dc2626; font-size: 12px; margin-bottom: 18px; }
+.student-register-dialog .sr-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; border-top: 1px solid #f1f5f9; padding-top: 20px; margin-top: 8px; }
+.student-register-dialog .sr-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 17px; border-radius: 8px; font-weight: 600; font-size: 13px; }
+.student-register-dialog .sr-back { border: 1px solid #e2e8f0; background: #f8fafc; color: #334155; }
+.student-register-dialog .sr-submit { background: linear-gradient(135deg, #10b981, #047857); color: white; box-shadow: 0 3px 8px rgb(5 150 105 / 16%); }
+.student-register-dialog :is(button,input):focus-visible { outline: 2px solid #059669; outline-offset: 2px; }
+@media (max-width: 700px) { .student-register-dialog .sr-layout { grid-template-columns: 1fr; } .student-register-dialog .sr-intro { padding: 24px; } .student-register-dialog .sr-campus { display: none; } .student-register-dialog .sr-form-panel { padding: 24px; } .student-register-dialog .sr-intro h2 { font-size: 22px; } }
+/* Full Student self-registration, isolated to this dialog. */
+.student-register-dialog.sr-full-profile { width: min(880px, calc(100vw - 32px)); }
+.sr-full-profile .sr-form-panel { padding: 28px 32px; }
+.sr-full-profile h2 { font-size: 24px; font-weight: 750; padding-right: 24px; margin-bottom: 8px; }
+.sr-full-profile .sr-demo-note { color: #065f46; background: #ecfdf5; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 12px; }
+.sr-full-profile .sr-profile-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; }
+.sr-full-profile .sr-profile-field { margin-bottom: 15px; }
+.sr-full-profile select { width: 100%; height: 40px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: white; color: #0f172a; font: inherit; }
+.sr-full-profile select:focus-visible { outline: 2px solid #059669; outline-offset: 2px; }
+@media (max-width: 650px) { .sr-full-profile .sr-profile-columns { grid-template-columns: 1fr; gap: 0; } .sr-full-profile .sr-form-panel { padding: 24px 20px; } }
+/* Login: scoped to the existing shared Admin/Student login screen. */
+#module-login { display: grid; grid-template-columns: 1.06fr 1fr; width: 100%; height: 100vh; height: 100dvh; overflow-y: auto; color: #101329; background: #f7fbfb; }
+#module-login * { box-sizing: border-box; }
+#module-login .login-intro { position: relative; isolation: isolate; display: flex; flex-direction: column; overflow: hidden; padding: clamp(28px, 4vw, 60px) clamp(28px, 5.4vw, 82px) 0; color: white; background: radial-gradient(ellipse at 95% 95%, #159a76 0, transparent 48%), linear-gradient(145deg, #078b71, #004c3d 65%, #00755a); }
+#module-login .login-intro::before, #module-login .login-intro::after { content: ''; position: absolute; z-index: -1; width: 260px; height: 260px; border-radius: 50%; background: #8cf1c51a; }
+#module-login .login-intro::before { right: -105px; top: -105px; box-shadow: -80px -10px 0 #8cf1c510; }
+#module-login .login-intro::after { left: -190px; bottom: 0; }
+#module-login .login-brand { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 700; }
+#module-login .login-logo { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 44px; height: 46px; border-radius: 8px; background: #ffbf00; color: white; font-size: 28px; box-shadow: inset 0 0 12px #ffdf4950; }
+#module-login .login-intro-copy { margin-top: clamp(28px, 5vh, 58px); }
+#module-login h1 { margin: 0; font-size: clamp(28px, 3vw, 44px); font-weight: 700; line-height: 1.22; letter-spacing: -.7px; }
+#module-login h1 span { color: #32e6b4; }
+#module-login .login-intro-copy > p { margin: 14px 0 24px; color: #dbefe9; font-size: 14px; line-height: 1.65; }
+#module-login .login-features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+#module-login .login-feature { display: flex; align-items: center; gap: 12px; padding: 13px 12px; border-radius: 12px; background: #ffffff12; }
+#module-login .login-feature > i { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; background: #009568b3; font-size: 19px; }
+#module-login .login-feature h2 { margin: 0 0 4px; font-size: 11px; font-weight: 700; }
+#module-login .login-feature p { margin: 0; color: #c6e6dc; font-size: 10px; line-height: 1.5; }
+#module-login .login-campus { margin: auto calc(-1 * clamp(28px, 5.4vw, 82px)) 0; padding-top: 24px; }
+#module-login .login-campus figcaption { padding: 0 24px; text-align: center; font-family: Georgia, serif; font-size: clamp(18px, 1.8vw, 25px); font-style: italic; color: #e1fff0; }
+#module-login .login-campus img { display: block; width: 100%; height: auto; max-height: 240px; object-fit: contain; object-position: bottom; }
+#module-login .login-form-panel { display: flex; align-items: center; justify-content: center; padding: 36px clamp(24px, 4vw, 64px); background: radial-gradient(ellipse at center, #fff, #f5fafa); }
+#module-login .login-card { width: 100%; max-width: 460px; padding: 34px 26px 24px; background: #ffffffed; border: 1px solid #fff; border-radius: 18px; box-shadow: 0 16px 50px #126e6110; }
+#module-login .login-card-heading { text-align: center; margin-bottom: 30px; }
+#module-login .login-card-heading .login-logo { width: 52px; height: 54px; margin-bottom: 8px; font-size: 32px; }
+#module-login .login-card-heading h2 { margin: 0 0 4px; font-size: 28px; line-height: 1.25; font-weight: 700; letter-spacing: -.5px; }
+#module-login .login-card-heading p { margin: 0; color: #686b86; font-size: 12px; line-height: 1.6; }
+#module-login .login-field { margin-bottom: 20px; }
+#module-login .login-field > label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 700; }
+#module-login .login-input-wrap { position: relative; }
+#module-login .login-input-wrap input { width: 100%; height: 44px; padding: 0 42px; border: 1px solid #e2e8f0; border-radius: 9px; background: white; font: inherit; font-size: 13px; outline: none; }
+#module-login .login-input-wrap input:focus { border-color: #00976e; box-shadow: 0 0 0 3px #00976e15; }
+#module-login .login-input-wrap input.input-error { border-color: #ef4444; background: #fff5f5; }
+#module-login .login-input-icon { position: absolute; top: 50%; left: 15px; transform: translateY(-50%); color: #757b93; font-size: 16px; pointer-events: none; }
+#module-login #toggleLoginPassword { position: absolute; right: 3px; top: 0; width: 40px; height: 44px; color: #757b93; }
+#module-login .login-error { margin-top: 6px; color: #dc2626; font-size: 12px; }
+#module-login .hidden { display: none; }
+#module-login .login-options { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin: 0 0 24px; color: #626681; font-size: 12px; }
+#module-login .login-remember { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+#module-login .login-remember input { width: 17px; height: 17px; accent-color: #008b65; }
+#module-login .login-forgot { position: relative; color: #00936c; }
+#module-login .login-forgot summary { cursor: pointer; list-style: none; }
+#module-login .login-forgot summary::-webkit-details-marker { display: none; }
+#module-login .login-forgot p { position: absolute; right: 0; z-index: 2; width: 230px; margin-top: 8px; padding: 12px; border: 1px solid #d1e8df; border-radius: 8px; background: white; box-shadow: 0 8px 24px #064e3b18; line-height: 1.6; }
+#module-login .login-submit { width: 100%; min-height: 48px; border-radius: 9px; background: linear-gradient(110deg, #008660, #00846d); color: white; font-weight: 700; font-size: 14px; box-shadow: 0 7px 16px #00866020; }
+#module-login .login-submit::after { content: '\2192'; margin-left: 12px; font-size: 21px; font-weight: 400; vertical-align: -1px; }
+#module-login .login-submit:hover { background: #006d52; }
+#module-login .login-submit:disabled { opacity: .65; cursor: wait; }
+#module-login .login-submit:disabled::after { content: none; }
+#module-login button:focus-visible, #module-login summary:focus-visible, #module-login input[type='checkbox']:focus-visible { outline: 2px solid #008660; outline-offset: 4px; }
+#module-login .login-register { display: flex; align-items: center; gap: 16px; margin-top: 30px; color: #686b86; font-size: 11px; text-align: center; }
+#module-login .login-register::before, #module-login .login-register::after { content: ''; flex: 1; height: 1px; background: #edf0f5; }
+#module-login .login-register button { color: #00936c; font-weight: 700; }
+#module-login .login-register button:hover { text-decoration: underline; }
+@media (min-width: 901px) and (max-height: 740px) {
+    #module-login .login-intro { padding-top: 28px; }
+    #module-login .login-intro-copy { margin-top: 28px; }
+    #module-login .login-campus img { max-height: 170px; }
+    #module-login .login-card { padding-top: 24px; }
+    #module-login .login-form-panel { padding-top: 24px; padding-bottom: 24px; }
+}
+@media (max-width: 1100px) {
+    #module-login .login-intro { padding-left: 28px; padding-right: 28px; }
+    #module-login .login-campus { margin-left: -28px; margin-right: -28px; }
+    #module-login .login-feature { gap: 8px; padding: 12px 8px; }
+    #module-login .login-wide-break { display: none; }
+}
+@media (max-width: 900px) {
+    #module-login { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    #module-login .login-intro { padding: 22px 24px; }
+    #module-login .login-brand { justify-content: center; font-size: 18px; }
+    #module-login .login-intro-copy, #module-login .login-campus { display: none; }
+    #module-login .login-form-panel { padding: 24px 16px; }
+}
+@media (max-width: 380px) {
+    #module-login .login-card { padding: 24px 18px; }
+    #module-login .login-options { font-size: 11px; gap: 8px; }
+}

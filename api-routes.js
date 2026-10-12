@@ -1,6 +1,7 @@
 const { randomUUID } = require("node:crypto");
 const { createVietQrPayload } = require("./payment-qr");
 const { verifyPaymentWebhookSignature } = require("./payment-webhook");
+const { createRegistrationHandler } = require("./student-auth");
 const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
 const PAYMENT_STATUS_TO_API = Object.freeze({
     PAID: "Đã thanh toán",
@@ -258,6 +259,13 @@ function validateSupportContact({ phone, email, hours }) {
 }
 
 function registerApiRoutes(app, { getPool, sql, bcrypt }) {
+    app.post("/api/student/register", createRegistrationHandler({
+        getPool,
+        sql,
+        bcrypt,
+        logDatabaseError
+    }));
+
     app.post("/api/change-password", async (req, res) => {
         if (!isObjectBody(req.body)) return respondRequestError(res, 400, "Request body phải là một đối tượng JSON.");
         const { MaTaiKhoan: accountId, MatKhauHienTai: currentPassword, MatKhauMoi: newPassword } = req.body;
