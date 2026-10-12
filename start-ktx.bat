@@ -2,7 +2,7 @@
 @echo off
 title KTX System Launcher
 
-set "PROJECT=E:\DUE\KTX_Nhom3_THPTTK"
+set "PROJECT=%~dp0"
 
 echo =====================================
 echo       KTX SYSTEM - STARTING
