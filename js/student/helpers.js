@@ -29,5 +29,9 @@
     const contractTerm = () => `${calendarDay(data.contract.end) - calendarDay(data.contract.start) + 1} ngày (tính cả ngày bắt đầu và kết thúc)`;
     const contractWarning = () => remaining() <= 30 ? `<p class="st-notice ${remaining() < 0 ? 'st-contract-expired' : ''}" role="status">${remaining() < 0 ? 'Hợp đồng đã hết hạn' : `Hợp đồng lưu trú của bạn sắp hết hạn vào ngày ${esc(date(data.contract.end))}. Còn ${remaining()} ngày.`} <a href="#requests">Gửi yêu cầu gia hạn tại Yêu cầu &amp; Hỗ trợ</a>.</p>` : '';
     ui.helpers = { esc, money, date, total, badge, fields, card, table, requestTable, contractWarning, contractStatus, contractTerm, remaining };
+    ui.routeFromHash = (hash, pages = ui.pages) => {
+        const route = String(hash || '').replace(/^#/, '');
+        return Object.hasOwn(pages, route) ? route : 'home';
+    };
     ui.pages = {};
 })();

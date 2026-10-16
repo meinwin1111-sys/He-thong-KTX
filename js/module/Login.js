@@ -58,8 +58,7 @@ async function authenticateLogin(email, password) {
         const normalizedEmail = String(email || "").trim().toLowerCase();
         const normalizedPassword = String(password || "");
 
-
-        const response = await fetch(`${BASE_URL}/api/login`, {
+        const response = await ApiClient.fetch(`${BASE_URL}/api/login`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -72,32 +71,43 @@ async function authenticateLogin(email, password) {
 
 
         const data = await response.json();
-
-
-        if (!response.ok) {
+        const account = data?.user;
+        if (!data || typeof data !== "object"
+            || typeof data.token !== "string" || !data.token.trim()
+            || !account || typeof account !== "object"
+            || account.MaTaiKhoan === undefined || account.MaTaiKhoan === null
+            || !["Quản lý", "Sinh viên"].includes(account.VaiTro)) {
             return {
                 success: false,
-                message: data.message || "Đăng nhập thất bại",
+                message: "Email hoặc mật khẩu không đúng.",
+                status: 0,
             };
         }
-
-
         return {
             success: true,
+            token: data.token,
             user: {
-                id: data.user.MaTaiKhoan,
-                username: data.user.TenDangNhap || data.user.Email || "",
-                email: data.user.Email || "",
-                fullName: data.user.TenHienThi || "",
-                phone: data.user.SoDienThoai || "",
-                role: data.user.VaiTro || "",
+                id: account.MaTaiKhoan,
+                username: account.TenDangNhap || account.Email || "",
+                email: account.Email || "",
+                fullName: account.TenHienThi || "",
+                phone: account.SoDienThoai || "",
+                studentId: account.MaSinhVien || "",
+                role: account.VaiTro,
             },
         };
     } catch (error) {
-        console.error("Lỗi gọi API login:", error);
+        const status = Number.isInteger(error?.status) ? error.status : 0;
+        let message = "Không thể đăng nhập. Vui lòng thử lại.";
+        if (status === 401) message = "Email hoặc mật khẩu không đúng.";
+        else if (status === 429) message = "Quá nhiều lần thử, vui lòng đợi.";
+        else if (error?.name === "ApiError" && status === 0) {
+            message = "Không kết nối được máy chủ (kiểm tra mạng hoặc máy chủ đang tắt)";
+        }
         return {
             success: false,
-            message: "Không kết nối được server",
+            message,
+            status,
         };
     }
 }
@@ -127,9 +137,9 @@ function renderLoginModule() {
     main.innerHTML = `
         <section id="module-login" aria-label="Đăng nhập hệ thống">
             <aside class="login-intro">
-                <div class="login-brand"><span class="login-logo"><i class="fa-solid fa-hotel" aria-hidden="true"></i></span><span>Quản lý Ký Túc Xá</span></div>
+                <div class="login-brand"><span class="login-logo"><i class="fa-solid fa-hotel" aria-hidden="true"></i></span><span>Hệ thống Ký Túc Xá</span></div>
                 <div class="login-intro-copy">
-                    <h1>Hệ thống<br><span>Quản lý Ký Túc Xá</span></h1>
+                    <h1>Hệ thống<br><span>Ký Túc Xá</span></h1>
                     <p>Quản lý thông tin sinh viên, phòng ở, dịch vụ và các tiện ích một cách hiệu quả, nhanh chóng và tiện lợi.</p>
                     <div class="login-features">
                         <div class="login-feature"><i class="fa-solid fa-users" aria-hidden="true"></i><div><h2>Quản lý sinh viên</h2><p>Thông tin, hồ sơ, lưu trú</p></div></div>
@@ -138,24 +148,22 @@ function renderLoginModule() {
                         <div class="login-feature"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i><div><h2>An toàn &amp; Bảo mật</h2><p>Dữ liệu được bảo vệ</p></div></div>
                     </div>
                 </div>
-                <figure class="login-campus">
-                    <figcaption>Ký túc xá – Ngôi nhà thứ hai của bạn</figcaption>
-                    <img src="files/campus-dashboard.svg" alt="Minh họa khu ký túc xá với các tòa nhà và cây xanh" width="700" height="240">
-                </figure>
+                <p class="login-tagline">Ký túc xá – Ngôi nhà thứ hai của bạn</p>
             </aside>
             <div class="login-form-panel">
                 <div class="login-card">
                     <div class="login-card-heading">
                         <span class="login-logo"><i class="fa-solid fa-hotel" aria-hidden="true"></i></span>
                         <h2>Đăng nhập</h2>
-                        <p>Chào mừng bạn trở lại hệ thống Quản lý Ký Túc Xá</p>
+                        <p>Chào mừng bạn trở lại Cổng thông tin Ký Túc Xá</p>
                     </div>
                     <form id="loginForm" novalidate>
+                        <p id="registrationSuccess" class="login-success hidden" role="status" aria-live="polite"></p>
                         <div class="login-field">
                             <label for="loginEmail">Email</label>
                             <div class="login-input-wrap">
                                 <i class="fa-regular fa-envelope login-input-icon" aria-hidden="true"></i>
-                                <input type="text" id="loginEmail" name="email" placeholder="Nhập email" autocomplete="username" aria-describedby="loginEmailError">
+                                <input type="email" id="loginEmail" name="email" placeholder="Nhập email" autocomplete="username" aria-describedby="loginEmailError" required>
                             </div>
                             <p id="loginEmailError" class="login-error hidden" aria-live="polite"></p>
                         </div>
@@ -163,7 +171,7 @@ function renderLoginModule() {
                             <label for="loginPassword">Mật khẩu</label>
                             <div class="login-input-wrap">
                                 <i class="fa-solid fa-lock login-input-icon" aria-hidden="true"></i>
-                                <input type="password" id="loginPassword" name="password" placeholder="Nhập mật khẩu" autocomplete="current-password" aria-describedby="loginPasswordError">
+                                <input type="password" id="loginPassword" name="password" placeholder="Nhập mật khẩu" autocomplete="current-password" aria-describedby="loginPasswordError" required>
                                 <button type="button" id="toggleLoginPassword" aria-label="Hiện hoặc ẩn mật khẩu"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>
                             </div>
                             <p id="loginPasswordError" class="login-error hidden" aria-live="polite"></p>
@@ -181,6 +189,32 @@ function renderLoginModule() {
     `;
 
     bindLoginEvents();
+}
+
+function showRegistrationSuccessMessage(email) {
+    const emailInput = document.getElementById("loginEmail");
+    const passwordInput = document.getElementById("loginPassword");
+    const message = document.getElementById("registrationSuccess");
+    if (!emailInput || !passwordInput || !message) return;
+
+    emailInput.value = email;
+    emailInput.dispatchEvent(new Event("input", { bubbles: true }));
+    passwordInput.value = "";
+    message.textContent = "Đăng ký thành công, vui lòng đăng nhập.";
+    message.classList.remove("hidden");
+
+    const hideMessage = () => {
+        message.textContent = "";
+        message.classList.add("hidden");
+        window.clearTimeout(message.hideTimer);
+        emailInput.removeEventListener("input", hideMessage);
+        passwordInput.removeEventListener("input", hideMessage);
+    };
+    window.clearTimeout(message.hideTimer);
+    emailInput.addEventListener("input", hideMessage, { once: true });
+    passwordInput.addEventListener("input", hideMessage, { once: true });
+    message.hideTimer = window.setTimeout(hideMessage, 5000);
+    passwordInput.focus();
 }
 
 
@@ -224,6 +258,7 @@ function bindLoginEvents() {
 
 
         input.classList.remove("input-error");
+        input.setAttribute("aria-invalid", "false");
 
 
         errorElement.textContent = "";
@@ -236,6 +271,7 @@ function bindLoginEvents() {
 
 
         input.classList.add("input-error");
+        input.setAttribute("aria-invalid", "true");
 
 
         errorElement.textContent = message;
@@ -246,6 +282,8 @@ function bindLoginEvents() {
     function markBothFieldsAsInvalid(message) {
         emailInput.classList.add("input-error");
         passwordInput.classList.add("input-error");
+        emailInput.setAttribute("aria-invalid", "true");
+        passwordInput.setAttribute("aria-invalid", "true");
 
 
         emailError.textContent = "";
@@ -282,6 +320,10 @@ function bindLoginEvents() {
         }
 
 
+        if (!valid) {
+            if (!email || !isValidEmail(email)) emailInput.focus();
+            else passwordInput.focus();
+        }
         return valid;
     }
 
@@ -301,19 +343,6 @@ function bindLoginEvents() {
         clearFieldError(emailInput, emailError);
         clearFieldError(passwordInput, passwordError);
 
-        // Chỉ email trong danh sách Student demo mới đi vào nhánh mock.
-        // Tất cả email khác tiếp tục dùng nguyên luồng API Admin bên dưới.
-        if (window.StudentAuth?.isStudentEmail(email)) {
-            try {
-                StudentAuth.login(email, password);
-                window.location.assign('Student.html#home');
-            } catch (error) {
-                markBothFieldsAsInvalid(error instanceof DOMException ? 'Không thể lưu phiên Student. Vui lòng cho phép lưu trữ trình duyệt.' : error.message);
-            }
-            return;
-        }
-
-
         const submitButton = form.querySelector('button[type="submit"]');
         if (submitButton) {
             submitButton.disabled = true;
@@ -330,11 +359,45 @@ function bindLoginEvents() {
         }
 
 
-        if (!result.success) {
-            markBothFieldsAsInvalid("Email hoặc mật khẩu không đúng");
+        if (!result.success || !result.user || !result.token) {
+            if (result.status === 401 &&
+                window.KTX_CONFIG?.allowStudentDemoAuth === true &&
+                window.StudentAuth?.isStudentEmail(email)) {
+                try {
+                    StudentAuth.login(email, password);
+                    window.location.assign("Student.html#home");
+                    return;
+                } catch (error) {
+                    markBothFieldsAsInvalid(error.message);
+                    return;
+                }
+            }
+            markBothFieldsAsInvalid(result.message || "Không thể đăng nhập. Vui lòng thử lại.");
             return;
         }
 
+        if (result.user.role === "Sinh viên") {
+            try {
+                ApiClient.setStudentSession(result.token, result.user);
+            } catch (error) {
+                markBothFieldsAsInvalid(error.message);
+                return;
+            }
+            window.location.assign("Student.html#home");
+            return;
+        }
+
+        if (result.user.role !== "Quản lý") {
+            markBothFieldsAsInvalid("Vai trò tài khoản không được hỗ trợ.");
+            return;
+        }
+
+        try {
+            ApiClient.setSession(result.token, result.user);
+        } catch (error) {
+            markBothFieldsAsInvalid(error.message);
+            return;
+        }
 
         window.currentUser = result.user;
 
@@ -569,6 +632,7 @@ function confirmLogout() {
 
 
     window.currentUser = null;
+    ApiClient.clearSession();
 
 
     if (typeof renderLoginModule === "function") {
@@ -970,11 +1034,23 @@ document.addEventListener("DOMContentLoaded", function () {
     bindChangePasswordEvents();
 });
 
+window.addEventListener("api:unauthorized", function () {
+    if (window.location.pathname.toLowerCase().endsWith("student.html")) {
+        window.location.replace("Admin.html");
+        return;
+    }
+    window.currentUser = null;
+    renderLoginModule();
+    if (typeof showToast === "function") {
+        showToast("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", "error");
+    }
+});
+
 
 /*đổi mật khẩu */
 async function changePassword(maTaiKhoan, matKhauHienTai, matKhauMoi) {
     try {
-        const response = await fetch(`${BASE_URL}/api/change-password`, {
+        const response = await ApiClient.fetch(`${BASE_URL}/api/change-password`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -990,11 +1066,8 @@ async function changePassword(maTaiKhoan, matKhauHienTai, matKhauMoi) {
         const data = await response.json();
 
 
-        if (!response.ok) {
-            return { success: false, message: data.message };
-        }
         return data;
     } catch (error) {
-        return { success: false, message: "Lỗi server" };
+        return { success: false, message: error.message || "Không thể đổi mật khẩu." };
     }
 }

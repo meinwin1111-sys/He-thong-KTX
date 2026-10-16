@@ -28,7 +28,7 @@
                 const result = await response.json();
                 if (!root.isConnected) return;
                 if (!result.room) {
-                    content.innerHTML = '<p class="st-muted">Bạn hiện chưa được phân phòng.</p>';
+                    content.innerHTML = '<article class="st-card"><h2>Thông tin phòng</h2><p class="st-empty-state" role="status">Bạn chưa được xếp phòng.</p><p class="st-muted">Vui lòng chờ Ban quản lý sắp xếp phòng hoặc liên hệ quản lý ký túc xá để được hỗ trợ.</p></article>';
                     return;
                 }
                 const room = result.room;
@@ -40,9 +40,11 @@
                     ['Số người hiện đang ở', `${room.SoSinhVienHienTai} người`],
                     ['Trạng thái phòng', room.TrangThaiPhong],
                     ['Giá phòng/tháng', money(Number(room.GiaPhong || 0))]
-                ])) + card('Bạn cùng phòng', table(['Họ tên', 'Mã sinh viên'],
+                ])) + card('Bạn cùng phòng', members.filter(member => member.MaSinhVien !== window.StudentAuth.session().code).length
+                    ? table(['Họ tên', 'Mã sinh viên'],
                     members.filter(member => member.MaSinhVien !== window.StudentAuth.session().code)
-                        .map(member => `<tr><td>${esc(member.HoTen)}</td><td>${esc(member.MaSinhVien)}</td></tr>`).join('')));
+                        .map(member => `<tr><td>${esc(member.HoTen)}</td><td>${esc(member.MaSinhVien)}</td></tr>`).join(''))
+                    : '<p class="st-muted">Chưa có bạn cùng phòng.</p>');
             } catch (error) {
                 if (root.isConnected) content.innerHTML = `<p class="st-notice" role="alert">${esc(error.message || 'Không thể tải thông tin phòng.')}</p>`;
             }

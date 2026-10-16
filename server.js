@@ -5,6 +5,8 @@ const path = require("path");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const registerApiRoutes = require("./api-routes");
+const { createApiAuthenticationMiddleware } = require("./api-auth");
+const { createIpRateLimiter, createLoginHandler } = require("./student-auth");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
 
@@ -56,6 +58,7 @@ const dbConfig = {
 ========================================================= */
 
 const app = express();
+app.set("trust proxy", 1);
 
 const allowedCorsOrigins = new Set(
     (process.env.CORS_ALLOWED_ORIGINS || process.env.CORS_ORIGIN || "")
@@ -84,6 +87,19 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use("/js", express.static(path.join(__dirname, "js"), { dotfiles: "deny", index: false }));
+const registrationRateLimiter = createIpRateLimiter({
+    windowMs: 60 * 60 * 1000,
+    max: 5,
+    message: "Quá nhiều lần gửi đăng ký. Vui lòng thử lại sau."
+});
+const loginRateLimiter = createIpRateLimiter({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: "Quá nhiều lần đăng nhập không thành công. Vui lòng thử lại sau.",
+    countOnlyStatus: 401
+});
+app.use("/api/student/register", registrationRateLimiter);
+app.use("/api/login", loginRateLimiter);
 
 app.get("/Admin.html", (req, res) => {
     res.sendFile(path.join(__dirname, "Admin.html"));
@@ -141,64 +157,10 @@ app.use(async (req, res, next) => {
     next();
 });
 
-app.use("/api", (req, res, next) => {
-    if ((req.method === "GET" && req.path === "/health")
-        || (req.method === "POST" && (req.path === "/login"
-            || req.path === "/student/register"
-            || req.path === "/payments/bank-transfer/notify"))) {
-        return next();
-    }
-
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-        return res.status(503).json({ message: "Xác thực API chưa được cấu hình." });
-    }
-
-    const authorization = req.get("authorization") || "";
-    const [scheme, token] = authorization.split(" ");
-    if (scheme !== "Bearer" || !token) {
-        return res.status(401).json({ message: "Vui lòng đăng nhập để tiếp tục." });
-    }
-
-    try {
-        const payload = jwt.verify(token, jwtSecret);
-        if (typeof payload === "string" || !/^\d+$/.test(String(payload.sub || ""))) {
-            return res.status(401).json({ message: "Phiên đăng nhập không hợp lệ." });
-        }
-        if (payload.role === "Sinh viên") {
-            const studentId = typeof payload.studentId === "string" ? payload.studentId.trim() : "";
-            const allowedStudentRequest = (req.method === "GET"
-                && (/^\/HoaDon(?:\/[^/]+)?$/.test(req.path)
-                    || req.path === "/payments/history"
-                    || req.path === "/payments/qr"
-                    || req.path === "/noi-quy"
-                        || req.path === "/lien-he"
-                        || /^\/student\/(?:profile|room|contracts|requests)$/.test(req.path)))
-                    || (req.method === "POST" && (req.path === "/payments/create"
-                        || req.path === "/student/requests"
-                        || req.path === "/change-password"));
-            if (!studentId || studentId.length > 20) {
-                return res.status(403).json({ message: "Tài khoản Sinh viên chưa được liên kết với hồ sơ hợp lệ." });
-            }
-            if (!allowedStudentRequest) {
-                return res.status(403).json({ message: "Sinh viên chỉ được xem hóa đơn, lịch sử và gửi yêu cầu thanh toán của mình." });
-            }
-            req.auth = { accountId: Number(payload.sub), role: payload.role, studentId };
-            return next();
-        }
-        if (payload.role !== "Quản lý") {
-            return res.status(403).json({ message: "Bạn không có quyền thực hiện thao tác này." });
-        }
-
-        req.auth = { accountId: Number(payload.sub), role: payload.role };
-        return next();
-    } catch (error) {
-        const message = error.name === "TokenExpiredError"
-            ? "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
-            : "Phiên đăng nhập không hợp lệ.";
-        return res.status(401).json({ message });
-    }
-});
+app.use("/api", createApiAuthenticationMiddleware({
+    jwt,
+    getSecret: () => process.env.JWT_SECRET
+}));
 
 const apiRouteInitialization = registerApiRoutes(app, {
     getPool: () => pool,
@@ -210,97 +172,16 @@ const apiRouteInitialization = registerApiRoutes(app, {
    API ĐĂNG NHẬP
 ========================================================= */
 
-app.post("/api/login", async (req, res) => {
-    try {
-        const body = req.body;
-        if (!body || typeof body !== "object" || Array.isArray(body)) {
-            return res.status(400).json({ message: "Request body phải là một đối tượng JSON." });
-        }
-        const { Email, MatKhau } = body;
-        if (typeof Email !== "string" || Email.trim().length > 100
-            || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(Email.trim())
-            || typeof MatKhau !== "string" || !MatKhau.trim() || MatKhau.length > 255) {
-            return res.status(400).json({
-                message: "Email phải đúng định dạng và tối đa 100 ký tự; mật khẩu là bắt buộc và tối đa 255 ký tự."
-            });
-        }
-
-        const result = await pool
-            .request()
-            .input("Email", sql.NVarChar, Email.trim().toLowerCase())
-            .query(`
-                SELECT
-                    MaTaiKhoan,
-                    Email,
-                    TenHienThi,
-                    SoDienThoai,
-                    VaiTro,
-                    MaSinhVien,
-                    MatKhau
-                FROM TaiKhoan
-                WHERE LOWER(LTRIM(RTRIM(Email))) = @Email
-            `);
-
-        const account = result.recordset[0];
-        if (!account || !(await bcrypt.compare(MatKhau, account.MatKhau))) {
-            return res.status(401).json({
-                message: "Email hoặc mật khẩu không đúng"
-            });
-        }
-        if (account.VaiTro === "Sinh viên"
-            && (typeof account.MaSinhVien !== "string" || !account.MaSinhVien.trim())) {
-            return res.status(403).json({
-                message: "Tài khoản Sinh viên chưa được liên kết với hồ sơ hợp lệ."
-            });
-        }
-
-        const user = {
-            MaTaiKhoan: account.MaTaiKhoan,
-            Email: account.Email,
-            TenHienThi: account.TenHienThi,
-            SoDienThoai: account.SoDienThoai,
-            VaiTro: account.VaiTro,
-            MaSinhVien: account.MaSinhVien
-        };
-        if (!process.env.JWT_SECRET) {
-            return res.status(503).json({ message: "Đăng nhập tạm thời chưa khả dụng." });
-        }
-        const token = jwt.sign(
-            {
-                sub: String(user.MaTaiKhoan),
-                role: user.VaiTro,
-                ...(user.VaiTro === "Sinh viên" ? { studentId: account.MaSinhVien } : {})
-            },
-            process.env.JWT_SECRET,
-            { expiresIn: process.env.JWT_EXPIRES_IN || "8h" }
-        );
-
-        // Cập nhật lần đăng nhập cuối
-        await pool
-            .request()
-            .input("MaTaiKhoan", sql.Int, user.MaTaiKhoan)
-            .query(`
-                UPDATE TaiKhoan
-                SET LanDangNhapCuoi = GETDATE()
-                WHERE MaTaiKhoan = @MaTaiKhoan
-            `);
-
-        return res.status(200).json({
-            success: true,
-            message: "Đăng nhập thành công",
-            user,
-            token,
-            tokenType: "Bearer"
-        });
-
-    } catch (err) {
-        console.error("LỖI API LOGIN:", err.code || err.name || "Unknown database error");
-
-        return res.status(500).json({
-            message: "Lỗi server khi đăng nhập"
-        });
-    }
+const handleLogin = createLoginHandler({
+    getPool: () => pool,
+    sql,
+    bcrypt,
+    jwt,
+    getSecret: () => process.env.JWT_SECRET,
+    getExpiresIn: () => process.env.JWT_EXPIRES_IN || "8h",
+    logDatabaseError: (operation, error) => console.error(`${operation}:`, error.code || error.name || "Unknown database error")
 });
+app.post("/api/login", handleLogin);
 /* =========================================================
    TRANG CHỦ
 ========================================================= */

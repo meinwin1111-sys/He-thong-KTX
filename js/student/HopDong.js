@@ -54,7 +54,7 @@
                             ['Tiền phòng / tháng', money(Number(contract.GiaPhong || 0))]
                         ]) + `<div class="st-actions"><button type="button" class="st-button" data-action="contract-detail" ${active !== contract ? 'disabled' : ''}>Xem chi tiết</button>${contract.TrangThaiHopDong === 'Còn hiệu lực' ? '<a href="#requests" class="st-button st-primary">Yêu cầu gia hạn</a>' : ''}</div>`
                     )).join('')
-                    : '<p class="st-muted">Bạn hiện chưa có hợp đồng.</p>';
+                    : '<article class="st-card"><h2>Hợp đồng lưu trú</h2><p class="st-empty-state" role="status">Chưa có hợp đồng.</p><p class="st-muted">Khi được xếp phòng, vui lòng liên hệ Ban quản lý để hoàn tất thủ tục hợp đồng. Bạn có thể gửi câu hỏi tại <a href="#requests">Yêu cầu &amp; Hỗ trợ</a>.</p></article>';
             } catch (error) {
                 if (root.isConnected) content.innerHTML = `<p class="st-notice" role="alert">${esc(error.message || 'Không thể tải hợp đồng.')}</p>`;
             }

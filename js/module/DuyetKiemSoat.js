@@ -5,7 +5,10 @@
     const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const fold = value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
     const dateText = value => value ? new Date(value).toLocaleString('vi-VN') : '—';
-    const badge = status => `<span class="dk-badge ${status === pending ? 'dk-pending' : status === rejected ? 'dk-rejected' : 'dk-approved'}">${escape(status)}</span>`;
+    const badge = status => {
+        const label = String(status || '').trim() || 'Chưa xác định';
+        return `<span class="dk-badge ${label === pending ? 'dk-pending' : label === rejected ? 'dk-rejected' : label === 'Chưa xác định' ? '' : 'dk-approved'}">${escape(label)}</span>`;
+    };
     let requests = [];
     let page = 1;
     let root;
@@ -33,6 +36,7 @@
                 <h2 class="text-3xl font-bold text-slate-900">Duyệt &amp; Kiểm soát</h2>
                 <p class="text-slate-500 mt-2">Tiếp nhận và xử lý yêu cầu sinh viên.</p>
                 <p id="dk-load-error" class="text-red-600 mt-2" role="alert"></p>
+                <section id="dk-requests-panel" role="tabpanel">
                 <div id="dk-stats" class="dk-stats"></div>
                 <div class="dk-panel">
                     <form id="dk-filters" class="dk-filters" role="search">
@@ -47,6 +51,7 @@
                     <div class="dk-table-wrap"><table class="dk-table"><thead id="dk-head"></thead><tbody id="dk-body"></tbody></table></div>
                     <footer class="dk-footer"><span id="dk-count" role="status"></span><div class="flex items-center gap-3"><button id="dk-prev" class="dk-button" aria-label="Trang trước">‹</button><span id="dk-page"></span><button id="dk-next" class="dk-button" aria-label="Trang sau">›</button></div></footer>
                 </div>
+                </section>
                 <dialog id="dk-dialog" class="dk-dialog" aria-labelledby="dk-dialog-title"></dialog>
             </section>`;
         root = document.querySelector('.dk-module');
@@ -165,4 +170,5 @@
         });
         dialog.showModal();
     }
+
 })();

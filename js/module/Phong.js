@@ -115,20 +115,21 @@ function renderRoomTable() {
     // Chuyển đổi mảng dữ liệu thành chuỗi HTML
     tbody.innerHTML = paginatedData.map((r) => `
         <tr class="group border-b border-slate-200 hover:bg-emerald-50/30 transition-all">
-            <td class="px-6 py-4 font-bold text-slate-900">${r.TenPhong}</td>
-            <td class="px-6 py-4 text-slate-500">${r.Khu || '-'}</td>
-            <td class="px-6 py-4 text-slate-500">${r.LoaiPhong}</td>
-            <td class="px-6 py-4 text-slate-500 font-medium">${r.SoSinhVienHienTai}/${r.SucChuaToiDa}</td>
+            <td class="px-6 py-4 font-bold text-slate-900 whitespace-nowrap">${r.TenPhong || '—'}</td>
+            <td class="px-6 py-4 text-slate-500 whitespace-nowrap">${r.Khu || '—'}</td>
+            <td class="px-6 py-4 text-slate-500 whitespace-nowrap">${r.LoaiPhong || '—'}</td>
+            <td class="px-6 py-4 text-slate-500 font-medium whitespace-nowrap">${r.SoSinhVienHienTai ?? 0}/${r.SucChuaToiDa ?? '—'}</td>
             <td class="px-6 py-4">
-                <span class="font-bold text-xs ${
+                <span class="inline-flex items-center justify-center whitespace-nowrap rounded-full px-3 py-1 font-bold text-xs ${
                     r.TrangThaiPhong === 'Đầy' ? 'text-rose-500' :
-                    r.TrangThaiPhong === 'Trống' ? 'text-emerald-500' : 'text-orange-500'
+                    r.TrangThaiPhong === 'Trống' ? 'text-emerald-700' :
+                    r.TrangThaiPhong ? 'text-orange-700' : 'bg-slate-100 text-slate-600'
                 }">
-                    ${r.TrangThaiPhong}
+                    ${r.TrangThaiPhong || 'Chưa xác định'}
                 </span>
             </td>
-            <td class="px-6 py-4 text-slate-500 text-sm">
-                ${r.GhiChu && r.GhiChu.trim() !== "" ? r.GhiChu : "-"}
+            <td class="px-6 py-4 text-slate-500 text-sm truncate whitespace-nowrap" title="${r.GhiChu || ''}">
+                ${r.GhiChu && r.GhiChu.trim() !== "" ? r.GhiChu : "—"}
             </td>
             <td class="px-6 py-4">
                 ${renderButtons(r.TenPhong)}
@@ -171,11 +172,11 @@ async function showRoomDetail(roomName) {
     detNote.className = "text-slate-500 text-sm leading-relaxed";
 
     const badge = document.getElementById('detStatusBadge');
-    badge.innerText = room.TrangThaiPhong;
-    badge.className = `px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+    badge.innerText = room.TrangThaiPhong || "Chưa xác định";
+    badge.className = `inline-flex items-center justify-center whitespace-nowrap px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
         room.TrangThaiPhong === 'Đầy' ? 'bg-red-100 text-red-600' :
         room.TrangThaiPhong === 'Trống' || room.TrangThaiPhong === 'Còn chỗ' ? 'bg-green-100 text-green-600' :
-        'bg-orange-100 text-orange-600'
+        room.TrangThaiPhong ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'
     }`;
 
     // --- PHẦN 2: LOAD SINH VIÊN TỪ DATABASE ---
@@ -762,10 +763,14 @@ const PhongHTML = `
             </div>
 
             <!-- ================= BẢNG DỮ LIỆU PHÒNG ================= -->
-            <div class="bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
+            <div class="bg-white rounded-lg shadow-sm overflow-x-auto border border-slate-200">
 
                 <!-- Bảng hiển thị danh sách phòng -->
-                <table class="w-full text-left">
+                <table class="min-w-[1000px] w-full table-fixed text-left">
+                    <colgroup>
+                        <col class="w-[130px]"><col class="w-[100px]"><col class="w-[130px]">
+                        <col class="w-[120px]"><col class="w-[150px]"><col class="w-[180px]"><col class="w-[190px]">
+                    </colgroup>
                     <thead class="bg-slate-50 border-b border-slate-200">
                         <tr class="text-[12px] font-bold text-slate-500 uppercase">
                             <th class="px-5 py-4">Tên phòng</th>

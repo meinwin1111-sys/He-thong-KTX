@@ -456,7 +456,8 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
                 .query(`
                     SELECT sv.MaSinhVien, sv.HoTen, sv.NgaySinh, sv.GioiTinh,
                            sv.SoDienThoai, tk.Email, sv.Email AS EmailTruong,
-                           sv.DiaChi, sv.TrangThaiSinhVien, sv.TenPhong
+                           sv.DiaChi, sv.Truong, sv.Lop,
+                           sv.TrangThaiSinhVien, sv.TenPhong
                     FROM dbo.SinhVien sv
                     INNER JOIN dbo.TaiKhoan tk ON tk.MaSinhVien = sv.MaSinhVien
                     WHERE sv.MaSinhVien = @MaSinhVien
@@ -1411,6 +1412,7 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
     });
 
     app.get("/api/HoaDon", async (req, res) => {
+        if (!req.auth) return respondRequestError(res, 401, "Vui lòng đăng nhập để xem hóa đơn.");
         try {
             const request = getPool().request();
             const studentFilter = req.auth?.role === "Sinh viên";
@@ -1425,6 +1427,7 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
     });
 
     app.get("/api/HoaDon/:id", async (req, res) => {
+        if (!req.auth) return respondRequestError(res, 401, "Vui lòng đăng nhập để xem hóa đơn.");
         if (!isValidId(req.params.id, 20)) return respondRequestError(res, 400, "Mã hóa đơn không hợp lệ.");
         try {
             const request = getPool().request()
@@ -1442,6 +1445,7 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
     });
 
     app.get("/api/payments/history", async (req, res) => {
+        if (!req.auth) return respondRequestError(res, 401, "Vui lòng đăng nhập để xem lịch sử thanh toán.");
         const invoiceId = req.query.MaHoaDon;
         if (invoiceId !== undefined && !isValidId(invoiceId, 20)) {
             return respondRequestError(res, 400, "Mã hóa đơn không hợp lệ.");
@@ -1458,6 +1462,8 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
                        sv.HoTen,
                        hd.MaHoaDon,
                        hd.TenPhong,
+                       MONTH(hd.NgayLap) AS ThangHoaDon,
+                       YEAR(hd.NgayLap) AS NamHoaDon,
                        chi.TenKhoan,
                        cgd.SoTien,
                        gd.NoiDungCK,
