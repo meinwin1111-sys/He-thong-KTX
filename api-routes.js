@@ -686,10 +686,11 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
     app.get("/api/Phong", async (req, res) => {
         try {
             const result = await getPool().request().query(`
-                SELECT TenPhong, Khu, LoaiPhong, SucChuaToiDa, SoSinhVienHienTai,
-                       TrangThaiPhong, GhiChu, GiaPhong
-                FROM dbo.Phong
-                ORDER BY Khu, TenPhong
+                SELECT p.TenPhong, p.Khu, p.LoaiPhong, p.SucChuaToiDa, p.SoSinhVienHienTai,
+                       p.TrangThaiPhong, p.GhiChu, hp.GiaPhongThang AS GiaPhong
+                FROM dbo.Phong p
+                INNER JOIN dbo.HangPhong hp ON hp.MaHangPhong = p.MaHangPhong
+                ORDER BY p.Khu, p.TenPhong
             `);
             return res.json(result.recordset);
         } catch (error) {

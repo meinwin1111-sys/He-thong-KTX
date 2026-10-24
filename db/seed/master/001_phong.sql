@@ -3,8 +3,10 @@ SET QUOTED_IDENTIFIER ON;
 SET XACT_ABORT ON;
 SET NOCOUNT ON;
 
-IF OBJECT_ID(N'dbo.Phong', N'U') IS NULL OR COL_LENGTH(N'dbo.Phong', N'GiaPhong') IS NULL
-    THROW 50140, N'Chạy migrations 001-008 trước khi seed master.', 1;
+IF OBJECT_ID(N'dbo.Phong', N'U') IS NULL
+   OR COL_LENGTH(N'dbo.Phong', N'GiaPhong') IS NULL
+   OR COL_LENGTH(N'dbo.Phong', N'MaHangPhong') IS NULL
+    THROW 50140, N'Chạy migrations 001-013 trước khi seed master.', 1;
 
 MERGE dbo.Phong AS target
 USING (VALUES
@@ -155,6 +157,11 @@ WHEN MATCHED THEN
                                     THEN source.TrangThaiGoc ELSE N'Trống' END,
                GhiChu = source.GhiChu,
                Khu = source.Khu,
+               MaHangPhong = CASE source.SucChuaToiDa
+                   WHEN 4 THEN N'HP4'
+                   WHEN 6 THEN N'HP6'
+                   WHEN 8 THEN N'HP8'
+               END,
                GiaPhong = CASE source.SucChuaToiDa
                    WHEN 4 THEN CONVERT(decimal(18,2), 1200000)
                    WHEN 6 THEN CONVERT(decimal(18,2), 800000)
@@ -162,11 +169,12 @@ WHEN MATCHED THEN
                    ELSE CONVERT(decimal(18,2), 0)
                END
 WHEN NOT MATCHED THEN
-    INSERT (TenPhong, LoaiPhong, SucChuaToiDa, SoSinhVienHienTai, TrangThaiPhong, GhiChu, Khu, GiaPhong)
+    INSERT (TenPhong, LoaiPhong, SucChuaToiDa, SoSinhVienHienTai, TrangThaiPhong, GhiChu, Khu, MaHangPhong, GiaPhong)
     VALUES (source.TenPhong, source.LoaiPhong, source.SucChuaToiDa, 0,
             CASE WHEN source.TrangThaiGoc IN (N'Ngưng sử dụng', N'Bảo trì')
                  THEN source.TrangThaiGoc ELSE N'Trống' END,
             source.GhiChu, source.Khu,
+            CASE source.SucChuaToiDa WHEN 4 THEN N'HP4' WHEN 6 THEN N'HP6' WHEN 8 THEN N'HP8' END,
             CASE source.SucChuaToiDa
                 WHEN 4 THEN CONVERT(decimal(18,2), 1200000)
                 WHEN 6 THEN CONVERT(decimal(18,2), 800000)

@@ -140,22 +140,21 @@ END;
         IF COL_LENGTH(N'dbo.HopDong', N'SoLanGiaHan') IS NULL
             ALTER TABLE dbo.HopDong ADD SoLanGiaHan int NOT NULL CONSTRAINT DF_HopDong_SoLanGiaHan DEFAULT (0);
 
-        IF EXISTS (
-            SELECT MaSinhVien FROM dbo.HopDong
-            WHERE TrangThaiHopDong = N'Còn hiệu lực'
-            GROUP BY MaSinhVien HAVING COUNT(*) > 1
-        )
-        BEGIN
-            PRINT N'[002] CẢNH BÁO: Có sinh viên nhiều hợp đồng còn hiệu lực — không tạo UQ_HopDong_MotHieuLuc. Chạy db/optional/hopdong_unique.sql sau khi dọn dữ liệu.';
-        END
-        ELSE IF NOT EXISTS (
-            SELECT 1 FROM sys.indexes WHERE name = N'UQ_HopDong_MotHieuLuc' AND object_id = OBJECT_ID(N'dbo.HopDong')
-        )
+        IF COL_LENGTH(N'dbo.HopDong', N'MaSinhVien') IS NOT NULL
         BEGIN
             EXEC sys.sp_executesql N'
-                CREATE UNIQUE NONCLUSTERED INDEX UQ_HopDong_MotHieuLuc
-                ON dbo.HopDong (MaSinhVien)
-                WHERE TrangThaiHopDong = N''Còn hiệu lực'';
+                IF EXISTS (
+                    SELECT MaSinhVien FROM dbo.HopDong
+                    WHERE TrangThaiHopDong = N''Còn hiệu lực''
+                    GROUP BY MaSinhVien HAVING COUNT(*) > 1
+                )
+                    PRINT N''[002] CẢNH BÁO: Có sinh viên nhiều hợp đồng còn hiệu lực — không tạo UQ_HopDong_MotHieuLuc. Chạy db/optional/hopdong_unique.sql sau khi dọn dữ liệu.'';
+                ELSE IF NOT EXISTS (
+                    SELECT 1 FROM sys.indexes WHERE name = N''UQ_HopDong_MotHieuLuc'' AND object_id = OBJECT_ID(N''dbo.HopDong'')
+                )
+                    CREATE UNIQUE NONCLUSTERED INDEX UQ_HopDong_MotHieuLuc
+                    ON dbo.HopDong (MaSinhVien)
+                    WHERE TrangThaiHopDong = N''Còn hiệu lực'';
             ';
         END;
 
@@ -300,10 +299,13 @@ END;
             );
         END;
 
-        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_LichSuHopDong_MaHopDong' AND object_id = OBJECT_ID(N'dbo.LichSuHopDong'))
-            CREATE NONCLUSTERED INDEX IX_LichSuHopDong_MaHopDong ON dbo.LichSuHopDong (MaHopDong);
-        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_LichSuHopDong_ThoiGian' AND object_id = OBJECT_ID(N'dbo.LichSuHopDong'))
-            CREATE NONCLUSTERED INDEX IX_LichSuHopDong_ThoiGian ON dbo.LichSuHopDong (ThoiGian);
+        IF OBJECT_ID(N'dbo.LichSuHopDong', N'U') IS NOT NULL
+            EXEC sys.sp_executesql N'
+                IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N''IX_LichSuHopDong_MaHopDong'' AND object_id = OBJECT_ID(N''dbo.LichSuHopDong''))
+                    CREATE NONCLUSTERED INDEX IX_LichSuHopDong_MaHopDong ON dbo.LichSuHopDong (MaHopDong);
+                IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N''IX_LichSuHopDong_ThoiGian'' AND object_id = OBJECT_ID(N''dbo.LichSuHopDong''))
+                    CREATE NONCLUSTERED INDEX IX_LichSuHopDong_ThoiGian ON dbo.LichSuHopDong (ThoiGian);
+            ';
 
         INSERT INTO dbo.SchemaMigration (MaMigration, TenFile)
         VALUES (N'002', N'002_schema_extensions.sql');

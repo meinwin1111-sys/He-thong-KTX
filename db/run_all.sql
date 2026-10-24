@@ -45,5 +45,25 @@ PRINT N'=== Migration 010 ==='
 GO
 :r db/migrations/010_fixes.sql
 GO
+PRINT N'=== Migration 011 ==='
+GO
+:r db/migrations/011_student_registration_approval.sql
+GO
+PRINT N'=== Migration 012 ==='
+GO
+:r db/migrations/012_align_student_request_type_check.sql
+GO
+PRINT N'=== Migration 013 ==='
+GO
+:r db/migrations/013_room_classes_services.sql
+GO
+PRINT N'=== Migration 014 ==='
+GO
+:r db/migrations/014_contract_members.sql
+GO
+PRINT N'=== Migration 015 ==='
+GO
+:r db/migrations/015_invoice_types.sql
+GO
 PRINT N'=== Hết run_all (master seed chạy riêng: db/seed/run_master.sql) ==='
 GO

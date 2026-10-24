@@ -5,10 +5,10 @@ SET NOCOUNT ON;
 
 IF OBJECT_ID(N'dbo.SchemaMigration', N'U') IS NULL
     THROW 50180, N'Chạy migration 001 trước.', 1;
-ELSE IF NOT EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'010')
-    THROW 50181, N'Chạy migration 010 trước.', 1;
-ELSE IF EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'011')
-    PRINT N'[011] Đã chạy trước đó — bỏ qua.';
+ELSE IF NOT EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'011')
+    THROW 50181, N'Chạy migration 011 trước.', 1;
+ELSE IF EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'012')
+    PRINT N'[012] Đã chạy trước đó — bỏ qua.';
 ELSE
 BEGIN
     BEGIN TRY
@@ -38,10 +38,10 @@ BEGIN
         CHECK (Loai IN (N'Gia hạn hợp đồng', N'Báo hỏng thiết bị', N'Yêu cầu khác'));
 
         INSERT INTO dbo.SchemaMigration (MaMigration, TenFile)
-        VALUES (N'011', N'011_align_student_request_type_check.sql');
+        VALUES (N'012', N'012_align_student_request_type_check.sql');
 
         COMMIT TRANSACTION;
-        PRINT N'[011] Hoàn tất.';
+        PRINT N'[012] Hoàn tất.';
     END TRY
     BEGIN CATCH
         IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;

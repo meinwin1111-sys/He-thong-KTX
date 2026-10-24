@@ -6,7 +6,8 @@
   Mặc định chỉ đếm. Chỉ xóa thật với: sqlcmd ... -v XacNhan=1 -i db/maintenance/reset_operational_data.sql
   Chạy từ thư mục gốc repo; database đích mặc định trong lệnh là KTX_Group3.
 */
-USE [KTX_Group3];
+IF DB_NAME() = N'master'
+    THROW 51800, N'Chạy script bằng sqlcmd -d với database đích.', 1;
 GO
 SET XACT_ABORT ON;
 SET NOCOUNT ON;
@@ -19,7 +20,7 @@ BEGIN
     UNION ALL SELECT N'GiaoDichThanhToan', COUNT_BIG(*) FROM dbo.GiaoDichThanhToan
     UNION ALL SELECT N'ChiTietHoaDon', COUNT_BIG(*) FROM dbo.ChiTietHoaDon
     UNION ALL SELECT N'YeuCauSinhVien', COUNT_BIG(*) FROM dbo.YeuCauSinhVien
-    UNION ALL SELECT N'LichSuHopDong', COUNT_BIG(*) FROM dbo.LichSuHopDong
+    UNION ALL SELECT N'ChiTietHopDong', COUNT_BIG(*) FROM dbo.ChiTietHopDong
     UNION ALL SELECT N'NhatKyHeThong', COUNT_BIG(*) FROM dbo.NhatKyHeThong
     UNION ALL SELECT N'HoaDon', COUNT_BIG(*) FROM dbo.HoaDon
     UNION ALL SELECT N'HopDong', COUNT_BIG(*) FROM dbo.HopDong
@@ -42,9 +43,9 @@ BEGIN TRY
     ENABLE TRIGGER dbo.TRG_ChiTietHoaDon_BaoVe ON dbo.ChiTietHoaDon;
 
     DELETE FROM dbo.YeuCauSinhVien;
-    DELETE FROM dbo.LichSuHopDong;
     DELETE FROM dbo.NhatKyHeThong;
     DELETE FROM dbo.HoaDon;
+    DELETE FROM dbo.ChiTietHopDong;
     DELETE FROM dbo.HopDong;
 
     DELETE FROM dbo.TaiKhoan WHERE VaiTro = N'Sinh viên';
@@ -60,7 +61,7 @@ BEGIN TRY
         END;
 
     DBCC CHECKIDENT (N'dbo.YeuCauSinhVien', RESEED, 0) WITH NO_INFOMSGS;
-    DBCC CHECKIDENT (N'dbo.LichSuHopDong', RESEED, 0) WITH NO_INFOMSGS;
+    DBCC CHECKIDENT (N'dbo.ChiTietHopDong', RESEED, 0) WITH NO_INFOMSGS;
     DBCC CHECKIDENT (N'dbo.NhatKyHeThong', RESEED, 0) WITH NO_INFOMSGS;
 
     DECLARE @TaiKhoanMaxId bigint = ISNULL((SELECT MAX(MaTaiKhoan) FROM dbo.TaiKhoan), 0);

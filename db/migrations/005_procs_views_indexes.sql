@@ -592,8 +592,11 @@ LEFT JOIN dbo.TaiKhoan tk ON tk.MaSinhVien = sv.MaSinhVien;
             CREATE NONCLUSTERED INDEX IX_SinhVien_TrangThai_TenPhong ON dbo.SinhVien (TrangThaiSinhVien, TenPhong);
         IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_SinhVien_HoTen' AND object_id = OBJECT_ID(N'dbo.SinhVien'))
             CREATE NONCLUSTERED INDEX IX_SinhVien_HoTen ON dbo.SinhVien (HoTen);
-        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_HopDong_MaSV_TrangThai' AND object_id = OBJECT_ID(N'dbo.HopDong'))
-            CREATE NONCLUSTERED INDEX IX_HopDong_MaSV_TrangThai ON dbo.HopDong (MaSinhVien, TrangThaiHopDong);
+        IF COL_LENGTH(N'dbo.HopDong', N'MaSinhVien') IS NOT NULL
+            EXEC sys.sp_executesql N'
+                IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N''IX_HopDong_MaSV_TrangThai'' AND object_id = OBJECT_ID(N''dbo.HopDong''))
+                    CREATE NONCLUSTERED INDEX IX_HopDong_MaSV_TrangThai ON dbo.HopDong (MaSinhVien, TrangThaiHopDong);
+            ';
         IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_HopDong_NgayKetThuc' AND object_id = OBJECT_ID(N'dbo.HopDong'))
             CREATE NONCLUSTERED INDEX IX_HopDong_NgayKetThuc ON dbo.HopDong (NgayKetThuc);
         IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_HoaDon_TrangThai_NgayLap' AND object_id = OBJECT_ID(N'dbo.HoaDon'))

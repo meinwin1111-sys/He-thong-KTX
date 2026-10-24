@@ -1,12 +1,18 @@
-USE [KTX_Group3];
+:on error exit
+IF DB_NAME() = N'master'
+    THROW 51802, N'Chạy script bằng sqlcmd -d với database đích.', 1;
 GO
 SET NOCOUNT ON;
 
+IF OBJECT_ID(N'dbo.ChiTietHopDong', N'U') IS NULL
+    THROW 51710, N'Cần chạy migration 014 trước khi kiểm tra sinh viên release.', 1;
+GO
+
 /*
-  CHỈ ĐỌC — chỉ truy vấn dữ liệu thật; không tạo bảng tạm hay ghi dữ liệu.
+  CHỈ ĐỌC — chỉ truy vấn dữ liệu thật; không thay đổi bảng.
   Chỉ kiểm tra chính xác ba MSSV/định danh dưới đây, không dùng LIKE.
-  Lịch sử lưu trú hiện nằm ở dbo.SinhVien (phòng/trạng thái) và dbo.LichSuHopDong;
-  trong các migration/schema đang có không thấy bảng lịch sử lưu trú riêng.
+  Hợp đồng được nối qua ChiTietHopDong; lịch sử lưu trú được giữ ở
+  LichSuHopDong_Backup và NhatKyHeThong sau migration 014.
 */
 
 ;WITH Targets AS
@@ -27,8 +33,19 @@ CROSS APPLY (VALUES
         WHERE tk.MaSinhVien = target.MaSinhVien
            OR (target.EmailDangNhapMongDoi IS NOT NULL AND tk.Email = target.EmailDangNhapMongDoi)
     ))),
-    (N'HopDong', CONVERT(bigint, (SELECT COUNT_BIG(*) FROM dbo.HopDong hd WHERE hd.MaSinhVien = target.MaSinhVien))),
-    (N'LichSuHopDong', CONVERT(bigint, (SELECT COUNT_BIG(*) FROM dbo.LichSuHopDong ls WHERE ls.MaSinhVien = target.MaSinhVien))),
+    (N'HopDong (có thành viên mục tiêu)', CONVERT(bigint, (
+        SELECT COUNT_BIG(*) FROM dbo.HopDong hd
+        WHERE EXISTS (
+            SELECT 1 FROM dbo.ChiTietHopDong c
+            WHERE c.MaHopDong = hd.MaHopDong AND c.MaSinhVien = target.MaSinhVien
+        )
+    ))),
+    (N'ChiTietHopDong', CONVERT(bigint, (
+        SELECT COUNT_BIG(*) FROM dbo.ChiTietHopDong c WHERE c.MaSinhVien = target.MaSinhVien
+    ))),
+    (N'LichSuHopDong_Backup', CONVERT(bigint, (
+        SELECT COUNT_BIG(*) FROM dbo.LichSuHopDong_Backup ls WHERE ls.MaSinhVien = target.MaSinhVien
+    ))),
     (N'HoaDon', CONVERT(bigint, (SELECT COUNT_BIG(*) FROM dbo.HoaDon hd WHERE hd.MaSinhVien = target.MaSinhVien))),
     (N'ChiTietHoaDon', CONVERT(bigint, (
         SELECT COUNT_BIG(*) FROM dbo.ChiTietHoaDon chi
@@ -56,28 +73,36 @@ CROSS APPLY (VALUES
             WHERE chi.MaChiTiet = cgd.MaChiTiet AND hd.MaSinhVien = target.MaSinhVien
         )
     ))),
-    (N'YeuCauSinhVien', CONVERT(bigint, (SELECT COUNT_BIG(*) FROM dbo.YeuCauSinhVien yc WHERE yc.MaSinhVien = target.MaSinhVien))),
+    (N'YeuCauSinhVien', CONVERT(bigint, (
+        SELECT COUNT_BIG(*) FROM dbo.YeuCauSinhVien yc WHERE yc.MaSinhVien = target.MaSinhVien
+    ))),
     (N'NhatKyHeThong', CONVERT(bigint, (
         SELECT COUNT_BIG(*) FROM dbo.NhatKyHeThong nk
-        WHERE nk.MaDoiTuong = target.MaSinhVien
-           OR nk.MaTaiKhoan IN (
-               SELECT tk.MaTaiKhoan FROM dbo.TaiKhoan tk
-               WHERE tk.MaSinhVien = target.MaSinhVien
-                  OR (target.EmailDangNhapMongDoi IS NOT NULL AND tk.Email = target.EmailDangNhapMongDoi)
-           )
-           OR nk.MaDoiTuong IN (SELECT hd.MaHoaDon FROM dbo.HoaDon hd WHERE hd.MaSinhVien = target.MaSinhVien)
-           OR nk.MaDoiTuong IN (SELECT hd.MaHopDong FROM dbo.HopDong hd WHERE hd.MaSinhVien = target.MaSinhVien)
-           OR nk.MaDoiTuong IN (SELECT yc.MaYeuCau FROM dbo.YeuCauSinhVien yc WHERE yc.MaSinhVien = target.MaSinhVien)
-           OR nk.MaDoiTuong IN (
-               SELECT gd.MaGiaoDich FROM dbo.GiaoDichThanhToan gd
-               WHERE gd.MaSinhVien = target.MaSinhVien
-                  OR EXISTS (
-                      SELECT 1 FROM dbo.ChiTietGiaoDich cgd
-                      INNER JOIN dbo.ChiTietHoaDon chi ON chi.MaChiTiet = cgd.MaChiTiet
-                      INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = chi.MaHoaDon
-                      WHERE cgd.MaGiaoDich = gd.MaGiaoDich AND hd.MaSinhVien = target.MaSinhVien
-                  )
-           )
+        WHERE nk.MaTaiKhoan IN (
+            SELECT tk.MaTaiKhoan FROM dbo.TaiKhoan tk
+            WHERE tk.MaSinhVien = target.MaSinhVien
+               OR (target.EmailDangNhapMongDoi IS NOT NULL AND tk.Email = target.EmailDangNhapMongDoi)
+        )
+        OR nk.MaDoiTuong IN (
+            SELECT target.MaSinhVien
+            UNION SELECT hd.MaHoaDon FROM dbo.HoaDon hd WHERE hd.MaSinhVien = target.MaSinhVien
+            UNION SELECT hd.MaHopDong FROM dbo.HopDong hd
+                WHERE EXISTS (
+                    SELECT 1 FROM dbo.ChiTietHopDong c
+                    WHERE c.MaHopDong = hd.MaHopDong AND c.MaSinhVien = target.MaSinhVien
+                )
+            UNION SELECT N'LichSuHopDong:' + CONVERT(nvarchar(10), ls.MaLichSu)
+                FROM dbo.LichSuHopDong_Backup ls WHERE ls.MaSinhVien = target.MaSinhVien
+            UNION SELECT yc.MaYeuCau FROM dbo.YeuCauSinhVien yc WHERE yc.MaSinhVien = target.MaSinhVien
+            UNION SELECT gd.MaGiaoDich FROM dbo.GiaoDichThanhToan gd
+                WHERE gd.MaSinhVien = target.MaSinhVien
+                   OR EXISTS (
+                       SELECT 1 FROM dbo.ChiTietGiaoDich cgd
+                       INNER JOIN dbo.ChiTietHoaDon chi ON chi.MaChiTiet = cgd.MaChiTiet
+                       INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = chi.MaHoaDon
+                       WHERE cgd.MaGiaoDich = gd.MaGiaoDich AND hd.MaSinhVien = target.MaSinhVien
+                   )
+        )
     )))
 ) counts(Bang, SoDong)
 ORDER BY target.MaSinhVien, counts.Bang;
@@ -191,12 +216,22 @@ ORDER BY gd.MaSinhVien, gd.NgayTao, gd.MaGiaoDich;
         (N'E2E_REL_20261001_A'), (N'E2E_REL_20261001_B'), (N'TEST_DK_002')
     ) v(MaSinhVien)
 )
-SELECT hd.MaHopDong, hd.MaSinhVien, sv.HoTen, hd.TenPhong, hd.NgayBatDau,
-       hd.NgayKetThuc, hd.TrangThaiHopDong
+SELECT hd.MaHopDong, hd.TenPhong, hd.MaHangPhong, hd.NgayBatDau, hd.NgayKetThuc,
+       hd.TrangThaiHopDong, c.MaChiTiet, c.MaSinhVien, sv.HoTen,
+       c.NgayVao, c.NgayRa, c.TrangThai AS TrangThaiThanhVien,
+       c.LaNguoiDaiDienThanhToanDichVu,
+       CASE WHEN target.MaSinhVien IS NULL THEN N'SINH VIÊN KHÁC — GIỮ HỢP ĐỒNG'
+            ELSE N'MSSV MỤC TIÊU' END AS PhamVi
 FROM dbo.HopDong hd
-LEFT JOIN dbo.SinhVien sv ON sv.MaSinhVien = hd.MaSinhVien
-WHERE hd.MaSinhVien IN (SELECT MaSinhVien FROM Targets)
-ORDER BY hd.MaSinhVien, hd.MaHopDong;
+INNER JOIN dbo.ChiTietHopDong c ON c.MaHopDong = hd.MaHopDong
+INNER JOIN dbo.SinhVien sv ON sv.MaSinhVien = c.MaSinhVien
+LEFT JOIN Targets target ON target.MaSinhVien = c.MaSinhVien
+WHERE EXISTS (
+    SELECT 1 FROM dbo.ChiTietHopDong member
+    INNER JOIN Targets t ON t.MaSinhVien = member.MaSinhVien
+    WHERE member.MaHopDong = hd.MaHopDong
+)
+ORDER BY hd.MaHopDong, c.NgayVao, c.MaChiTiet;
 
 ;WITH Targets AS
 (
@@ -205,46 +240,91 @@ ORDER BY hd.MaSinhVien, hd.MaHopDong;
         (N'E2E_REL_20261001_A'), (N'E2E_REL_20261001_B'), (N'TEST_DK_002')
     ) v(MaSinhVien)
 )
-SELECT hd.MaHoaDon, hd.MaSinhVien, sv.HoTen, hd.TenPhong, hd.NgayLap,
-       hd.TrangThaiThanhToan, hd.TongTien,
-       CASE WHEN hd.MaSinhVien IN (SELECT MaSinhVien FROM Targets)
-            THEN N'HÓA ĐƠN CỦA MSSV TEST'
-            ELSE N'CẢNH BÁO: CÒN SINH VIÊN KHÁC — SẼ KHÔNG XÓA'
-       END AS KiemTra
-FROM dbo.HoaDon hd
-LEFT JOIN dbo.SinhVien sv ON sv.MaSinhVien = hd.MaSinhVien
-WHERE hd.TenPhong = N'A101'
-  AND hd.NgayLap >= '20261001'
-  AND hd.NgayLap < '20261101'
-ORDER BY hd.MaHoaDon;
+SELECT ls.MaLichSu, ls.MaHopDong, ls.MaSinhVien, ls.HoTen, ls.TenPhong,
+       ls.ThaoTac, ls.ThoiGian, ls.NguoiThucHien
+FROM dbo.LichSuHopDong_Backup ls
+WHERE ls.MaSinhVien IN (SELECT MaSinhVien FROM Targets)
+ORDER BY ls.MaSinhVien, ls.ThoiGian, ls.MaLichSu;
 
-SELECT
-    room.TenPhong, room.SoSinhVienHienTai AS SiSoDangLuu,
-    room.TrangThaiPhong AS TrangThaiDangLuu,
-    occupancy.SoSinhVienThucTe AS SiSoTheoSinhVienDangO,
-    room.SucChuaToiDa,
-    CASE
-        WHEN EXISTS (
-            SELECT 1 FROM dbo.SinhVien sv
-            WHERE sv.TenPhong = room.TenPhong
-              AND sv.TrangThaiSinhVien = N'Đang ở'
-              AND sv.MaSinhVien NOT IN (N'E2E_REL_20261001_A', N'E2E_REL_20261001_B', N'TEST_DK_002')
-        ) THEN N'CẢNH BÁO: CÒN SINH VIÊN KHÁC — GIỮ PHÒNG, CHỈ TÍNH LẠI SĨ SỐ'
-        ELSE N'CHỈ CÒN HỒ SƠ TEST HOẶC PHÒNG TRỐNG'
-    END AS KiemTraPhong
+;WITH Targets AS
+(
+    SELECT MaSinhVien
+    FROM (VALUES
+        (N'E2E_REL_20261001_A'), (N'E2E_REL_20261001_B'), (N'TEST_DK_002')
+    ) v(MaSinhVien)
+),
+TargetContracts AS
+(
+    SELECT DISTINCT c.MaHopDong
+    FROM dbo.ChiTietHopDong c
+    INNER JOIN Targets t ON t.MaSinhVien = c.MaSinhVien
+),
+TargetHistory AS
+(
+    SELECT N'LichSuHopDong:' + CONVERT(nvarchar(10), ls.MaLichSu) AS MaDoiTuong
+    FROM dbo.LichSuHopDong_Backup ls
+    INNER JOIN Targets t ON t.MaSinhVien = ls.MaSinhVien
+)
+SELECT nk.MaNhatKy, nk.ThoiGian, nk.MaTaiKhoan, nk.HanhDong, nk.DoiTuong,
+       nk.MaDoiTuong, nk.ChiTiet
+FROM dbo.NhatKyHeThong nk
+WHERE nk.MaTaiKhoan IN (
+    SELECT tk.MaTaiKhoan FROM dbo.TaiKhoan tk
+    WHERE tk.MaSinhVien IN (SELECT MaSinhVien FROM Targets)
+)
+   OR nk.MaDoiTuong IN (
+       SELECT MaSinhVien FROM Targets
+       UNION SELECT MaHopDong FROM TargetContracts
+       UNION SELECT MaDoiTuong FROM TargetHistory
+   )
+ORDER BY nk.ThoiGian, nk.MaNhatKy;
+
+;WITH Targets AS
+(
+    SELECT MaSinhVien
+    FROM (VALUES
+        (N'E2E_REL_20261001_A'), (N'E2E_REL_20261001_B'), (N'TEST_DK_002')
+    ) v(MaSinhVien)
+),
+TargetRooms AS
+(
+    SELECT hd.TenPhong
+    FROM dbo.ChiTietHopDong c
+    INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+    INNER JOIN Targets t ON t.MaSinhVien = c.MaSinhVien
+    UNION
+    SELECT sv.TenPhong
+    FROM dbo.SinhVien sv
+    INNER JOIN Targets t ON t.MaSinhVien = sv.MaSinhVien
+    WHERE sv.TenPhong IS NOT NULL
+)
+SELECT room.TenPhong, room.SoSinhVienHienTai AS SiSoDangLuu,
+       room.TrangThaiPhong AS TrangThaiDangLuu,
+       occupancy.SoSinhVienThucTe, room.SucChuaToiDa,
+       CASE
+           WHEN EXISTS (
+               SELECT 1
+               FROM dbo.ChiTietHopDong c
+               INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+               WHERE hd.TenPhong = room.TenPhong
+                 AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                 AND c.TrangThai = N'Đang ở'
+                 AND c.MaSinhVien NOT IN
+                     (N'E2E_REL_20261001_A', N'E2E_REL_20261001_B', N'TEST_DK_002')
+           ) THEN N'CẢNH BÁO: CÒN THÀNH VIÊN KHÁC — GIỮ PHÒNG'
+           ELSE N'CHỈ CÒN HỒ SƠ TEST HOẶC PHÒNG TRỐNG'
+       END AS KiemTraPhong
 FROM dbo.Phong room
+INNER JOIN TargetRooms targetRoom ON targetRoom.TenPhong = room.TenPhong
 OUTER APPLY (
     SELECT COUNT_BIG(*) AS SoSinhVienThucTe
-    FROM dbo.SinhVien sv
-    WHERE sv.TenPhong = room.TenPhong
-      AND sv.TrangThaiSinhVien = N'Đang ở'
+    FROM dbo.ChiTietHopDong c
+    INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+    WHERE hd.TenPhong = room.TenPhong
+      AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+      AND c.TrangThai = N'Đang ở'
 ) occupancy
-WHERE room.TenPhong = N'A101'
-   OR room.TenPhong IN (
-       SELECT sv.TenPhong FROM dbo.SinhVien sv
-       WHERE sv.MaSinhVien IN (N'E2E_REL_20261001_A', N'E2E_REL_20261001_B', N'TEST_DK_002')
-         AND sv.TenPhong IS NOT NULL
-   );
+ORDER BY room.TenPhong;
 
 PRINT N'CHỈ ĐỌC: các kết quả trên là kiểm kê; không có lệnh ghi/xóa dữ liệu.';
 GO
