@@ -16,8 +16,11 @@ DECLARE @XacNhan nvarchar(10) = N'$(XacNhan)';
 
 IF @XacNhan <> N'1'
 BEGIN
-    SELECT N'ChiTietGiaoDich' AS Bang, COUNT_BIG(*) AS SoDongSeXoa FROM dbo.ChiTietGiaoDich
+    SELECT N'PhieuChi_HoaDon' AS Bang, COUNT_BIG(*) AS SoDongSeXoa FROM dbo.PhieuChi_HoaDon
+    UNION ALL SELECT N'PhieuChi', COUNT_BIG(*) FROM dbo.PhieuChi
+    UNION ALL SELECT N'PhieuThu', COUNT_BIG(*) FROM dbo.PhieuThu
     UNION ALL SELECT N'GiaoDichThanhToan', COUNT_BIG(*) FROM dbo.GiaoDichThanhToan
+    UNION ALL SELECT N'ChiPhiPhatSinh', COUNT_BIG(*) FROM dbo.ChiPhiPhatSinh
     UNION ALL SELECT N'ChiTietHoaDon', COUNT_BIG(*) FROM dbo.ChiTietHoaDon
     UNION ALL SELECT N'YeuCauSinhVien', COUNT_BIG(*) FROM dbo.YeuCauSinhVien
     UNION ALL SELECT N'ChiTietHopDong', COUNT_BIG(*) FROM dbo.ChiTietHopDong
@@ -35,8 +38,18 @@ END;
 BEGIN TRY
     BEGIN TRANSACTION;
 
-    DELETE FROM dbo.ChiTietGiaoDich;
+    DISABLE TRIGGER dbo.TRG_PhieuChi_HoaDon ON dbo.PhieuChi_HoaDon;
+    DISABLE TRIGGER dbo.TRG_PhieuChi_BaoVe ON dbo.PhieuChi;
+    DELETE FROM dbo.PhieuChi_HoaDon;
+    DELETE FROM dbo.PhieuChi;
+    ENABLE TRIGGER dbo.TRG_PhieuChi_HoaDon ON dbo.PhieuChi_HoaDon;
+    ENABLE TRIGGER dbo.TRG_PhieuChi_BaoVe ON dbo.PhieuChi;
+    DELETE FROM dbo.PhieuThu;
     DELETE FROM dbo.GiaoDichThanhToan;
+
+    DISABLE TRIGGER dbo.TRG_ChiPhiPhatSinh_BaoVe ON dbo.ChiPhiPhatSinh;
+    DELETE FROM dbo.ChiPhiPhatSinh;
+    ENABLE TRIGGER dbo.TRG_ChiPhiPhatSinh_BaoVe ON dbo.ChiPhiPhatSinh;
 
     DISABLE TRIGGER dbo.TRG_ChiTietHoaDon_BaoVe ON dbo.ChiTietHoaDon;
     DELETE FROM dbo.ChiTietHoaDon;

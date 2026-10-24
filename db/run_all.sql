@@ -65,5 +65,21 @@ PRINT N'=== Migration 015 ==='
 GO
 :r db/migrations/015_invoice_types.sql
 GO
+PRINT N'=== Migration 016 ==='
+GO
+:r db/migrations/016_invoice_periods_and_details.sql
+GO
+PRINT N'=== Migration 017 ==='
+GO
+:r db/migrations/017_incident_costs.sql
+GO
+PRINT N'=== Migration 018 ==='
+GO
+:r db/migrations/018_receipts_and_refunds.sql
+GO
+PRINT N'=== Migration 019 ==='
+GO
+:r db/migrations/019_payment_workflows.sql
+GO
 PRINT N'=== Hết run_all (master seed chạy riêng: db/seed/run_master.sql) ==='
 GO

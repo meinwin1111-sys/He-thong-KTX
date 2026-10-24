@@ -56,21 +56,19 @@ CROSS APPLY (VALUES
         SELECT COUNT_BIG(*) FROM dbo.GiaoDichThanhToan gd
         WHERE gd.MaSinhVien = target.MaSinhVien
            OR EXISTS (
-               SELECT 1 FROM dbo.ChiTietGiaoDich cgd
-               INNER JOIN dbo.ChiTietHoaDon chi ON chi.MaChiTiet = cgd.MaChiTiet
-               INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = chi.MaHoaDon
-               WHERE cgd.MaGiaoDich = gd.MaGiaoDich AND hd.MaSinhVien = target.MaSinhVien
+               SELECT 1 FROM dbo.PhieuThu pt
+               INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = pt.MaHoaDon
+               WHERE pt.MaGiaoDich = gd.MaGiaoDich AND hd.MaSinhVien = target.MaSinhVien
            )
     ))),
-    (N'ChiTietGiaoDich', CONVERT(bigint, (
-        SELECT COUNT_BIG(*) FROM dbo.ChiTietGiaoDich cgd
+    (N'PhieuThu', CONVERT(bigint, (
+        SELECT COUNT_BIG(*) FROM dbo.PhieuThu pt
         WHERE EXISTS (
             SELECT 1 FROM dbo.GiaoDichThanhToan gd
-            WHERE gd.MaGiaoDich = cgd.MaGiaoDich AND gd.MaSinhVien = target.MaSinhVien
+            WHERE gd.MaGiaoDich = pt.MaGiaoDich AND gd.MaSinhVien = target.MaSinhVien
         ) OR EXISTS (
-            SELECT 1 FROM dbo.ChiTietHoaDon chi
-            INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = chi.MaHoaDon
-            WHERE chi.MaChiTiet = cgd.MaChiTiet AND hd.MaSinhVien = target.MaSinhVien
+            SELECT 1 FROM dbo.HoaDon hd
+            WHERE hd.MaHoaDon = pt.MaHoaDon AND hd.MaSinhVien = target.MaSinhVien
         )
     ))),
     (N'YeuCauSinhVien', CONVERT(bigint, (
@@ -97,10 +95,9 @@ CROSS APPLY (VALUES
             UNION SELECT gd.MaGiaoDich FROM dbo.GiaoDichThanhToan gd
                 WHERE gd.MaSinhVien = target.MaSinhVien
                    OR EXISTS (
-                       SELECT 1 FROM dbo.ChiTietGiaoDich cgd
-                       INNER JOIN dbo.ChiTietHoaDon chi ON chi.MaChiTiet = cgd.MaChiTiet
-                       INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = chi.MaHoaDon
-                       WHERE cgd.MaGiaoDich = gd.MaGiaoDich AND hd.MaSinhVien = target.MaSinhVien
+                       SELECT 1 FROM dbo.PhieuThu pt
+                       INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = pt.MaHoaDon
+                       WHERE pt.MaGiaoDich = gd.MaGiaoDich AND hd.MaSinhVien = target.MaSinhVien
                    )
         )
     )))
@@ -199,11 +196,11 @@ ORDER BY hd.MaSinhVien, hd.NgayLap, hd.MaHoaDon;
 )
 SELECT DISTINCT hd.MaHoaDon, hd.MaSinhVien, sv.HoTen, hd.TenPhong, hd.NgayLap,
        hd.TrangThaiThanhToan, gd.MaGiaoDich, gd.PhuongThuc, gd.TrangThai,
-       gd.TongTien AS TongTienGiaoDich, gd.NgayTao, gd.NgayThanhToan, gd.XacNhanBoi
+       gd.TongTien AS TongTienGiaoDich, pt.MaPhieuThu, pt.SoTien AS SoTienPhieuThu,
+       pt.TrangThai AS TrangThaiPhieuThu, gd.NgayTao, gd.NgayThanhToan, gd.XacNhanBoi
 FROM dbo.GiaoDichThanhToan gd
-LEFT JOIN dbo.ChiTietGiaoDich cgd ON cgd.MaGiaoDich = gd.MaGiaoDich
-LEFT JOIN dbo.ChiTietHoaDon chi ON chi.MaChiTiet = cgd.MaChiTiet
-LEFT JOIN dbo.HoaDon hd ON hd.MaHoaDon = chi.MaHoaDon
+LEFT JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
+LEFT JOIN dbo.HoaDon hd ON hd.MaHoaDon = pt.MaHoaDon
 LEFT JOIN dbo.SinhVien sv ON sv.MaSinhVien = gd.MaSinhVien
 WHERE gd.MaSinhVien IN (SELECT MaSinhVien FROM Targets)
    OR hd.MaSinhVien IN (SELECT MaSinhVien FROM Targets)

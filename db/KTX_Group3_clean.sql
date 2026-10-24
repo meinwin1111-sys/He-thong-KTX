@@ -5534,6 +5534,2059 @@ BEGIN
 END;
 -- END INLINE: db/migrations/015_invoice_types.sql
 GO
+PRINT N'=== Migration 016 ==='
+GO
+-- BEGIN INLINE: db/migrations/016_invoice_periods_and_details.sql
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+SET XACT_ABORT ON;
+SET NOCOUNT ON;
+
+IF OBJECT_ID(N'dbo.SchemaMigration', N'U') IS NULL
+    THROW 51600, N'Chạy migration 001 trước.', 1;
+ELSE IF NOT EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'015')
+    THROW 51601, N'Chạy migration 015 trước.', 1;
+ELSE IF EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'016')
+    PRINT N'[016] Đã chạy trước đó — bỏ qua.';
+ELSE
+BEGIN
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        IF COL_LENGTH(N'dbo.HoaDon', N'MaHopDong') IS NULL
+            EXEC sys.sp_executesql N'ALTER TABLE dbo.HoaDon ADD MaHopDong nvarchar(20) NULL;';
+        IF COL_LENGTH(N'dbo.HoaDon', N'MaChiTiet') IS NULL
+            EXEC sys.sp_executesql N'ALTER TABLE dbo.HoaDon ADD MaChiTiet int NULL;';
+        IF COL_LENGTH(N'dbo.HoaDon', N'KyThanhToan') IS NULL
+            EXEC sys.sp_executesql N'ALTER TABLE dbo.HoaDon ADD KyThanhToan date NULL;';
+        IF COL_LENGTH(N'dbo.HoaDon', N'KyThanhToanDen') IS NULL
+            EXEC sys.sp_executesql N'ALTER TABLE dbo.HoaDon ADD KyThanhToanDen date NULL;';
+
+        EXEC sys.sp_executesql N'ALTER TABLE dbo.HoaDon ALTER COLUMN MaSinhVien nvarchar(30) NULL;';
+
+        IF COL_LENGTH(N'dbo.ChiTietHoaDon', N'MaDichVu') IS NULL
+            EXEC sys.sp_executesql N'ALTER TABLE dbo.ChiTietHoaDon ADD MaDichVu nvarchar(20) NULL;';
+        IF COL_LENGTH(N'dbo.ChiTietHoaDon', N'ChiSoCu') IS NULL
+            EXEC sys.sp_executesql N'ALTER TABLE dbo.ChiTietHoaDon ADD ChiSoCu int NULL;';
+        IF COL_LENGTH(N'dbo.ChiTietHoaDon', N'ChiSoMoi') IS NULL
+            EXEC sys.sp_executesql N'ALTER TABLE dbo.ChiTietHoaDon ADD ChiSoMoi int NULL;';
+        IF COL_LENGTH(N'dbo.ChiTietHoaDon', N'SoLuong') IS NULL
+            EXEC sys.sp_executesql N'
+                ALTER TABLE dbo.ChiTietHoaDon ADD SoLuong decimal(18,3) NOT NULL
+                    CONSTRAINT DF_ChiTietHoaDon_SoLuong DEFAULT (1) WITH VALUES;';
+        IF COL_LENGTH(N'dbo.ChiTietHoaDon', N'DonGia') IS NULL
+            EXEC sys.sp_executesql N'
+                ALTER TABLE dbo.ChiTietHoaDon ADD DonGia decimal(18,2) NOT NULL
+                    CONSTRAINT DF_ChiTietHoaDon_DonGia DEFAULT (0) WITH VALUES;';
+
+        EXEC sys.sp_executesql N'
+            UPDATE dbo.ChiTietHoaDon
+            SET DonGia = SoTien
+            WHERE DonGia = 0 AND SoTien > 0;';
+
+        DECLARE @ConstraintName sysname, @Sql nvarchar(max);
+        DECLARE invoice_checks CURSOR LOCAL FAST_FORWARD FOR
+            SELECT cc.name
+            FROM sys.check_constraints cc
+            WHERE cc.parent_object_id = OBJECT_ID(N'dbo.HoaDon')
+              AND (cc.definition LIKE N'%LoaiHoaDon%'
+                   OR cc.definition LIKE N'%TrangThaiThanhToan%'
+                   OR cc.definition LIKE N'%KyThanhToan%');
+        OPEN invoice_checks;
+        FETCH NEXT FROM invoice_checks INTO @ConstraintName;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SET @Sql = N'ALTER TABLE dbo.HoaDon DROP CONSTRAINT ' + QUOTENAME(@ConstraintName) + N';';
+            EXEC sys.sp_executesql @Sql;
+            FETCH NEXT FROM invoice_checks INTO @ConstraintName;
+        END;
+        CLOSE invoice_checks;
+        DEALLOCATE invoice_checks;
+
+        IF EXISTS (
+            SELECT 1 FROM dbo.HoaDon
+            WHERE LoaiHoaDon IS NULL
+               OR LoaiHoaDon NOT IN (N'TIEN_PHONG', N'DICH_VU_PHONG', N'PHAT_SINH', N'CU')
+        )
+        BEGIN
+            SELECT MaHoaDon, LoaiHoaDon
+            FROM dbo.HoaDon
+            WHERE LoaiHoaDon IS NULL
+               OR LoaiHoaDon NOT IN (N'TIEN_PHONG', N'DICH_VU_PHONG', N'PHAT_SINH', N'CU');
+            THROW 51602, N'Có loại hóa đơn không hợp lệ trước khi cập nhật CHECK.', 1;
+        END;
+        IF EXISTS (
+            SELECT 1 FROM dbo.HoaDon
+            WHERE TrangThaiThanhToan IS NOT NULL
+              AND TrangThaiThanhToan NOT IN
+                  (N'Chưa thanh toán', N'Thanh toán một phần', N'Đã thanh toán', N'Đã hủy')
+        )
+        BEGIN
+            SELECT MaHoaDon, TrangThaiThanhToan
+            FROM dbo.HoaDon
+            WHERE TrangThaiThanhToan IS NOT NULL
+              AND TrangThaiThanhToan NOT IN
+                  (N'Chưa thanh toán', N'Thanh toán một phần', N'Đã thanh toán', N'Đã hủy');
+            THROW 51603, N'Có trạng thái hóa đơn không hợp lệ trước khi cập nhật CHECK.', 1;
+        END;
+
+        EXEC sys.sp_executesql N'
+            IF EXISTS (
+                SELECT 1 FROM sys.foreign_keys
+                WHERE parent_object_id = OBJECT_ID(N''dbo.HoaDon'')
+                  AND name = N''FK_HoaDon_HopDong''
+            )
+                ALTER TABLE dbo.HoaDon DROP CONSTRAINT FK_HoaDon_HopDong;
+            IF EXISTS (
+                SELECT 1 FROM sys.foreign_keys
+                WHERE parent_object_id = OBJECT_ID(N''dbo.HoaDon'')
+                  AND name = N''FK_HoaDon_ChiTietHopDong''
+            )
+                ALTER TABLE dbo.HoaDon DROP CONSTRAINT FK_HoaDon_ChiTietHopDong;
+
+            ALTER TABLE dbo.HoaDon WITH CHECK ADD CONSTRAINT FK_HoaDon_HopDong
+                FOREIGN KEY (MaHopDong) REFERENCES dbo.HopDong(MaHopDong);
+            ALTER TABLE dbo.HoaDon WITH CHECK ADD CONSTRAINT FK_HoaDon_ChiTietHopDong
+                FOREIGN KEY (MaChiTiet) REFERENCES dbo.ChiTietHopDong(MaChiTiet);
+
+            ALTER TABLE dbo.HoaDon WITH CHECK ADD CONSTRAINT CK_HoaDon_LoaiHoaDon
+                CHECK (LoaiHoaDon IN (N''TIEN_PHONG'', N''DICH_VU_PHONG'', N''PHAT_SINH'', N''CU''));
+            ALTER TABLE dbo.HoaDon WITH CHECK ADD CONSTRAINT CK_HoaDon_TrangThaiThanhToan
+                CHECK (TrangThaiThanhToan IN
+                    (N''Chưa thanh toán'', N''Thanh toán một phần'', N''Đã thanh toán'', N''Đã hủy''));
+            ALTER TABLE dbo.HoaDon WITH CHECK ADD CONSTRAINT CK_HoaDon_KyThanhToan
+                CHECK (
+                    (LoaiHoaDon = N''CU'')
+                    OR (KyThanhToan IS NOT NULL AND KyThanhToanDen IS NOT NULL
+                        AND KyThanhToanDen >= KyThanhToan)
+                );';
+
+        EXEC sys.sp_executesql N'
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.foreign_keys
+                WHERE parent_object_id = OBJECT_ID(N''dbo.ChiTietHoaDon'')
+                  AND name = N''FK_ChiTietHoaDon_DichVu''
+            )
+                ALTER TABLE dbo.ChiTietHoaDon WITH CHECK
+                    ADD CONSTRAINT FK_ChiTietHoaDon_DichVu
+                    FOREIGN KEY (MaDichVu) REFERENCES dbo.DichVu(MaDichVu);
+
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.check_constraints
+                WHERE parent_object_id = OBJECT_ID(N''dbo.ChiTietHoaDon'')
+                  AND name = N''CK_ChiTietHoaDon_SoLuongDonGia''
+            )
+                ALTER TABLE dbo.ChiTietHoaDon WITH CHECK
+                    ADD CONSTRAINT CK_ChiTietHoaDon_SoLuongDonGia
+                    CHECK (SoLuong > 0 AND DonGia >= 0);
+
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE object_id = OBJECT_ID(N''dbo.HoaDon'')
+                  AND name = N''UX_HoaDon_TienPhong_ChiTiet_Ky''
+            )
+                CREATE UNIQUE INDEX UX_HoaDon_TienPhong_ChiTiet_Ky
+                    ON dbo.HoaDon(MaChiTiet, KyThanhToan)
+                    WHERE LoaiHoaDon = N''TIEN_PHONG''
+                      AND TrangThaiThanhToan <> N''Đã hủy''
+                      AND MaChiTiet IS NOT NULL AND KyThanhToan IS NOT NULL;
+
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE object_id = OBJECT_ID(N''dbo.HoaDon'')
+                  AND name = N''UX_HoaDon_DichVuPhong_HopDong_Ky''
+            )
+                CREATE UNIQUE INDEX UX_HoaDon_DichVuPhong_HopDong_Ky
+                    ON dbo.HoaDon(MaHopDong, KyThanhToan)
+                    WHERE LoaiHoaDon = N''DICH_VU_PHONG''
+                      AND TrangThaiThanhToan <> N''Đã hủy''
+                      AND MaHopDong IS NOT NULL AND KyThanhToan IS NOT NULL;';
+
+        EXEC sys.sp_executesql N'
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE object_id = OBJECT_ID(N''dbo.HoaDon'')
+                  AND name = N''IX_HoaDon_MaChiTiet_Ky''
+            )
+                CREATE INDEX IX_HoaDon_MaChiTiet_Ky
+                    ON dbo.HoaDon(MaChiTiet, KyThanhToan, KyThanhToanDen)
+                    INCLUDE (LoaiHoaDon, TrangThaiThanhToan, MaHoaDon);
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE object_id = OBJECT_ID(N''dbo.HoaDon'')
+                  AND name = N''IX_HoaDon_MaHopDong_Ky''
+            )
+                CREATE INDEX IX_HoaDon_MaHopDong_Ky
+                    ON dbo.HoaDon(MaHopDong, KyThanhToan, KyThanhToanDen)
+                    INCLUDE (LoaiHoaDon, TrangThaiThanhToan, MaHoaDon);';
+
+        INSERT INTO dbo.SchemaMigration (MaMigration, TenFile)
+        VALUES (N'016', N'016_invoice_periods_and_details.sql');
+
+        COMMIT TRANSACTION;
+        PRINT N'[016] Hoàn tất: loại hóa đơn, kỳ, liên kết hợp đồng/thành viên và snapshot chi tiết sẵn sàng.';
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+GO
+-- END INLINE: db/migrations/016_invoice_periods_and_details.sql
+GO
+PRINT N'=== Migration 017 ==='
+GO
+-- BEGIN INLINE: db/migrations/017_incident_costs.sql
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+SET XACT_ABORT ON;
+SET NOCOUNT ON;
+
+IF OBJECT_ID(N'dbo.SchemaMigration', N'U') IS NULL
+    THROW 51700, N'Chạy migration 001 trước.', 1;
+ELSE IF NOT EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'016')
+    THROW 51701, N'Chạy migration 016 trước.', 1;
+ELSE IF EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'017')
+    PRINT N'[017] Đã chạy trước đó — bỏ qua.';
+ELSE
+BEGIN
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        IF EXISTS (
+            SELECT 1
+            FROM sys.check_constraints
+            WHERE parent_object_id = OBJECT_ID(N'dbo.ChiTietHoaDon')
+              AND definition LIKE N'%MaKhoan%'
+              AND definition NOT LIKE N'%INCIDENT%'
+        )
+        BEGIN
+            SELECT name, definition
+            FROM sys.check_constraints
+            WHERE parent_object_id = OBJECT_ID(N'dbo.ChiTietHoaDon')
+              AND definition LIKE N'%MaKhoan%'
+              AND definition NOT LIKE N'%INCIDENT%';
+            THROW 51704, N'CHECK hiện có trên MaKhoan chưa cho phép INCIDENT; cần điều chỉnh trước khi lập khoản phát sinh.', 1;
+        END;
+
+        EXEC sys.sp_executesql N'
+            CREATE TABLE dbo.ChiPhiPhatSinh
+            (
+                MaChiPhi bigint IDENTITY(1,1) NOT NULL
+                    CONSTRAINT PK_ChiPhiPhatSinh PRIMARY KEY,
+                MaHopDong nvarchar(20) NOT NULL,
+                MaChiTiet int NULL,
+                NoiDung nvarchar(255) NOT NULL,
+                SoTien decimal(18,2) NOT NULL,
+                NgayPhatSinh date NOT NULL
+                    CONSTRAINT DF_ChiPhiPhatSinh_NgayPhatSinh DEFAULT (CONVERT(date, GETDATE())),
+                NguoiNhap int NOT NULL,
+                TrangThai nvarchar(20) NOT NULL
+                    CONSTRAINT DF_ChiPhiPhatSinh_TrangThai DEFAULT (N''Chưa lập hóa đơn''),
+                MaChiTietHoaDon nvarchar(40) NULL,
+                GhiChu nvarchar(255) NULL,
+                NgayTao datetime NOT NULL
+                    CONSTRAINT DF_ChiPhiPhatSinh_NgayTao DEFAULT (GETDATE()),
+                CONSTRAINT FK_ChiPhiPhatSinh_HopDong
+                    FOREIGN KEY (MaHopDong) REFERENCES dbo.HopDong(MaHopDong),
+                CONSTRAINT FK_ChiPhiPhatSinh_ChiTiet
+                    FOREIGN KEY (MaChiTiet) REFERENCES dbo.ChiTietHopDong(MaChiTiet),
+                CONSTRAINT FK_ChiPhiPhatSinh_NguoiNhap
+                    FOREIGN KEY (NguoiNhap) REFERENCES dbo.TaiKhoan(MaTaiKhoan),
+                CONSTRAINT FK_ChiPhiPhatSinh_ChiTietHoaDon
+                    FOREIGN KEY (MaChiTietHoaDon) REFERENCES dbo.ChiTietHoaDon(MaChiTiet),
+                CONSTRAINT CK_ChiPhiPhatSinh_SoTien CHECK (SoTien > 0),
+                CONSTRAINT CK_ChiPhiPhatSinh_TrangThai
+                    CHECK (TrangThai IN (N''Chưa lập hóa đơn'', N''Đã lập hóa đơn'', N''Đã hủy'')),
+                CONSTRAINT CK_ChiPhiPhatSinh_LienKet
+                    CHECK (
+                        (TrangThai = N''Đã lập hóa đơn'' AND MaChiTietHoaDon IS NOT NULL)
+                        OR (TrangThai <> N''Đã lập hóa đơn'' AND MaChiTietHoaDon IS NULL)
+                    )
+            );
+
+            CREATE UNIQUE INDEX UX_ChiPhiPhatSinh_ChiTietHoaDon
+                ON dbo.ChiPhiPhatSinh(MaChiTietHoaDon)
+                WHERE MaChiTietHoaDon IS NOT NULL;
+
+            CREATE INDEX IX_ChiPhiPhatSinh_HopDong_TrangThai
+                ON dbo.ChiPhiPhatSinh(MaHopDong, TrangThai, NgayPhatSinh)
+                INCLUDE (MaChiPhi, MaChiTiet, SoTien);';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER TRIGGER dbo.TRG_ChiPhiPhatSinh_BaoVe
+ON dbo.ChiPhiPhatSinh
+AFTER UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF EXISTS (
+        SELECT 1
+        FROM deleted d
+        LEFT JOIN inserted i ON i.MaChiPhi = d.MaChiPhi
+        WHERE d.TrangThai = N''Đã lập hóa đơn''
+          AND (i.MaChiPhi IS NULL
+               OR ISNULL(i.MaChiTietHoaDon, N'''') <> d.MaChiTietHoaDon
+               OR i.TrangThai <> N''Đã lập hóa đơn'')
+    )
+    BEGIN
+        SELECT d.MaChiPhi, d.MaHopDong, d.MaChiTiet, d.TrangThai, d.MaChiTietHoaDon
+        FROM deleted d
+        LEFT JOIN inserted i ON i.MaChiPhi = d.MaChiPhi
+        WHERE d.TrangThai = N''Đã lập hóa đơn''
+          AND (i.MaChiPhi IS NULL
+               OR ISNULL(i.MaChiTietHoaDon, N'''') <> d.MaChiTietHoaDon
+               OR i.TrangThai <> N''Đã lập hóa đơn'');
+        THROW 51702, N''Không được xóa, hủy hoặc tháo liên kết chi phí đã lập hóa đơn.'', 1;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM inserted i
+        INNER JOIN dbo.ChiTietHoaDon c ON c.MaChiTiet = i.MaChiTietHoaDon
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = c.MaHoaDon
+        WHERE i.TrangThai = N''Đã lập hóa đơn''
+          AND (hd.LoaiHoaDon NOT IN (N''DICH_VU_PHONG'', N''PHAT_SINH'')
+               OR hd.MaHopDong <> i.MaHopDong
+               OR c.MaKhoan <> N''INCIDENT''
+               OR c.SoTien <> i.SoTien)
+    )
+    BEGIN
+        SELECT i.MaChiPhi, i.MaHopDong, i.MaChiTietHoaDon, c.MaHoaDon,
+               hd.LoaiHoaDon, c.MaKhoan, c.SoTien AS TienDong, i.SoTien AS TienChiPhi
+        FROM inserted i
+        INNER JOIN dbo.ChiTietHoaDon c ON c.MaChiTiet = i.MaChiTietHoaDon
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = c.MaHoaDon
+        WHERE i.TrangThai = N''Đã lập hóa đơn''
+          AND (hd.LoaiHoaDon NOT IN (N''DICH_VU_PHONG'', N''PHAT_SINH'')
+               OR hd.MaHopDong <> i.MaHopDong
+               OR c.MaKhoan <> N''INCIDENT''
+               OR c.SoTien <> i.SoTien);
+        THROW 51703, N''Chi phí phát sinh chỉ được liên kết với đúng dòng INCIDENT trên hóa đơn dịch vụ/phát sinh cùng hợp đồng.'', 1;
+    END;
+END;
+';
+
+        INSERT INTO dbo.SchemaMigration (MaMigration, TenFile)
+        VALUES (N'017', N'017_incident_costs.sql');
+
+        COMMIT TRANSACTION;
+        PRINT N'[017] Hoàn tất: chi phí phát sinh được lưu và bảo vệ sau khi lập hóa đơn.';
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+GO
+-- END INLINE: db/migrations/017_incident_costs.sql
+GO
+PRINT N'=== Migration 018 ==='
+GO
+-- BEGIN INLINE: db/migrations/018_receipts_and_refunds.sql
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+SET XACT_ABORT ON;
+SET NOCOUNT ON;
+
+IF OBJECT_ID(N'dbo.SchemaMigration', N'U') IS NULL
+    THROW 51800, N'Chạy migration 001 trước.', 1;
+ELSE IF NOT EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'017')
+    THROW 51801, N'Chạy migration 017 trước.', 1;
+ELSE IF EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'018')
+    PRINT N'[018] Đã chạy trước đó — bỏ qua.';
+ELSE
+BEGIN
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        EXEC sys.sp_executesql N'
+            CREATE TABLE dbo.PhieuThu
+            (
+                MaPhieuThu bigint IDENTITY(1,1) NOT NULL
+                    CONSTRAINT PK_PhieuThu PRIMARY KEY,
+                MaHoaDon nvarchar(20) NOT NULL,
+                MaGiaoDich nvarchar(60) NULL,
+                SoTien decimal(18,2) NOT NULL,
+                NgayThu datetime NOT NULL
+                    CONSTRAINT DF_PhieuThu_NgayThu DEFAULT (GETDATE()),
+                PhuongThuc nvarchar(20) NOT NULL,
+                MaSinhVienNop nvarchar(30) NULL,
+                NguoiThu int NULL,
+                TrangThai nvarchar(20) NOT NULL
+                    CONSTRAINT DF_PhieuThu_TrangThai DEFAULT (N''Hợp lệ''),
+                MaThamChieu nvarchar(100) NULL,
+                GhiChu nvarchar(255) NULL,
+                NgayTao datetime NOT NULL
+                    CONSTRAINT DF_PhieuThu_NgayTao DEFAULT (GETDATE()),
+                CONSTRAINT FK_PhieuThu_HoaDon
+                    FOREIGN KEY (MaHoaDon) REFERENCES dbo.HoaDon(MaHoaDon),
+                CONSTRAINT FK_PhieuThu_GiaoDich
+                    FOREIGN KEY (MaGiaoDich) REFERENCES dbo.GiaoDichThanhToan(MaGiaoDich),
+                CONSTRAINT FK_PhieuThu_SinhVienNop
+                    FOREIGN KEY (MaSinhVienNop) REFERENCES dbo.SinhVien(MaSinhVien),
+                CONSTRAINT FK_PhieuThu_NguoiThu
+                    FOREIGN KEY (NguoiThu) REFERENCES dbo.TaiKhoan(MaTaiKhoan),
+                CONSTRAINT CK_PhieuThu_SoTien CHECK (SoTien > 0),
+                CONSTRAINT CK_PhieuThu_PhuongThuc
+                    CHECK (PhuongThuc IN (N''CASH'', N''ONLINE'', N''CHUYEN_DOI'')),
+                CONSTRAINT CK_PhieuThu_TrangThai
+                    CHECK (TrangThai IN (N''Hợp lệ'', N''Chờ xác nhận'', N''Đã hủy''))
+            );
+
+            CREATE UNIQUE INDEX UX_PhieuThu_GiaoDich_HoaDon
+                ON dbo.PhieuThu(MaGiaoDich, MaHoaDon)
+                WHERE MaGiaoDich IS NOT NULL;
+            CREATE INDEX IX_PhieuThu_HoaDon_TrangThai_NgayThu
+                ON dbo.PhieuThu(MaHoaDon, TrangThai, NgayThu)
+                INCLUDE (SoTien, MaGiaoDich);
+
+            CREATE TABLE dbo.PhieuChi
+            (
+                MaPhieuChi bigint IDENTITY(1,1) NOT NULL
+                    CONSTRAINT PK_PhieuChi PRIMARY KEY,
+                MaChiTiet int NOT NULL,
+                SoTienDaDong decimal(18,2) NOT NULL,
+                SoTienDaSuDung decimal(18,2) NOT NULL,
+                KhauTru decimal(18,2) NOT NULL
+                    CONSTRAINT DF_PhieuChi_KhauTru DEFAULT (0),
+                SoTien decimal(18,2) NOT NULL,
+                NgayRa date NOT NULL,
+                LyDo nvarchar(30) NOT NULL,
+                NgayChi datetime NOT NULL
+                    CONSTRAINT DF_PhieuChi_NgayChi DEFAULT (GETDATE()),
+                TrangThai nvarchar(20) NOT NULL
+                    CONSTRAINT DF_PhieuChi_TrangThai DEFAULT (N''Chờ duyệt''),
+                NguoiLap int NULL,
+                GhiChu nvarchar(255) NULL,
+                NgayTao datetime NOT NULL
+                    CONSTRAINT DF_PhieuChi_NgayTao DEFAULT (GETDATE()),
+                CONSTRAINT FK_PhieuChi_ChiTiet
+                    FOREIGN KEY (MaChiTiet) REFERENCES dbo.ChiTietHopDong(MaChiTiet),
+                CONSTRAINT FK_PhieuChi_NguoiLap
+                    FOREIGN KEY (NguoiLap) REFERENCES dbo.TaiKhoan(MaTaiKhoan),
+                CONSTRAINT CK_PhieuChi_SoTien
+                    CHECK (SoTien > 0 AND SoTienDaDong >= 0 AND SoTienDaSuDung >= 0 AND KhauTru >= 0),
+                CONSTRAINT CK_PhieuChi_LyDo
+                    CHECK (LyDo IN (N''Nghỉ học giữa chừng'', N''Chuyển đi'', N''Khác'')),
+                CONSTRAINT CK_PhieuChi_TrangThai
+                    CHECK (TrangThai IN (N''Hợp lệ'', N''Chờ duyệt'', N''Đã hủy''))
+            );
+
+            CREATE INDEX IX_PhieuChi_ChiTiet_TrangThai
+                ON dbo.PhieuChi(MaChiTiet, TrangThai, NgayChi)
+                INCLUDE (SoTien, SoTienDaDong, SoTienDaSuDung, KhauTru);
+
+            CREATE TABLE dbo.PhieuChi_HoaDon
+            (
+                MaPhieuChi bigint NOT NULL,
+                MaHoaDon nvarchar(20) NOT NULL,
+                SoTien decimal(18,2) NOT NULL,
+                CONSTRAINT PK_PhieuChi_HoaDon PRIMARY KEY (MaPhieuChi, MaHoaDon),
+                CONSTRAINT FK_PhieuChi_HoaDon_PhieuChi
+                    FOREIGN KEY (MaPhieuChi) REFERENCES dbo.PhieuChi(MaPhieuChi),
+                CONSTRAINT FK_PhieuChi_HoaDon_HoaDon
+                    FOREIGN KEY (MaHoaDon) REFERENCES dbo.HoaDon(MaHoaDon),
+                CONSTRAINT CK_PhieuChi_HoaDon_SoTien CHECK (SoTien > 0)
+            );
+            CREATE INDEX IX_PhieuChi_HoaDon_HoaDon
+                ON dbo.PhieuChi_HoaDon(MaHoaDon, MaPhieuChi)
+                INCLUDE (SoTien);';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER TRIGGER dbo.TRG_PhieuThu_GiuTong
+ON dbo.PhieuThu
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @HoaDon TABLE (MaHoaDon nvarchar(20) NOT NULL PRIMARY KEY);
+    INSERT INTO @HoaDon(MaHoaDon)
+    SELECT MaHoaDon FROM inserted
+    UNION
+    SELECT MaHoaDon FROM deleted;
+
+    DECLARE @MaHoaDon nvarchar(20);
+    DECLARE lock_invoice CURSOR LOCAL FAST_FORWARD FOR
+        SELECT MaHoaDon FROM @HoaDon ORDER BY MaHoaDon;
+    OPEN lock_invoice;
+    FETCH NEXT FROM lock_invoice INTO @MaHoaDon;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SELECT @MaHoaDon = hd.MaHoaDon
+        FROM dbo.HoaDon hd WITH (UPDLOCK, HOLDLOCK)
+        WHERE hd.MaHoaDon = @MaHoaDon;
+        FETCH NEXT FROM lock_invoice INTO @MaHoaDon;
+    END;
+    CLOSE lock_invoice;
+    DEALLOCATE lock_invoice;
+
+    IF EXISTS (
+        SELECT 1
+        FROM @HoaDon x
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = x.MaHoaDon
+        CROSS APPLY (
+            SELECT ISNULL(SUM(c.SoTien), 0) AS TongHoaDon
+            FROM dbo.ChiTietHoaDon c WHERE c.MaHoaDon = hd.MaHoaDon
+        ) t
+        CROSS APPLY (
+            SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+            FROM dbo.PhieuThu pt
+            WHERE pt.MaHoaDon = hd.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+        ) r
+        WHERE r.DaThu > t.TongHoaDon
+           OR (hd.TrangThaiThanhToan = N''Đã hủy'' AND r.DaThu > 0)
+    )
+    BEGIN
+        SELECT hd.MaHoaDon, hd.TrangThaiThanhToan, t.TongHoaDon, r.DaThu
+        FROM @HoaDon x
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = x.MaHoaDon
+        CROSS APPLY (
+            SELECT ISNULL(SUM(c.SoTien), 0) AS TongHoaDon
+            FROM dbo.ChiTietHoaDon c WHERE c.MaHoaDon = hd.MaHoaDon
+        ) t
+        CROSS APPLY (
+            SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+            FROM dbo.PhieuThu pt
+            WHERE pt.MaHoaDon = hd.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+        ) r
+        WHERE r.DaThu > t.TongHoaDon
+           OR (hd.TrangThaiThanhToan = N''Đã hủy'' AND r.DaThu > 0);
+        THROW 51802, N''Tổng phiếu thu hợp lệ vượt tổng hóa đơn hoặc hóa đơn đã hủy.'', 1;
+    END;
+
+    UPDATE hd
+    SET TrangThaiThanhToan = CASE
+            WHEN hd.TrangThaiThanhToan = N''Đã hủy'' THEN N''Đã hủy''
+            WHEN r.DaThu = 0 THEN N''Chưa thanh toán''
+            WHEN r.DaThu < t.TongHoaDon THEN N''Thanh toán một phần''
+            ELSE N''Đã thanh toán''
+        END,
+        NgayThanhToan = CASE
+            WHEN r.DaThu > 0 AND r.DaThu >= t.TongHoaDon THEN COALESCE(hd.NgayThanhToan, GETDATE())
+            ELSE NULL
+        END
+    FROM dbo.HoaDon hd
+    INNER JOIN @HoaDon x ON x.MaHoaDon = hd.MaHoaDon
+    CROSS APPLY (
+        SELECT ISNULL(SUM(c.SoTien), 0) AS TongHoaDon
+        FROM dbo.ChiTietHoaDon c WHERE c.MaHoaDon = hd.MaHoaDon
+    ) t
+    CROSS APPLY (
+        SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+        FROM dbo.PhieuThu pt
+        WHERE pt.MaHoaDon = hd.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+    ) r
+    WHERE hd.TrangThaiThanhToan <> N''Đã hủy''
+      AND (
+          hd.TrangThaiThanhToan <> CASE
+              WHEN r.DaThu = 0 THEN N''Chưa thanh toán''
+              WHEN r.DaThu < t.TongHoaDon THEN N''Thanh toán một phần''
+              ELSE N''Đã thanh toán'' END
+          OR (r.DaThu > 0 AND r.DaThu >= t.TongHoaDon AND hd.NgayThanhToan IS NULL)
+          OR (r.DaThu < t.TongHoaDon AND hd.NgayThanhToan IS NOT NULL)
+      );
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER TRIGGER dbo.TRG_HoaDon_BaoVePhieuThu
+ON dbo.HoaDon
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF EXISTS (
+        SELECT 1
+        FROM inserted i
+        INNER JOIN deleted d ON d.MaHoaDon = i.MaHoaDon
+        CROSS APPLY (
+            SELECT ISNULL(SUM(c.SoTien), 0) AS TongHoaDon
+            FROM dbo.ChiTietHoaDon c WHERE c.MaHoaDon = i.MaHoaDon
+        ) t
+        CROSS APPLY (
+            SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+            FROM dbo.PhieuThu pt
+            WHERE pt.MaHoaDon = i.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+        ) r
+        WHERE i.LoaiHoaDon <> N''CU''
+          AND i.TrangThaiThanhToan <> N''Đã hủy''
+          AND i.TrangThaiThanhToan <> CASE
+              WHEN r.DaThu = 0 THEN N''Chưa thanh toán''
+              WHEN r.DaThu < t.TongHoaDon THEN N''Thanh toán một phần''
+              ELSE N''Đã thanh toán'' END
+    )
+    BEGIN
+        SELECT i.MaHoaDon, i.TrangThaiThanhToan AS TrangThaiMoi,
+               t.TongHoaDon, r.DaThu
+        FROM inserted i
+        INNER JOIN deleted d ON d.MaHoaDon = i.MaHoaDon
+        CROSS APPLY (
+            SELECT ISNULL(SUM(c.SoTien), 0) AS TongHoaDon
+            FROM dbo.ChiTietHoaDon c WHERE c.MaHoaDon = i.MaHoaDon
+        ) t
+        CROSS APPLY (
+            SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+            FROM dbo.PhieuThu pt
+            WHERE pt.MaHoaDon = i.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+        ) r
+        WHERE i.LoaiHoaDon <> N''CU''
+          AND i.TrangThaiThanhToan <> N''Đã hủy''
+          AND i.TrangThaiThanhToan <> CASE
+              WHEN r.DaThu = 0 THEN N''Chưa thanh toán''
+              WHEN r.DaThu < t.TongHoaDon THEN N''Thanh toán một phần''
+              ELSE N''Đã thanh toán'' END;
+        THROW 51810, N''Trạng thái hóa đơn mới phải được suy ra từ phiếu thu hợp lệ.'', 1;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM inserted i
+        INNER JOIN deleted d ON d.MaHoaDon = i.MaHoaDon
+        INNER JOIN dbo.PhieuThu pt ON pt.MaHoaDon = i.MaHoaDon
+        WHERE i.TrangThaiThanhToan = N''Đã hủy''
+          AND d.TrangThaiThanhToan <> N''Đã hủy''
+          AND pt.TrangThai = N''Hợp lệ''
+    )
+    BEGIN
+        SELECT i.MaHoaDon, pt.MaPhieuThu, pt.SoTien, pt.TrangThai
+        FROM inserted i
+        INNER JOIN deleted d ON d.MaHoaDon = i.MaHoaDon
+        INNER JOIN dbo.PhieuThu pt ON pt.MaHoaDon = i.MaHoaDon
+        WHERE i.TrangThaiThanhToan = N''Đã hủy''
+          AND d.TrangThaiThanhToan <> N''Đã hủy''
+          AND pt.TrangThai = N''Hợp lệ'';
+        THROW 51803, N''Không thể hủy hóa đơn còn phiếu thu hợp lệ.'', 1;
+    END;
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER TRIGGER dbo.TRG_ChiTietHoaDon_GiuTongThu
+ON dbo.ChiTietHoaDon
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @HoaDon TABLE (MaHoaDon nvarchar(20) NOT NULL PRIMARY KEY);
+    INSERT INTO @HoaDon(MaHoaDon)
+    SELECT MaHoaDon FROM inserted
+    UNION
+    SELECT MaHoaDon FROM deleted;
+
+    DECLARE @MaHoaDon nvarchar(20);
+    DECLARE lock_invoice CURSOR LOCAL FAST_FORWARD FOR
+        SELECT MaHoaDon FROM @HoaDon ORDER BY MaHoaDon;
+    OPEN lock_invoice;
+    FETCH NEXT FROM lock_invoice INTO @MaHoaDon;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SELECT @MaHoaDon = hd.MaHoaDon
+        FROM dbo.HoaDon hd WITH (UPDLOCK, HOLDLOCK)
+        WHERE hd.MaHoaDon = @MaHoaDon;
+        FETCH NEXT FROM lock_invoice INTO @MaHoaDon;
+    END;
+    CLOSE lock_invoice;
+    DEALLOCATE lock_invoice;
+
+    IF EXISTS (
+        SELECT 1
+        FROM @HoaDon x
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = x.MaHoaDon
+        CROSS APPLY (
+            SELECT ISNULL(SUM(c.SoTien), 0) AS TongHoaDon
+            FROM dbo.ChiTietHoaDon c WHERE c.MaHoaDon = hd.MaHoaDon
+        ) t
+        CROSS APPLY (
+            SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+            FROM dbo.PhieuThu pt
+            WHERE pt.MaHoaDon = hd.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+        ) r
+        WHERE r.DaThu > t.TongHoaDon
+    )
+    BEGIN
+        SELECT hd.MaHoaDon, hd.LoaiHoaDon, t.TongHoaDon, r.DaThu
+        FROM @HoaDon x
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = x.MaHoaDon
+        CROSS APPLY (
+            SELECT ISNULL(SUM(c.SoTien), 0) AS TongHoaDon
+            FROM dbo.ChiTietHoaDon c WHERE c.MaHoaDon = hd.MaHoaDon
+        ) t
+        CROSS APPLY (
+            SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+            FROM dbo.PhieuThu pt
+            WHERE pt.MaHoaDon = hd.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+        ) r
+        WHERE r.DaThu > t.TongHoaDon;
+        THROW 51804, N''Không thể giảm/xóa chi tiết làm tổng hóa đơn thấp hơn số đã thu hợp lệ.'', 1;
+    END;
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER TRIGGER dbo.TRG_PhieuChi_HoaDon
+ON dbo.PhieuChi_HoaDon
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @HoaDon TABLE (MaHoaDon nvarchar(20) NOT NULL PRIMARY KEY);
+    INSERT INTO @HoaDon(MaHoaDon)
+    SELECT MaHoaDon FROM inserted
+    UNION
+    SELECT MaHoaDon FROM deleted;
+
+    DECLARE @MaHoaDon nvarchar(20);
+    DECLARE lock_invoice CURSOR LOCAL FAST_FORWARD FOR
+        SELECT MaHoaDon FROM @HoaDon ORDER BY MaHoaDon;
+    OPEN lock_invoice;
+    FETCH NEXT FROM lock_invoice INTO @MaHoaDon;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SELECT @MaHoaDon = hd.MaHoaDon
+        FROM dbo.HoaDon hd WITH (UPDLOCK, HOLDLOCK)
+        WHERE hd.MaHoaDon = @MaHoaDon;
+        FETCH NEXT FROM lock_invoice INTO @MaHoaDon;
+    END;
+    CLOSE lock_invoice;
+    DEALLOCATE lock_invoice;
+
+    IF EXISTS (
+        SELECT 1
+        FROM @HoaDon x
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = x.MaHoaDon
+        INNER JOIN dbo.PhieuChi_HoaDon ph ON ph.MaHoaDon = hd.MaHoaDon
+        INNER JOIN dbo.PhieuChi pc ON pc.MaPhieuChi = ph.MaPhieuChi
+        INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = pc.MaChiTiet
+        WHERE pc.TrangThai = N''Hợp lệ''
+          AND (hd.LoaiHoaDon <> N''TIEN_PHONG'' OR hd.MaChiTiet <> pc.MaChiTiet)
+    )
+    BEGIN
+        SELECT hd.MaHoaDon, hd.LoaiHoaDon, hd.MaChiTiet AS ChiTietHoaDon,
+               pc.MaPhieuChi, pc.MaChiTiet AS ChiTietHoan, ph.SoTien
+        FROM @HoaDon x
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = x.MaHoaDon
+        INNER JOIN dbo.PhieuChi_HoaDon ph ON ph.MaHoaDon = hd.MaHoaDon
+        INNER JOIN dbo.PhieuChi pc ON pc.MaPhieuChi = ph.MaPhieuChi
+        WHERE pc.TrangThai = N''Hợp lệ''
+          AND (hd.LoaiHoaDon <> N''TIEN_PHONG'' OR hd.MaChiTiet <> pc.MaChiTiet);
+        THROW 51805, N''Phiếu chi chỉ được phân bổ vào hóa đơn tiền phòng của đúng thành viên.'', 1;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM (
+            SELECT pc.MaPhieuChi, pc.SoTien,
+                   ISNULL(SUM(ph.SoTien), 0) AS DaPhanBo
+            FROM dbo.PhieuChi pc
+            INNER JOIN (
+                SELECT MaPhieuChi FROM inserted
+                UNION
+                SELECT MaPhieuChi FROM deleted
+            ) x ON x.MaPhieuChi = pc.MaPhieuChi
+            LEFT JOIN dbo.PhieuChi_HoaDon ph ON ph.MaPhieuChi = pc.MaPhieuChi
+            WHERE pc.TrangThai = N''Hợp lệ''
+            GROUP BY pc.MaPhieuChi, pc.SoTien
+        ) x
+        WHERE x.DaPhanBo <> x.SoTien
+    )
+    BEGIN
+        SELECT pc.MaPhieuChi, pc.SoTien, ISNULL(SUM(ph.SoTien), 0) AS DaPhanBo
+        FROM dbo.PhieuChi pc
+        INNER JOIN (
+            SELECT MaPhieuChi FROM inserted
+            UNION
+            SELECT MaPhieuChi FROM deleted
+        ) x ON x.MaPhieuChi = pc.MaPhieuChi
+        LEFT JOIN dbo.PhieuChi_HoaDon ph ON ph.MaPhieuChi = pc.MaPhieuChi
+        WHERE pc.TrangThai = N''Hợp lệ''
+        GROUP BY pc.MaPhieuChi, pc.SoTien
+        HAVING ISNULL(SUM(ph.SoTien), 0) <> pc.SoTien;
+        THROW 51806, N''Tổng phân bổ hóa đơn phải bằng tổng phiếu chi hợp lệ.'', 1;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM @HoaDon x
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = x.MaHoaDon
+        CROSS APPLY (
+            SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+            FROM dbo.PhieuThu pt
+            WHERE pt.MaHoaDon = hd.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+        ) r
+        CROSS APPLY (
+            SELECT ISNULL(SUM(ph.SoTien), 0) AS DaChi
+            FROM dbo.PhieuChi_HoaDon ph
+            INNER JOIN dbo.PhieuChi pc ON pc.MaPhieuChi = ph.MaPhieuChi
+            WHERE ph.MaHoaDon = hd.MaHoaDon AND pc.TrangThai = N''Hợp lệ''
+        ) c
+        WHERE c.DaChi > r.DaThu
+    )
+    BEGIN
+        SELECT hd.MaHoaDon, r.DaThu, c.DaChi
+        FROM @HoaDon x
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = x.MaHoaDon
+        CROSS APPLY (
+            SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+            FROM dbo.PhieuThu pt
+            WHERE pt.MaHoaDon = hd.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+        ) r
+        CROSS APPLY (
+            SELECT ISNULL(SUM(ph.SoTien), 0) AS DaChi
+            FROM dbo.PhieuChi_HoaDon ph
+            INNER JOIN dbo.PhieuChi pc ON pc.MaPhieuChi = ph.MaPhieuChi
+            WHERE ph.MaHoaDon = hd.MaHoaDon AND pc.TrangThai = N''Hợp lệ''
+        ) c
+        WHERE c.DaChi > r.DaThu;
+        THROW 51807, N''Tổng phiếu chi hợp lệ vượt tổng phiếu thu hợp lệ của hóa đơn.'', 1;
+    END;
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER TRIGGER dbo.TRG_PhieuChi_BaoVe
+ON dbo.PhieuChi
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @HoaDon table (MaHoaDon nvarchar(20) NOT NULL PRIMARY KEY);
+    INSERT INTO @HoaDon(MaHoaDon)
+    SELECT ph.MaHoaDon
+    FROM dbo.PhieuChi_HoaDon ph
+    INNER JOIN (
+        SELECT MaPhieuChi FROM inserted
+        UNION
+        SELECT MaPhieuChi FROM deleted
+    ) x ON x.MaPhieuChi = ph.MaPhieuChi;
+
+    DECLARE @MaHoaDon nvarchar(20);
+    DECLARE lock_invoice CURSOR LOCAL FAST_FORWARD FOR
+        SELECT MaHoaDon FROM @HoaDon ORDER BY MaHoaDon;
+    OPEN lock_invoice;
+    FETCH NEXT FROM lock_invoice INTO @MaHoaDon;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SELECT @MaHoaDon = hd.MaHoaDon
+        FROM dbo.HoaDon hd WITH (UPDLOCK, HOLDLOCK)
+        WHERE hd.MaHoaDon = @MaHoaDon;
+        FETCH NEXT FROM lock_invoice INTO @MaHoaDon;
+    END;
+    CLOSE lock_invoice;
+    DEALLOCATE lock_invoice;
+
+    IF EXISTS (
+        SELECT 1
+        FROM inserted i
+        OUTER APPLY (
+            SELECT ISNULL(SUM(ph.SoTien), 0) AS DaPhanBo
+            FROM dbo.PhieuChi_HoaDon ph WHERE ph.MaPhieuChi = i.MaPhieuChi
+        ) a
+        WHERE i.TrangThai = N''Hợp lệ'' AND a.DaPhanBo <> i.SoTien
+    )
+    BEGIN
+        SELECT i.MaPhieuChi, i.SoTien, a.DaPhanBo
+        FROM inserted i
+        OUTER APPLY (
+            SELECT ISNULL(SUM(ph.SoTien), 0) AS DaPhanBo
+            FROM dbo.PhieuChi_HoaDon ph WHERE ph.MaPhieuChi = i.MaPhieuChi
+        ) a
+        WHERE i.TrangThai = N''Hợp lệ'' AND a.DaPhanBo <> i.SoTien;
+        THROW 51808, N''Phiếu chi hợp lệ phải có phân bổ bằng đúng tổng số tiền.'', 1;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM inserted i
+        INNER JOIN dbo.PhieuChi_HoaDon ph ON ph.MaPhieuChi = i.MaPhieuChi
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = ph.MaHoaDon
+        WHERE i.TrangThai = N''Hợp lệ''
+          AND (hd.LoaiHoaDon <> N''TIEN_PHONG'' OR hd.MaChiTiet <> i.MaChiTiet)
+    )
+    BEGIN
+        SELECT i.MaPhieuChi, i.MaChiTiet, hd.MaHoaDon, hd.LoaiHoaDon, hd.MaChiTiet AS MaChiTietHoaDon
+        FROM inserted i
+        INNER JOIN dbo.PhieuChi_HoaDon ph ON ph.MaPhieuChi = i.MaPhieuChi
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = ph.MaHoaDon
+        WHERE i.TrangThai = N''Hợp lệ''
+          AND (hd.LoaiHoaDon <> N''TIEN_PHONG'' OR hd.MaChiTiet <> i.MaChiTiet);
+        THROW 51809, N''Phiếu chi hợp lệ chỉ được dùng cho hóa đơn tiền phòng cùng thành viên.'', 1;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM @HoaDon x
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = x.MaHoaDon
+        CROSS APPLY (
+            SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+            FROM dbo.PhieuThu pt
+            WHERE pt.MaHoaDon = hd.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+        ) r
+        CROSS APPLY (
+            SELECT ISNULL(SUM(ph.SoTien), 0) AS DaChi
+            FROM dbo.PhieuChi_HoaDon ph
+            INNER JOIN dbo.PhieuChi pc ON pc.MaPhieuChi = ph.MaPhieuChi
+            WHERE ph.MaHoaDon = hd.MaHoaDon AND pc.TrangThai = N''Hợp lệ''
+        ) c
+        WHERE c.DaChi > r.DaThu
+    )
+    BEGIN
+        SELECT hd.MaHoaDon, r.DaThu, c.DaChi
+        FROM @HoaDon x
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = x.MaHoaDon
+        CROSS APPLY (
+            SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+            FROM dbo.PhieuThu pt
+            WHERE pt.MaHoaDon = hd.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+        ) r
+        CROSS APPLY (
+            SELECT ISNULL(SUM(ph.SoTien), 0) AS DaChi
+            FROM dbo.PhieuChi_HoaDon ph
+            INNER JOIN dbo.PhieuChi pc ON pc.MaPhieuChi = ph.MaPhieuChi
+            WHERE ph.MaHoaDon = hd.MaHoaDon AND pc.TrangThai = N''Hợp lệ''
+        ) c
+        WHERE c.DaChi > r.DaThu;
+        THROW 51811, N''Tổng phiếu chi hợp lệ vượt tổng phiếu thu hợp lệ của hóa đơn.'', 1;
+    END;
+END;
+';
+
+        INSERT INTO dbo.SchemaMigration (MaMigration, TenFile)
+        VALUES (N'018', N'018_receipts_and_refunds.sql');
+
+        COMMIT TRANSACTION;
+        PRINT N'[018] Hoàn tất: phiếu thu, phiếu chi và phân bổ đã sẵn sàng.';
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+GO
+-- END INLINE: db/migrations/018_receipts_and_refunds.sql
+GO
+PRINT N'=== Migration 019 ==='
+GO
+-- BEGIN INLINE: db/migrations/019_payment_workflows.sql
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+SET XACT_ABORT ON;
+SET NOCOUNT ON;
+
+IF OBJECT_ID(N'dbo.SchemaMigration', N'U') IS NULL
+    THROW 51900, N'Chạy migration 001 trước.', 1;
+ELSE IF NOT EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'018')
+    THROW 51901, N'Chạy migration 018 trước.', 1;
+ELSE IF EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'019')
+    PRINT N'[019] Đã chạy trước đó — bỏ qua.';
+ELSE
+BEGIN
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        IF OBJECT_ID(N'dbo.ChiTietGiaoDich', N'U') IS NOT NULL
+        BEGIN
+            EXEC sys.sp_executesql N'
+                IF EXISTS (
+                    SELECT 1
+                    FROM dbo.GiaoDichThanhToan gd
+                    LEFT JOIN (
+                        SELECT MaGiaoDich, SUM(SoTien) AS DaPhanBo
+                        FROM dbo.ChiTietGiaoDich
+                        GROUP BY MaGiaoDich
+                    ) a ON a.MaGiaoDich = gd.MaGiaoDich
+                    WHERE gd.TrangThai = N''SUCCESS''
+                      AND ISNULL(a.DaPhanBo, 0) <> gd.TongTien
+                )
+                BEGIN
+                    SELECT gd.MaGiaoDich, gd.TongTien, ISNULL(a.DaPhanBo, 0) AS DaPhanBo,
+                           gd.TrangThai
+                    FROM dbo.GiaoDichThanhToan gd
+                    LEFT JOIN (
+                        SELECT MaGiaoDich, SUM(SoTien) AS DaPhanBo
+                        FROM dbo.ChiTietGiaoDich
+                        GROUP BY MaGiaoDich
+                    ) a ON a.MaGiaoDich = gd.MaGiaoDich
+                    WHERE gd.TrangThai = N''SUCCESS''
+                      AND ISNULL(a.DaPhanBo, 0) <> gd.TongTien;
+                    THROW 51902, N''Tổng phân bổ ChiTietGiaoDich không khớp giao dịch SUCCESS.'', 1;
+                END;
+
+                IF EXISTS (
+                    SELECT 1
+                    FROM dbo.ChiTietGiaoDich cgd
+                    INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = cgd.MaGiaoDich
+                    INNER JOIN dbo.ChiTietHoaDon chi ON chi.MaChiTiet = cgd.MaChiTiet
+                    WHERE gd.TrangThai = N''SUCCESS''
+                    GROUP BY chi.MaChiTiet, chi.SoTien
+                    HAVING SUM(cgd.SoTien) > chi.SoTien
+                )
+                BEGIN
+                    SELECT chi.MaChiTiet, chi.MaHoaDon, chi.SoTien AS TienDong,
+                           SUM(cgd.SoTien) AS DaThuThanhCong
+                    FROM dbo.ChiTietGiaoDich cgd
+                    INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = cgd.MaGiaoDich
+                    INNER JOIN dbo.ChiTietHoaDon chi ON chi.MaChiTiet = cgd.MaChiTiet
+                    WHERE gd.TrangThai = N''SUCCESS''
+                    GROUP BY chi.MaChiTiet, chi.MaHoaDon, chi.SoTien
+                    HAVING SUM(cgd.SoTien) > chi.SoTien;
+                    THROW 51903, N''Phân bổ SUCCESS vượt số tiền của chi tiết hóa đơn.'', 1;
+                END;
+
+                IF EXISTS (
+                    SELECT 1
+                    FROM dbo.ChiTietGiaoDich cgd
+                    INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = cgd.MaGiaoDich
+                    INNER JOIN dbo.ChiTietHoaDon chi ON chi.MaChiTiet = cgd.MaChiTiet
+                    WHERE gd.TrangThai = N''SUCCESS''
+                    GROUP BY chi.MaHoaDon
+                    HAVING SUM(cgd.SoTien) > (
+                        SELECT SUM(all_lines.SoTien)
+                        FROM dbo.ChiTietHoaDon all_lines
+                        WHERE all_lines.MaHoaDon = chi.MaHoaDon
+                    )
+                )
+                BEGIN
+                    SELECT chi.MaHoaDon, SUM(cgd.SoTien) AS DaThuThanhCong,
+                           (SELECT SUM(all_lines.SoTien)
+                            FROM dbo.ChiTietHoaDon all_lines
+                            WHERE all_lines.MaHoaDon = chi.MaHoaDon) AS TongHoaDon
+                    FROM dbo.ChiTietGiaoDich cgd
+                    INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = cgd.MaGiaoDich
+                    INNER JOIN dbo.ChiTietHoaDon chi ON chi.MaChiTiet = cgd.MaChiTiet
+                    WHERE gd.TrangThai = N''SUCCESS''
+                    GROUP BY chi.MaHoaDon
+                    HAVING SUM(cgd.SoTien) > (
+                        SELECT SUM(all_lines.SoTien)
+                        FROM dbo.ChiTietHoaDon all_lines
+                        WHERE all_lines.MaHoaDon = chi.MaHoaDon
+                    );
+                    THROW 51904, N''Tổng SUCCESS phân bổ vượt tổng hóa đơn.'', 1;
+                END;';
+
+            EXEC sys.sp_executesql N'
+                INSERT INTO dbo.PhieuThu
+                    (MaHoaDon, MaGiaoDich, SoTien, NgayThu, PhuongThuc,
+                     MaSinhVienNop, NguoiThu, TrangThai, MaThamChieu, GhiChu)
+                SELECT chi.MaHoaDon, gd.MaGiaoDich, SUM(cgd.SoTien),
+                       COALESCE(gd.NgayThanhToan, gd.NgayTao),
+                       CASE WHEN gd.PhuongThuc = N''CASH'' THEN N''CASH'' ELSE N''ONLINE'' END,
+                       CONVERT(nvarchar(30), gd.MaSinhVien), gd.XacNhanBoi,
+                       N''Hợp lệ'', gd.MaThamChieuNgoai,
+                       N''Chuyển đổi từ giao dịch SUCCESS cũ''
+                FROM dbo.ChiTietGiaoDich cgd
+                INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = cgd.MaGiaoDich
+                INNER JOIN dbo.ChiTietHoaDon chi ON chi.MaChiTiet = cgd.MaChiTiet
+                WHERE gd.TrangThai = N''SUCCESS''
+                GROUP BY chi.MaHoaDon, gd.MaGiaoDich, gd.NgayThanhToan, gd.NgayTao,
+                         gd.PhuongThuc, gd.MaSinhVien, gd.XacNhanBoi, gd.MaThamChieuNgoai;';
+
+            EXEC sys.sp_executesql N'
+                IF EXISTS (
+                    SELECT gd.MaGiaoDich, chi.MaHoaDon
+                    FROM dbo.ChiTietGiaoDich cgd
+                    INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = cgd.MaGiaoDich
+                    INNER JOIN dbo.ChiTietHoaDon chi ON chi.MaChiTiet = cgd.MaChiTiet
+                    WHERE gd.TrangThai = N''SUCCESS''
+                    GROUP BY gd.MaGiaoDich, chi.MaHoaDon
+                    HAVING SUM(cgd.SoTien) <> (
+                        SELECT SUM(pt.SoTien)
+                        FROM dbo.PhieuThu pt
+                        WHERE pt.MaGiaoDich = gd.MaGiaoDich
+                          AND pt.MaHoaDon = chi.MaHoaDon
+                          AND pt.TrangThai = N''Hợp lệ''
+                    )
+                )
+                BEGIN
+                    SELECT gd.MaGiaoDich, chi.MaHoaDon,
+                           SUM(cgd.SoTien) AS TongNguon,
+                           (SELECT SUM(pt.SoTien)
+                            FROM dbo.PhieuThu pt
+                            WHERE pt.MaGiaoDich = gd.MaGiaoDich
+                              AND pt.MaHoaDon = chi.MaHoaDon
+                              AND pt.TrangThai = N''Hợp lệ'') AS TongPhieuThu
+                    FROM dbo.ChiTietGiaoDich cgd
+                    INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = cgd.MaGiaoDich
+                    INNER JOIN dbo.ChiTietHoaDon chi ON chi.MaChiTiet = cgd.MaChiTiet
+                    WHERE gd.TrangThai = N''SUCCESS''
+                    GROUP BY gd.MaGiaoDich, chi.MaHoaDon
+                    HAVING SUM(cgd.SoTien) <> (
+                        SELECT SUM(pt.SoTien)
+                        FROM dbo.PhieuThu pt
+                        WHERE pt.MaGiaoDich = gd.MaGiaoDich
+                          AND pt.MaHoaDon = chi.MaHoaDon
+                          AND pt.TrangThai = N''Hợp lệ''
+                    );
+                    THROW 51907, N''Đối chiếu ChiTietGiaoDich và PhieuThu không khớp; không được bỏ bảng nguồn.'', 1;
+                END;';
+
+            EXEC sys.sp_executesql N'
+                INSERT INTO dbo.PhieuThu
+                    (MaHoaDon, SoTien, NgayThu, PhuongThuc, MaSinhVienNop,
+                     TrangThai, GhiChu)
+                SELECT chi.MaHoaDon, SUM(chi.SoTien - ISNULL(success_paid.DaThu, 0)),
+                       COALESCE(MAX(chi.NgayThanhToan), MAX(hd.NgayLap), GETDATE()),
+                       N''CHUYEN_DOI'', CONVERT(nvarchar(30), MAX(hd.MaSinhVien)),
+                       N''Hợp lệ'', N''Chuyển đổi từ dữ liệu cũ''
+                FROM dbo.ChiTietHoaDon chi
+                INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = chi.MaHoaDon
+                LEFT JOIN (
+                    SELECT cgd.MaChiTiet, SUM(cgd.SoTien) AS DaThu
+                    FROM dbo.ChiTietGiaoDich cgd
+                    INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = cgd.MaGiaoDich
+                    WHERE gd.TrangThai = N''SUCCESS''
+                    GROUP BY cgd.MaChiTiet
+                ) success_paid ON success_paid.MaChiTiet = chi.MaChiTiet
+                WHERE chi.TrangThai = N''Đã thanh toán''
+                  AND chi.SoTien > ISNULL(success_paid.DaThu, 0)
+                GROUP BY chi.MaHoaDon;';
+
+            EXEC sys.sp_executesql N'
+                IF EXISTS (
+                    SELECT 1
+                    FROM dbo.ChiTietHoaDon chi
+                    CROSS APPLY (
+                        SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+                        FROM dbo.PhieuThu pt
+                        WHERE pt.MaHoaDon = chi.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+                    ) r
+                    CROSS APPLY (
+                        SELECT ISNULL(SUM(all_lines.SoTien), 0) AS TongHoaDon
+                        FROM dbo.ChiTietHoaDon all_lines
+                        WHERE all_lines.MaHoaDon = chi.MaHoaDon
+                    ) t
+                    WHERE chi.TrangThai = N''Đã thanh toán''
+                    GROUP BY chi.MaHoaDon, r.DaThu, t.TongHoaDon
+                    HAVING r.DaThu > t.TongHoaDon
+                )
+                BEGIN
+                    SELECT chi.MaHoaDon,
+                           SUM(CASE WHEN chi.TrangThai = N''Đã thanh toán'' THEN chi.SoTien ELSE 0 END)
+                               AS TongChiTietDaThanhToan,
+                           MAX(r.DaThu) AS TongPhieuThu,
+                           MAX(t.TongHoaDon) AS TongHoaDon
+                    FROM dbo.ChiTietHoaDon chi
+                    CROSS APPLY (
+                        SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+                        FROM dbo.PhieuThu pt
+                        WHERE pt.MaHoaDon = chi.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+                    ) r
+                    CROSS APPLY (
+                        SELECT ISNULL(SUM(all_lines.SoTien), 0) AS TongHoaDon
+                        FROM dbo.ChiTietHoaDon all_lines
+                        WHERE all_lines.MaHoaDon = chi.MaHoaDon
+                    ) t
+                    WHERE chi.TrangThai = N''Đã thanh toán''
+                    GROUP BY chi.MaHoaDon
+                    HAVING MAX(r.DaThu) > MAX(t.TongHoaDon);
+                    THROW 51905, N''Số phiếu thu chuyển đổi vượt tổng hóa đơn.'', 1;
+                END;';
+        END;
+
+        IF OBJECT_ID(N'dbo.TRG_ChiTietGiaoDich_MotSuccess', N'TR') IS NOT NULL
+            EXEC sys.sp_executesql N'DROP TRIGGER dbo.TRG_ChiTietGiaoDich_MotSuccess;';
+        IF OBJECT_ID(N'dbo.TRG_GiaoDich_MotSuccess', N'TR') IS NOT NULL
+            EXEC sys.sp_executesql N'DROP TRIGGER dbo.TRG_GiaoDich_MotSuccess;';
+        IF OBJECT_ID(N'dbo.ChiTietGiaoDich', N'U') IS NOT NULL
+            EXEC sys.sp_executesql N'DROP TABLE dbo.ChiTietGiaoDich;';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER TRIGGER dbo.TRG_HoaDon_DongBoChiTiet
+ON dbo.HoaDon
+AFTER INSERT, UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL(OBJECT_ID(N''dbo.TRG_HoaDon_DongBoChiTiet'')) > 1 RETURN;
+
+    DECLARE @HasAmount bit = CASE
+        WHEN UPDATE(TienPhong) OR UPDATE(TienDien) OR UPDATE(TienNuoc) THEN 1 ELSE 0 END;
+    DECLARE @HasStatus bit = CASE WHEN UPDATE(TrangThaiThanhToan) THEN 1 ELSE 0 END;
+
+    IF @HasAmount = 1
+    BEGIN
+        MERGE dbo.ChiTietHoaDon AS target
+        USING (
+            SELECT i.MaHoaDon, x.MaKhoan, x.TenKhoan, x.SoTien, x.ThuTu
+            FROM inserted i
+            CROSS APPLY (VALUES
+                (N''ROOM'', N''Tiền phòng'', ISNULL(i.TienPhong, 0), 1),
+                (N''ELECTRICITY'', N''Tiền điện'', ISNULL(i.TienDien, 0), 2),
+                (N''WATER'', N''Tiền nước'', ISNULL(i.TienNuoc, 0), 3)
+            ) x(MaKhoan, TenKhoan, SoTien, ThuTu)
+            WHERE i.LoaiHoaDon = N''CU'' AND x.SoTien > 0
+        ) AS source
+        ON target.MaHoaDon = source.MaHoaDon
+           AND target.MaKhoan = source.MaKhoan AND target.TenKhoan = source.TenKhoan
+        WHEN MATCHED AND target.TrangThai = N''Chưa thanh toán''
+                        AND target.SoTien <> source.SoTien
+            THEN UPDATE SET SoTien = source.SoTien, DonGia = source.SoTien, ThuTu = source.ThuTu
+        WHEN NOT MATCHED BY TARGET THEN
+            INSERT (MaChiTiet, MaHoaDon, MaKhoan, TenKhoan, SoTien, DonGia, TrangThai, ThuTu)
+            VALUES (LEFT(source.MaHoaDon, 32) + N''-'' + RIGHT(CONVERT(nvarchar(36), NEWID()), 7),
+                    source.MaHoaDon, source.MaKhoan, source.TenKhoan, source.SoTien,
+                    source.SoTien, N''Chưa thanh toán'', source.ThuTu);
+    END;
+
+    IF @HasStatus = 1
+        UPDATE c
+        SET TrangThai = N''Đã thanh toán'',
+            NgayThanhToan = ISNULL(c.NgayThanhToan, GETDATE())
+        FROM dbo.ChiTietHoaDon c
+        INNER JOIN inserted i ON i.MaHoaDon = c.MaHoaDon
+        INNER JOIN deleted d ON d.MaHoaDon = i.MaHoaDon
+        WHERE i.LoaiHoaDon = N''CU''
+          AND i.TrangThaiThanhToan = N''Đã thanh toán''
+          AND d.TrangThaiThanhToan <> N''Đã thanh toán''
+          AND c.TrangThai <> N''Đã thanh toán'';
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER TRIGGER dbo.TRG_ChiTietHoaDon_DongBoHoaDon
+ON dbo.ChiTietHoaDon
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL(OBJECT_ID(N''dbo.TRG_ChiTietHoaDon_DongBoHoaDon'')) > 1 RETURN;
+
+    DECLARE @HoaDon table (MaHoaDon nvarchar(20) NOT NULL PRIMARY KEY);
+    INSERT INTO @HoaDon(MaHoaDon)
+    SELECT MaHoaDon FROM inserted
+    UNION
+    SELECT MaHoaDon FROM deleted;
+
+    UPDATE hd
+    SET TrangThaiThanhToan = CASE
+            WHEN EXISTS (SELECT 1 FROM dbo.ChiTietHoaDon c WHERE c.MaHoaDon = hd.MaHoaDon)
+             AND NOT EXISTS (
+                 SELECT 1 FROM dbo.ChiTietHoaDon c
+                 WHERE c.MaHoaDon = hd.MaHoaDon AND c.TrangThai <> N''Đã thanh toán''
+             ) THEN N''Đã thanh toán''
+            ELSE N''Chưa thanh toán''
+        END,
+        NgayThanhToan = CASE
+            WHEN EXISTS (SELECT 1 FROM dbo.ChiTietHoaDon c WHERE c.MaHoaDon = hd.MaHoaDon)
+             AND NOT EXISTS (
+                 SELECT 1 FROM dbo.ChiTietHoaDon c
+                 WHERE c.MaHoaDon = hd.MaHoaDon AND c.TrangThai <> N''Đã thanh toán''
+             ) THEN ISNULL(hd.NgayThanhToan, GETDATE())
+            ELSE NULL
+        END
+    FROM dbo.HoaDon hd
+    INNER JOIN @HoaDon x ON x.MaHoaDon = hd.MaHoaDon
+    WHERE hd.LoaiHoaDon = N''CU''
+      AND (
+          hd.TrangThaiThanhToan <> CASE
+              WHEN EXISTS (SELECT 1 FROM dbo.ChiTietHoaDon c WHERE c.MaHoaDon = hd.MaHoaDon)
+               AND NOT EXISTS (
+                   SELECT 1 FROM dbo.ChiTietHoaDon c
+                   WHERE c.MaHoaDon = hd.MaHoaDon AND c.TrangThai <> N''Đã thanh toán''
+               ) THEN N''Đã thanh toán'' ELSE N''Chưa thanh toán'' END
+          OR (hd.TrangThaiThanhToan = N''Đã thanh toán'' AND hd.NgayThanhToan IS NULL)
+      );
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER TRIGGER dbo.TRG_ChiTietHoaDon_BaoVe
+ON dbo.ChiTietHoaDon
+AFTER UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF EXISTS (
+        SELECT 1
+        FROM deleted d
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = d.MaHoaDon
+        LEFT JOIN inserted i ON i.MaChiTiet = d.MaChiTiet
+        WHERE hd.LoaiHoaDon = N''CU''
+          AND d.TrangThai = N''Đã thanh toán''
+          AND (i.MaChiTiet IS NULL OR i.SoTien <> d.SoTien)
+    )
+    BEGIN
+        SELECT d.MaChiTiet, d.MaHoaDon, d.SoTien, d.TrangThai
+        FROM deleted d
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = d.MaHoaDon
+        LEFT JOIN inserted i ON i.MaChiTiet = d.MaChiTiet
+        WHERE hd.LoaiHoaDon = N''CU''
+          AND d.TrangThai = N''Đã thanh toán''
+          AND (i.MaChiTiet IS NULL OR i.SoTien <> d.SoTien);
+        THROW 51906, N''Không được xóa hoặc đổi số tiền của hạng mục CU đã thanh toán.'', 1;
+    END;
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER TRIGGER dbo.TRG_GiaoDich_DongBoPhieuThu
+ON dbo.GiaoDichThanhToan
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    UPDATE pt
+    SET TrangThai = N''Đã hủy''
+    FROM dbo.PhieuThu pt
+    INNER JOIN inserted i ON i.MaGiaoDich = pt.MaGiaoDich
+    INNER JOIN deleted d ON d.MaGiaoDich = i.MaGiaoDich
+    WHERE i.TrangThai IN (N''REJECTED'', N''EXPIRED'')
+      AND d.TrangThai <> i.TrangThai
+      AND pt.TrangThai <> N''Đã hủy'';
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER PROCEDURE dbo.sp_B3_TaoMaHoaDon
+    @Ngay date,
+    @MaHoaDon nvarchar(20) OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @Ky char(6) = CONVERT(char(6), @Ngay, 112), @SoCuoi int;
+    SELECT @SoCuoi = SoCuoi
+    FROM dbo.MaHoaDonCounter WITH (UPDLOCK, HOLDLOCK)
+    WHERE Ky = @Ky;
+    IF @SoCuoi IS NULL
+    BEGIN
+        SET @SoCuoi = 1;
+        INSERT INTO dbo.MaHoaDonCounter(Ky, SoCuoi) VALUES (@Ky, @SoCuoi);
+    END
+    ELSE
+    BEGIN
+        IF @SoCuoi >= 9999
+        BEGIN
+            SELECT @Ky AS Ky, @SoCuoi AS SoCuoi;
+            THROW 51910, N''Đã hết dải mã hóa đơn trong tháng.'', 1;
+        END;
+        SET @SoCuoi += 1;
+        UPDATE dbo.MaHoaDonCounter SET SoCuoi = @SoCuoi WHERE Ky = @Ky;
+    END;
+    SET @MaHoaDon = N''INV'' + @Ky + RIGHT(N''0000'' + CONVERT(nvarchar(4), @SoCuoi), 4);
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER PROCEDURE dbo.sp_GhiPhieuThu
+    @MaHoaDon nvarchar(20),
+    @SoTien decimal(18,2),
+    @PhuongThuc nvarchar(20),
+    @MaSinhVienNop nvarchar(30) = NULL,
+    @NguoiThu int = NULL,
+    @TrangThai nvarchar(20) = N''Hợp lệ'',
+    @MaGiaoDich nvarchar(60) = NULL,
+    @MaThamChieu nvarchar(100) = NULL,
+    @GhiChu nvarchar(255) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        DECLARE @TongHoaDon decimal(18,2), @DaThu decimal(18,2), @HoaDonStatus nvarchar(30);
+        SELECT @HoaDonStatus = hd.TrangThaiThanhToan
+        FROM dbo.HoaDon hd WITH (UPDLOCK, HOLDLOCK)
+        WHERE hd.MaHoaDon = @MaHoaDon;
+        IF @HoaDonStatus IS NULL
+        BEGIN
+            SELECT @MaHoaDon AS MaHoaDon;
+            THROW 51911, N''Không tìm thấy hóa đơn.'', 1;
+        END;
+        IF @SoTien <= 0
+        BEGIN
+            SELECT @MaHoaDon AS MaHoaDon, @SoTien AS SoTien;
+            THROW 51912, N''Số tiền phiếu thu phải lớn hơn 0.'', 1;
+        END;
+        IF @PhuongThuc NOT IN (N''CASH'', N''ONLINE'', N''CHUYEN_DOI'')
+        BEGIN
+            SELECT @MaHoaDon AS MaHoaDon, @PhuongThuc AS PhuongThuc;
+            THROW 51913, N''Phương thức thu không hợp lệ.'', 1;
+        END;
+        IF @TrangThai NOT IN (N''Hợp lệ'', N''Chờ xác nhận'', N''Đã hủy'')
+        BEGIN
+            SELECT @MaHoaDon AS MaHoaDon, @TrangThai AS TrangThai;
+            THROW 51914, N''Trạng thái phiếu thu không hợp lệ.'', 1;
+        END;
+        IF @HoaDonStatus = N''Đã hủy'' AND @TrangThai = N''Hợp lệ''
+        BEGIN
+            SELECT @MaHoaDon AS MaHoaDon, @HoaDonStatus AS TrangThaiHoaDon;
+            THROW 51915, N''Không thể thu tiền cho hóa đơn đã hủy.'', 1;
+        END;
+
+        SELECT @TongHoaDon = ISNULL(SUM(SoTien), 0)
+        FROM dbo.ChiTietHoaDon WHERE MaHoaDon = @MaHoaDon;
+        SELECT @DaThu = ISNULL(SUM(SoTien), 0)
+        FROM dbo.PhieuThu
+        WHERE MaHoaDon = @MaHoaDon AND TrangThai = N''Hợp lệ'';
+        IF @TrangThai = N''Hợp lệ'' AND @DaThu + @SoTien > @TongHoaDon
+        BEGIN
+            SELECT @MaHoaDon AS MaHoaDon, @TongHoaDon AS TongHoaDon,
+                   @DaThu AS DaThu, @SoTien AS SoTienMoi;
+            THROW 51916, N''Phiếu thu làm tổng thu vượt tổng hóa đơn.'', 1;
+        END;
+
+        INSERT INTO dbo.PhieuThu
+            (MaHoaDon, MaGiaoDich, SoTien, PhuongThuc, MaSinhVienNop,
+             NguoiThu, TrangThai, MaThamChieu, GhiChu)
+        VALUES
+            (@MaHoaDon, @MaGiaoDich, @SoTien, @PhuongThuc, @MaSinhVienNop,
+             @NguoiThu, @TrangThai, @MaThamChieu, @GhiChu);
+        DECLARE @MaPhieuThu bigint = SCOPE_IDENTITY();
+        COMMIT TRANSACTION;
+        SELECT @MaPhieuThu AS MaPhieuThu;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER PROCEDURE dbo.sp_DongBoTrangThaiHoaDon
+    @MaHoaDon nvarchar(20)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @TongHoaDon decimal(18,2), @DaThu decimal(18,2);
+    SELECT @TongHoaDon = ISNULL(SUM(c.SoTien), 0)
+    FROM dbo.ChiTietHoaDon c WHERE c.MaHoaDon = @MaHoaDon;
+    SELECT @DaThu = ISNULL(SUM(pt.SoTien), 0)
+    FROM dbo.PhieuThu pt WHERE pt.MaHoaDon = @MaHoaDon AND pt.TrangThai = N''Hợp lệ'';
+    UPDATE dbo.HoaDon
+    SET TrangThaiThanhToan = CASE
+            WHEN TrangThaiThanhToan = N''Đã hủy'' THEN N''Đã hủy''
+            WHEN @DaThu = 0 THEN N''Chưa thanh toán''
+            WHEN @DaThu < @TongHoaDon THEN N''Thanh toán một phần''
+            ELSE N''Đã thanh toán''
+        END,
+        NgayThanhToan = CASE WHEN @DaThu >= @TongHoaDon AND @DaThu > 0
+                             THEN COALESCE(NgayThanhToan, GETDATE()) ELSE NULL END
+    WHERE MaHoaDon = @MaHoaDon;
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER PROCEDURE dbo.sp_TaoHoaDonTienPhong
+    @MaChiTiet int,
+    @KyThanhToan date,
+    @MaHoaDon nvarchar(20) = NULL OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        DECLARE @MaHopDong nvarchar(20), @MaSinhVien nvarchar(30), @TenPhong nvarchar(50),
+                @KyHan nvarchar(10), @Gia decimal(18,2), @ThangGia decimal(18,2),
+                @Den date, @Ngay date = CAST(GETDATE() AS date), @Han date;
+        SELECT @MaHopDong = hd.MaHopDong, @MaSinhVien = c.MaSinhVien, @TenPhong = hd.TenPhong,
+               @KyHan = c.KyHanThanhToanPhong, @Gia = c.GiaPhongApDung,
+               @ThangGia = c.GiaPhongThangApDung
+        FROM dbo.ChiTietHopDong c WITH (UPDLOCK, HOLDLOCK)
+        INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+        WHERE c.MaChiTiet = @MaChiTiet AND c.TrangThai = N''Đang ở''
+          AND hd.TrangThaiHopDong = N''Còn hiệu lực'';
+        IF @MaHopDong IS NULL
+        BEGIN
+            SELECT @MaChiTiet AS MaChiTiet;
+            THROW 51920, N''Không tìm thấy thành viên hợp đồng đang ở.'', 1;
+        END;
+        IF @KyThanhToan IS NULL
+           OR @KyThanhToan <> DATEFROMPARTS(YEAR(@KyThanhToan), MONTH(@KyThanhToan), 1)
+        BEGIN
+            SELECT @MaChiTiet AS MaChiTiet, @KyThanhToan AS KyThanhToan;
+            THROW 51921, N''Kỳ thanh toán tiền phòng phải là ngày đầu tháng.'', 1;
+        END;
+        IF @KyHan = N''NAM''
+        BEGIN
+            SET @Den = EOMONTH(DATEADD(month, 11, @KyThanhToan));
+            SET @Gia = @Gia;
+        END
+        ELSE
+        BEGIN
+            SET @Den = EOMONTH(@KyThanhToan);
+            SET @Gia = @ThangGia;
+        END;
+        IF EXISTS (
+            SELECT 1 FROM dbo.HoaDon WITH (UPDLOCK, HOLDLOCK)
+            WHERE LoaiHoaDon = N''TIEN_PHONG''
+              AND MaChiTiet = @MaChiTiet
+              AND TrangThaiThanhToan <> N''Đã hủy''
+              AND KyThanhToan <= @Den AND KyThanhToanDen >= @KyThanhToan
+        )
+        BEGIN
+            SELECT MaHoaDon, MaChiTiet, KyThanhToan, KyThanhToanDen,
+                   TrangThaiThanhToan
+            FROM dbo.HoaDon
+            WHERE LoaiHoaDon = N''TIEN_PHONG''
+              AND MaChiTiet = @MaChiTiet
+              AND TrangThaiThanhToan <> N''Đã hủy''
+              AND KyThanhToan <= @Den AND KyThanhToanDen >= @KyThanhToan;
+            THROW 51922, N''Kỳ tiền phòng bị trùng hoặc chồng với hóa đơn đang hoạt động.'', 1;
+        END;
+        IF @MaHoaDon IS NULL
+            EXEC dbo.sp_B3_TaoMaHoaDon @Ngay, @MaHoaDon OUTPUT;
+        IF EXISTS (SELECT 1 FROM dbo.HoaDon WHERE MaHoaDon = @MaHoaDon)
+        BEGIN
+            SELECT @MaHoaDon AS MaHoaDon;
+            THROW 51923, N''Mã hóa đơn đã tồn tại.'', 1;
+        END;
+        SELECT @Han = DATEADD(day, ISNULL(TRY_CONVERT(int, GiaTri), 15), @Ngay)
+        FROM dbo.CauHinhHeThong WHERE Khoa = N''SO_NGAY_HAN_THANH_TOAN'';
+        INSERT INTO dbo.HoaDon
+            (MaHoaDon, MaSinhVien, TenPhong, NgayLap, TienPhong, TienDien, TienNuoc,
+             TrangThaiThanhToan, HanThanhToan, LoaiHoaDon, MaHopDong, MaChiTiet,
+             KyThanhToan, KyThanhToanDen)
+        VALUES
+            (@MaHoaDon, @MaSinhVien, @TenPhong, @Ngay, 0, 0, 0,
+             N''Chưa thanh toán'', COALESCE(@Han, DATEADD(day, 15, @Ngay)),
+             N''TIEN_PHONG'', @MaHopDong, @MaChiTiet, @KyThanhToan, @Den);
+        INSERT INTO dbo.ChiTietHoaDon
+            (MaChiTiet, MaHoaDon, MaKhoan, TenKhoan, SoTien, SoLuong, DonGia,
+             TrangThai, ThuTu, GhiChu)
+        VALUES
+            (LEFT(@MaHoaDon, 30) + N''-ROOM'', @MaHoaDon, N''ROOM'', N''Tiền phòng'',
+             @Gia, 1, @Gia, N''Chưa thanh toán'', 1, @KyHan);
+        COMMIT TRANSACTION;
+        SELECT @MaHoaDon AS MaHoaDon, @Gia AS TongTien;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER PROCEDURE dbo.sp_TaoHoaDonPhatSinh
+    @MaChiPhi bigint,
+    @MaHoaDon nvarchar(20) = NULL OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        DECLARE @MaHopDong nvarchar(20), @MaChiTiet int, @NoiDung nvarchar(255),
+                @SoTien decimal(18,2), @TenPhong nvarchar(50), @MaSinhVien nvarchar(30),
+                @Ky date, @Ngay date = CAST(GETDATE() AS date), @Prefix nvarchar(40),
+                @TenKhoan nvarchar(100), @MaChiTietHD nvarchar(40);
+        SELECT @MaHopDong = cp.MaHopDong, @MaChiTiet = cp.MaChiTiet,
+               @NoiDung = cp.NoiDung, @SoTien = cp.SoTien,
+               @TenPhong = hd.TenPhong, @Ky = DATEFROMPARTS(YEAR(cp.NgayPhatSinh), MONTH(cp.NgayPhatSinh), 1),
+               @MaSinhVien = c.MaSinhVien
+        FROM dbo.ChiPhiPhatSinh cp WITH (UPDLOCK, HOLDLOCK)
+        INNER JOIN dbo.HopDong hd ON hd.MaHopDong = cp.MaHopDong
+        LEFT JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = cp.MaChiTiet
+        WHERE cp.MaChiPhi = @MaChiPhi AND cp.TrangThai = N''Chưa lập hóa đơn'';
+        IF @MaHopDong IS NULL
+        BEGIN
+            SELECT MaChiPhi, MaHopDong, TrangThai FROM dbo.ChiPhiPhatSinh WHERE MaChiPhi = @MaChiPhi;
+            THROW 51924, N''Không tìm thấy khoản phát sinh chưa lập hóa đơn.'', 1;
+        END;
+        IF @MaHoaDon IS NULL
+            EXEC dbo.sp_B3_TaoMaHoaDon @Ngay, @MaHoaDon OUTPUT;
+        IF EXISTS (SELECT 1 FROM dbo.HoaDon WHERE MaHoaDon = @MaHoaDon)
+        BEGIN
+            SELECT @MaHoaDon AS MaHoaDon;
+            THROW 51925, N''Mã hóa đơn đã tồn tại.'', 1;
+        END;
+        INSERT INTO dbo.HoaDon
+            (MaHoaDon, MaSinhVien, TenPhong, NgayLap, TienPhong, TienDien, TienNuoc,
+             TrangThaiThanhToan, LoaiHoaDon, MaHopDong, MaChiTiet,
+             KyThanhToan, KyThanhToanDen)
+        VALUES
+            (@MaHoaDon, @MaSinhVien, @TenPhong, @Ngay, 0, 0, 0,
+             N''Chưa thanh toán'', N''PHAT_SINH'', @MaHopDong, @MaChiTiet, @Ky, @Ky);
+        SET @Prefix = N''Phát sinh #'' + CONVERT(nvarchar(20), @MaChiPhi) + N'': '';
+        SET @TenKhoan = @Prefix + LEFT(@NoiDung, 100 - LEN(@Prefix));
+        SET @MaChiTietHD = LEFT(@MaHoaDon, 25) + N''-INC-'' + CONVERT(nvarchar(12), @MaChiPhi);
+        INSERT INTO dbo.ChiTietHoaDon
+            (MaChiTiet, MaHoaDon, MaKhoan, TenKhoan, SoTien, SoLuong, DonGia,
+             TrangThai, ThuTu, GhiChu)
+        VALUES
+            (@MaChiTietHD, @MaHoaDon, N''INCIDENT'', @TenKhoan, @SoTien, 1, @SoTien,
+             N''Chưa thanh toán'', 1, @NoiDung);
+        UPDATE dbo.ChiPhiPhatSinh
+        SET TrangThai = N''Đã lập hóa đơn'', MaChiTietHoaDon = @MaChiTietHD
+        WHERE MaChiPhi = @MaChiPhi;
+        COMMIT TRANSACTION;
+        SELECT @MaHoaDon AS MaHoaDon, @MaChiTietHD AS MaChiTietHoaDon;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER PROCEDURE dbo.sp_TaoHoaDonDichVuPhong
+    @MaHopDong nvarchar(20),
+    @KyThanhToan date,
+    @ChiSoJson nvarchar(max) = NULL,
+    @MaSinhVienNop nvarchar(30) = NULL,
+    @MaHoaDon nvarchar(20) = NULL OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        DECLARE @TenPhong nvarchar(50), @MaHangPhong nvarchar(20),
+                @Ngay date = CAST(GETDATE() AS date), @Den date = EOMONTH(@KyThanhToan),
+                @Han date;
+        SELECT @TenPhong = TenPhong, @MaHangPhong = MaHangPhong
+        FROM dbo.HopDong WITH (UPDLOCK, HOLDLOCK)
+        WHERE MaHopDong = @MaHopDong AND TrangThaiHopDong = N''Còn hiệu lực'';
+        IF @TenPhong IS NULL
+        BEGIN
+            SELECT @MaHopDong AS MaHopDong;
+            THROW 51926, N''Không tìm thấy hợp đồng/phòng hiệu lực.'', 1;
+        END;
+        IF @KyThanhToan IS NULL
+           OR @KyThanhToan <> DATEFROMPARTS(YEAR(@KyThanhToan), MONTH(@KyThanhToan), 1)
+        BEGIN
+            SELECT @MaHopDong AS MaHopDong, @KyThanhToan AS KyThanhToan;
+            THROW 51927, N''Kỳ dịch vụ phải là ngày đầu tháng.'', 1;
+        END;
+        IF @ChiSoJson IS NOT NULL AND ISJSON(@ChiSoJson) <> 1
+        BEGIN
+            SELECT @MaHopDong AS MaHopDong, @ChiSoJson AS ChiSoJson;
+            THROW 51928, N''Dữ liệu chỉ số dịch vụ phải là JSON hợp lệ.'', 1;
+        END;
+        IF EXISTS (
+            SELECT 1 FROM dbo.HoaDon WITH (UPDLOCK, HOLDLOCK)
+            WHERE LoaiHoaDon = N''DICH_VU_PHONG'' AND MaHopDong = @MaHopDong
+              AND TrangThaiThanhToan <> N''Đã hủy''
+              AND KyThanhToan <= @Den AND KyThanhToanDen >= @KyThanhToan
+        )
+        BEGIN
+            SELECT MaHoaDon, MaHopDong, KyThanhToan, KyThanhToanDen
+            FROM dbo.HoaDon
+            WHERE LoaiHoaDon = N''DICH_VU_PHONG'' AND MaHopDong = @MaHopDong
+              AND TrangThaiThanhToan <> N''Đã hủy''
+              AND KyThanhToan <= @Den AND KyThanhToanDen >= @KyThanhToan;
+            THROW 51929, N''Kỳ dịch vụ bị trùng hoặc chồng với hóa đơn đang hoạt động.'', 1;
+        END;
+        IF @MaHoaDon IS NULL
+            EXEC dbo.sp_B3_TaoMaHoaDon @Ngay, @MaHoaDon OUTPUT;
+        SELECT @Han = DATEADD(day, ISNULL(TRY_CONVERT(int, GiaTri), 15), @Ngay)
+        FROM dbo.CauHinhHeThong WHERE Khoa = N''SO_NGAY_HAN_THANH_TOAN'';
+        INSERT INTO dbo.HoaDon
+            (MaHoaDon, MaSinhVien, TenPhong, NgayLap, TienPhong, TienDien, TienNuoc,
+             TrangThaiThanhToan, HanThanhToan, LoaiHoaDon, MaHopDong,
+             KyThanhToan, KyThanhToanDen)
+        VALUES
+            (@MaHoaDon, @MaSinhVienNop, @TenPhong, @Ngay, 0, 0, 0,
+             N''Chưa thanh toán'', COALESCE(@Han, DATEADD(day, 15, @Ngay)),
+             N''DICH_VU_PHONG'', @MaHopDong, @KyThanhToan, @Den);
+
+        DECLARE @Services table
+        (
+            RowNo int IDENTITY(1,1) PRIMARY KEY,
+            MaDichVu nvarchar(20) NOT NULL,
+            TenDichVu nvarchar(100) NOT NULL,
+            DonVi nvarchar(20) NOT NULL,
+            DonGia decimal(18,2) NOT NULL,
+            CachTinh nvarchar(20) NOT NULL,
+            DoiTuongThanhToan nvarchar(10) NOT NULL,
+            SoLuong decimal(18,3) NOT NULL,
+            ChiSoCu int NULL,
+            ChiSoMoi int NULL
+        );
+        INSERT INTO @Services
+            (MaDichVu, TenDichVu, DonVi, DonGia, CachTinh, DoiTuongThanhToan,
+             SoLuong, ChiSoCu, ChiSoMoi)
+        SELECT d.MaDichVu, d.TenDichVu, d.DonVi, hpdv.DonGia,
+               hpdv.CachTinh, hpdv.DoiTuongThanhToan,
+               CASE
+                   WHEN hpdv.CachTinh = N''CHI_SO''
+                       THEN CONVERT(decimal(18,3), j.ChiSoMoi - j.ChiSoCu)
+                   WHEN hpdv.DoiTuongThanhToan = N''CA_NHAN''
+                       THEN CONVERT(decimal(18,3), residents.SoNguoi)
+                   ELSE CONVERT(decimal(18,3), 1)
+               END,
+               j.ChiSoCu, j.ChiSoMoi
+        FROM dbo.HangPhong_DichVu hpdv
+        INNER JOIN dbo.DichVu d ON d.MaDichVu = hpdv.MaDichVu
+        OUTER APPLY (
+            SELECT TRY_CONVERT(int, JSON_VALUE(value, ''$.chiSoCu'')) AS ChiSoCu,
+                   TRY_CONVERT(int, JSON_VALUE(value, ''$.chiSoMoi'')) AS ChiSoMoi
+            FROM OPENJSON(COALESCE(@ChiSoJson, N''[]''))
+            WHERE JSON_VALUE(value, ''$.maDichVu'') = hpdv.MaDichVu
+        ) j
+        CROSS APPLY (
+            SELECT COUNT(*) AS SoNguoi
+            FROM dbo.ChiTietHopDong c
+            WHERE c.MaHopDong = @MaHopDong AND c.TrangThai = N''Đang ở''
+        ) residents
+        WHERE hpdv.MaHangPhong = @MaHangPhong
+          AND hpdv.HoatDong = 1 AND d.HoatDong = 1;
+
+        IF EXISTS (
+            SELECT 1 FROM @Services
+            WHERE CachTinh = N''CHI_SO'' AND (ChiSoCu IS NULL OR ChiSoMoi IS NULL OR ChiSoMoi < ChiSoCu)
+        )
+        BEGIN
+            SELECT MaDichVu, CachTinh, ChiSoCu, ChiSoMoi
+            FROM @Services
+            WHERE CachTinh = N''CHI_SO'' AND (ChiSoCu IS NULL OR ChiSoMoi IS NULL OR ChiSoMoi < ChiSoCu);
+            THROW 51930, N''Thiếu hoặc sai chỉ số cũ/mới cho dịch vụ tính theo chỉ số.'', 1;
+        END;
+        IF EXISTS (SELECT 1 FROM @Services WHERE SoLuong <= 0)
+        BEGIN
+            SELECT MaDichVu, SoLuong FROM @Services WHERE SoLuong <= 0;
+            THROW 51931, N''Số lượng dịch vụ phải lớn hơn 0.'', 1;
+        END;
+
+        INSERT INTO dbo.ChiTietHoaDon
+            (MaChiTiet, MaHoaDon, MaKhoan, TenKhoan, SoTien, MaDichVu,
+             ChiSoCu, ChiSoMoi, SoLuong, DonGia, TrangThai, ThuTu, GhiChu)
+        SELECT LEFT(@MaHoaDon, 25) + N''-SV-'' + RIGHT(N''000'' + CONVERT(nvarchar(3), RowNo), 3),
+               @MaHoaDon, N''SERVICE'', TenDichVu,
+               CONVERT(decimal(18,2), ROUND(SoLuong * DonGia, 2)),
+               MaDichVu, ChiSoCu, ChiSoMoi, SoLuong, DonGia,
+               N''Chưa thanh toán'', RowNo, DonVi
+        FROM @Services;
+
+        DECLARE @IncidentIds table (MaChiPhi bigint PRIMARY KEY);
+        INSERT INTO @IncidentIds(MaChiPhi)
+        SELECT MaChiPhi
+        FROM dbo.ChiPhiPhatSinh WITH (UPDLOCK, HOLDLOCK)
+        WHERE MaHopDong = @MaHopDong AND TrangThai = N''Chưa lập hóa đơn'';
+
+        DECLARE @MaChiPhi bigint, @IncidentAmount decimal(18,2), @IncidentDesc nvarchar(255),
+                @IncidentDetail nvarchar(40), @IncidentPrefix nvarchar(40), @IncidentName nvarchar(100);
+        DECLARE incident_cursor CURSOR LOCAL FAST_FORWARD FOR
+            SELECT cp.MaChiPhi, cp.SoTien, cp.NoiDung
+            FROM dbo.ChiPhiPhatSinh cp WITH (UPDLOCK, HOLDLOCK)
+            INNER JOIN @IncidentIds ids ON ids.MaChiPhi = cp.MaChiPhi
+            ORDER BY cp.MaChiPhi;
+        OPEN incident_cursor;
+        FETCH NEXT FROM incident_cursor INTO @MaChiPhi, @IncidentAmount, @IncidentDesc;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SET @IncidentPrefix = N''Phát sinh #'' + CONVERT(nvarchar(20), @MaChiPhi) + N'': '';
+            SET @IncidentName = @IncidentPrefix + LEFT(@IncidentDesc, 100 - LEN(@IncidentPrefix));
+            SET @IncidentDetail = LEFT(@MaHoaDon, 25) + N''-INC-'' + CONVERT(nvarchar(12), @MaChiPhi);
+            INSERT INTO dbo.ChiTietHoaDon
+                (MaChiTiet, MaHoaDon, MaKhoan, TenKhoan, SoTien, SoLuong, DonGia,
+                 TrangThai, ThuTu, GhiChu)
+            VALUES (@IncidentDetail, @MaHoaDon, N''INCIDENT'', @IncidentName,
+                    @IncidentAmount, 1, @IncidentAmount, N''Chưa thanh toán'', 1000, @IncidentDesc);
+            UPDATE dbo.ChiPhiPhatSinh
+            SET TrangThai = N''Đã lập hóa đơn'', MaChiTietHoaDon = @IncidentDetail
+            WHERE MaChiPhi = @MaChiPhi;
+            FETCH NEXT FROM incident_cursor INTO @MaChiPhi, @IncidentAmount, @IncidentDesc;
+        END;
+        CLOSE incident_cursor;
+        DEALLOCATE incident_cursor;
+
+        COMMIT TRANSACTION;
+        SELECT @MaHoaDon AS MaHoaDon;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER PROCEDURE dbo.sp_TinhGoiYHoanTien
+    @MaChiTiet int,
+    @KhauTru decimal(18,2) = 0,
+    @NgayRa date = NULL,
+    @SoThangDaSuDung int OUTPUT,
+    @TienSuDung decimal(18,2) OUTPUT,
+    @SoTienDaDong decimal(18,2) OUTPUT,
+    @SoTienDaHoan decimal(18,2) OUTPUT,
+    @GoiYHoan decimal(18,2) OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @NgayVao date, @Monthly decimal(18,2), @EndDate date, @Months int;
+    SELECT @NgayVao = NgayVao, @Monthly = GiaPhongThangApDung, @EndDate = COALESCE(@NgayRa, NgayRa)
+    FROM dbo.ChiTietHopDong WHERE MaChiTiet = @MaChiTiet;
+    IF @NgayVao IS NULL
+    BEGIN
+        SELECT @MaChiTiet AS MaChiTiet;
+        THROW 51932, N''Không tìm thấy thành viên hợp đồng để tính hoàn tiền.'', 1;
+    END;
+    IF @EndDate IS NULL SET @EndDate = CAST(GETDATE() AS date);
+    IF @EndDate < @NgayVao
+    BEGIN
+        SELECT @MaChiTiet AS MaChiTiet, @NgayVao AS NgayVao, @EndDate AS NgayRa;
+        THROW 51933, N''Ngày ra không được trước ngày vào.'', 1;
+    END;
+    IF @KhauTru < 0
+    BEGIN
+        SELECT @MaChiTiet AS MaChiTiet, @KhauTru AS KhauTru;
+        THROW 51934, N''Khấu trừ không được âm.'', 1;
+    END;
+
+    SET @Months = CASE WHEN @EndDate = @NgayVao THEN 0
+        ELSE DATEDIFF(month, @NgayVao, @EndDate)
+             + CASE WHEN DATEADD(month, DATEDIFF(month, @NgayVao, @EndDate), @NgayVao) < @EndDate
+                    THEN 1 ELSE 0 END END;
+    SET @SoThangDaSuDung = @Months;
+    SET @TienSuDung = CONVERT(decimal(18,2), ROUND(@Months * @Monthly, 0));
+    SELECT @SoTienDaDong = ISNULL(SUM(pt.SoTien), 0)
+    FROM dbo.PhieuThu pt
+    INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = pt.MaHoaDon
+    WHERE hd.MaChiTiet = @MaChiTiet
+      AND hd.LoaiHoaDon = N''TIEN_PHONG''
+      AND pt.TrangThai = N''Hợp lệ'';
+    SELECT @SoTienDaHoan = ISNULL(SUM(pc.SoTien), 0)
+    FROM dbo.PhieuChi pc
+    WHERE pc.MaChiTiet = @MaChiTiet AND pc.TrangThai = N''Hợp lệ'';
+    SET @GoiYHoan = CONVERT(decimal(18,2),
+        ROUND(CASE WHEN @SoTienDaDong - @TienSuDung - @KhauTru - @SoTienDaHoan > 0
+                   THEN @SoTienDaDong - @TienSuDung - @KhauTru - @SoTienDaHoan ELSE 0 END, 0));
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER PROCEDURE dbo.sp_TaoPhieuChi
+    @MaChiTiet int,
+    @NgayRa date,
+    @LyDo nvarchar(30),
+    @KhauTru decimal(18,2) = 0,
+    @SoTien decimal(18,2) = NULL,
+    @NguoiLap int = NULL,
+    @GhiChu nvarchar(255) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        DECLARE @SoThang int, @Used decimal(18,2), @Paid decimal(18,2),
+                @Refunded decimal(18,2), @Suggested decimal(18,2),
+                @MaPhieuChi bigint, @Remaining decimal(18,2), @Available decimal(18,2),
+                @MaHoaDon nvarchar(20), @DateIn date;
+        SELECT @DateIn = NgayVao FROM dbo.ChiTietHopDong WITH (UPDLOCK, HOLDLOCK)
+        WHERE MaChiTiet = @MaChiTiet;
+        IF @DateIn IS NULL
+        BEGIN
+            SELECT @MaChiTiet AS MaChiTiet;
+            THROW 51935, N''Không tìm thấy thành viên hợp đồng.'', 1;
+        END;
+        IF @NgayRa < @DateIn
+        BEGIN
+            SELECT @MaChiTiet AS MaChiTiet, @DateIn AS NgayVao, @NgayRa AS NgayRa;
+            THROW 51936, N''Ngày ra không được trước ngày vào.'', 1;
+        END;
+        EXEC dbo.sp_TinhGoiYHoanTien
+            @MaChiTiet = @MaChiTiet, @KhauTru = @KhauTru, @NgayRa = @NgayRa,
+            @SoThangDaSuDung = @SoThang OUTPUT, @TienSuDung = @Used OUTPUT,
+            @SoTienDaDong = @Paid OUTPUT, @SoTienDaHoan = @Refunded OUTPUT,
+            @GoiYHoan = @Suggested OUTPUT;
+        IF @SoTien IS NULL SET @SoTien = @Suggested;
+        IF @SoTien <= 0
+        BEGIN
+            SELECT @MaChiTiet AS MaChiTiet, @Suggested AS GoiYHoan, @SoTien AS SoTien;
+            THROW 51937, N''Không có số dư hoàn tiền dương.'', 1;
+        END;
+        IF @SoTien > @Suggested
+        BEGIN
+            SELECT @MaChiTiet AS MaChiTiet, @Suggested AS GoiYHoan, @SoTien AS SoTien;
+            THROW 51938, N''Số tiền hoàn không được vượt số tiền gợi ý.'', 1;
+        END;
+        IF @LyDo NOT IN (N''Nghỉ học giữa chừng'', N''Chuyển đi'', N''Khác'')
+        BEGIN
+            SELECT @MaChiTiet AS MaChiTiet, @LyDo AS LyDo;
+            THROW 51939, N''Lý do hoàn tiền không hợp lệ.'', 1;
+        END;
+        IF @SoTien <> @Suggested AND NULLIF(LTRIM(RTRIM(@GhiChu)), N'''') IS NULL
+        BEGIN
+            SELECT @MaChiTiet AS MaChiTiet, @Suggested AS GoiYHoan, @SoTien AS SoTien;
+            THROW 51940, N''Sửa số tiền gợi ý phải ghi lý do trong GhiChu.'', 1;
+        END;
+
+        DECLARE @InvoiceBalance table
+        (
+            MaHoaDon nvarchar(20) NOT NULL PRIMARY KEY,
+            NgayLap date NOT NULL,
+            SoDu decimal(18,2) NOT NULL
+        );
+        INSERT INTO @InvoiceBalance(MaHoaDon, NgayLap, SoDu)
+        SELECT hd.MaHoaDon, hd.NgayLap,
+               CASE WHEN ISNULL(paid.DaThu, 0) - ISNULL(spent.DaChi, 0) > 0
+                    THEN ISNULL(paid.DaThu, 0) - ISNULL(spent.DaChi, 0) ELSE 0 END
+        FROM dbo.HoaDon hd WITH (UPDLOCK, HOLDLOCK)
+        OUTER APPLY (
+            SELECT SUM(pt.SoTien) AS DaThu
+            FROM dbo.PhieuThu pt
+            WHERE pt.MaHoaDon = hd.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+        ) paid
+        OUTER APPLY (
+            SELECT SUM(ph.SoTien) AS DaChi
+            FROM dbo.PhieuChi_HoaDon ph
+            INNER JOIN dbo.PhieuChi pc ON pc.MaPhieuChi = ph.MaPhieuChi
+            WHERE ph.MaHoaDon = hd.MaHoaDon AND pc.TrangThai = N''Hợp lệ''
+        ) spent
+        WHERE hd.MaChiTiet = @MaChiTiet AND hd.LoaiHoaDon = N''TIEN_PHONG''
+          AND hd.TrangThaiThanhToan <> N''Đã hủy''
+          AND ISNULL(paid.DaThu, 0) > ISNULL(spent.DaChi, 0);
+
+        IF @SoTien > ISNULL((SELECT SUM(SoDu) FROM @InvoiceBalance), 0)
+        BEGIN
+            SELECT @MaChiTiet AS MaChiTiet, @SoTien AS SoTien,
+                   ISNULL((SELECT SUM(SoDu) FROM @InvoiceBalance), 0) AS SoDuConLai;
+            THROW 51941, N''Tổng hoàn vượt tiền thu hợp lệ còn lại trên các hóa đơn.'', 1;
+        END;
+
+        INSERT INTO dbo.PhieuChi
+            (MaChiTiet, SoTienDaDong, SoTienDaSuDung, KhauTru, SoTien,
+             NgayRa, LyDo, TrangThai, NguoiLap, GhiChu)
+        VALUES
+            (@MaChiTiet, @Paid, @Used, @KhauTru, @SoTien, @NgayRa,
+             @LyDo, N''Chờ duyệt'', @NguoiLap,
+             CASE WHEN @SoTien <> @Suggested
+                  THEN N''Gợi ý '' + CONVERT(nvarchar(30), @Suggested) + N''; '' + @GhiChu
+                  ELSE @GhiChu END);
+        SET @MaPhieuChi = SCOPE_IDENTITY();
+        SET @Remaining = @SoTien;
+
+        DECLARE refund_invoice_cursor CURSOR LOCAL FAST_FORWARD FOR
+            SELECT MaHoaDon, SoDu FROM @InvoiceBalance ORDER BY NgayLap, MaHoaDon;
+        OPEN refund_invoice_cursor;
+        FETCH NEXT FROM refund_invoice_cursor INTO @MaHoaDon, @Available;
+        WHILE @@FETCH_STATUS = 0 AND @Remaining > 0
+        BEGIN
+            DECLARE @Portion decimal(18,2) =
+                CASE WHEN @Available >= @Remaining THEN @Remaining ELSE @Available END;
+            IF @Portion > 0
+                INSERT INTO dbo.PhieuChi_HoaDon(MaPhieuChi, MaHoaDon, SoTien)
+                VALUES (@MaPhieuChi, @MaHoaDon, @Portion);
+            SET @Remaining -= @Portion;
+            FETCH NEXT FROM refund_invoice_cursor INTO @MaHoaDon, @Available;
+        END;
+        CLOSE refund_invoice_cursor;
+        DEALLOCATE refund_invoice_cursor;
+
+        UPDATE dbo.PhieuChi SET TrangThai = N''Hợp lệ'' WHERE MaPhieuChi = @MaPhieuChi;
+        COMMIT TRANSACTION;
+        SELECT @MaPhieuChi AS MaPhieuChi, @SoTien AS SoTien,
+               @Suggested AS GoiYBanDau, @SoThang AS SoThangDaSuDung;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER VIEW dbo.vw_HoaDonTongHop
+AS
+SELECT hd.MaHoaDon, hd.MaSinhVien, sv.HoTen, hd.TenPhong, hd.NgayLap,
+       MONTH(hd.NgayLap) AS Thang, YEAR(hd.NgayLap) AS Nam,
+       hd.HanThanhToan, hd.LoaiHoaDon, hd.MaHopDong, hd.MaChiTiet,
+       hd.KyThanhToan, hd.KyThanhToanDen,
+       hd.TrangThaiThanhToan,
+       hd.TongTien AS TongTienCotTinh,
+       ISNULL(total.TongThuc, 0) AS TongThuc,
+       ISNULL(received.DaThu, 0) AS DaThu,
+       ISNULL(total.TongThuc, 0) - ISNULL(received.DaThu, 0) AS ConNo,
+       ISNULL(lines.SoHangMuc, 0) AS SoHangMuc,
+       CASE
+           WHEN hd.TrangThaiThanhToan = N''Đã hủy'' THEN N''CANCELLED''
+           WHEN ISNULL(received.DaThu, 0) >= ISNULL(total.TongThuc, 0)
+                AND ISNULL(total.TongThuc, 0) > 0 THEN N''PAID''
+           WHEN ISNULL(received.DaThu, 0) > 0 THEN N''PARTIAL''
+           WHEN hd.HanThanhToan < CAST(GETDATE() AS date)
+                AND hd.HanThanhToan IS NOT NULL THEN N''OVERDUE''
+           ELSE N''UNPAID''
+       END AS TrangThaiSuyRa
+FROM dbo.HoaDon hd
+LEFT JOIN dbo.SinhVien sv ON sv.MaSinhVien = hd.MaSinhVien
+OUTER APPLY (
+    SELECT SUM(c.SoTien) AS TongThuc, COUNT(*) AS SoHangMuc
+    FROM dbo.ChiTietHoaDon c WHERE c.MaHoaDon = hd.MaHoaDon
+) total
+OUTER APPLY (
+    SELECT SUM(pt.SoTien) AS DaThu
+    FROM dbo.PhieuThu pt
+    WHERE pt.MaHoaDon = hd.MaHoaDon AND pt.TrangThai = N''Hợp lệ''
+) received
+OUTER APPLY (
+    SELECT COUNT(*) AS SoHangMuc FROM dbo.ChiTietHoaDon c WHERE c.MaHoaDon = hd.MaHoaDon
+) lines;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER VIEW dbo.vw_CongNo
+AS
+SELECT hd.MaSinhVien, sv.HoTen, hd.TenPhong,
+       SUM(v.ConNo) AS TongCongNo,
+       SUM(CASE WHEN v.TrangThaiSuyRa = N''OVERDUE'' THEN v.ConNo ELSE 0 END) AS CongNoQuaHan,
+       COUNT(*) AS SoHoaDon
+FROM dbo.vw_HoaDonTongHop v
+INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = v.MaHoaDon
+LEFT JOIN dbo.SinhVien sv ON sv.MaSinhVien = hd.MaSinhVien
+WHERE v.ConNo > 0 AND hd.TrangThaiThanhToan <> N''Đã hủy''
+GROUP BY hd.MaSinhVien, sv.HoTen, hd.TenPhong;
+';
+
+        EXEC sys.sp_executesql N'
+CREATE OR ALTER VIEW dbo.vw_DoanhThuThang
+AS
+WITH receipt_totals AS (
+    SELECT YEAR(pt.NgayThu) AS Nam, MONTH(pt.NgayThu) AS Thang,
+           SUM(CASE WHEN hd.LoaiHoaDon = N''TIEN_PHONG'' THEN pt.SoTien ELSE 0 END) AS ThuTienPhong,
+           SUM(CASE WHEN hd.LoaiHoaDon <> N''TIEN_PHONG'' THEN pt.SoTien ELSE 0 END) AS ThuDichVuKhac,
+           SUM(pt.SoTien) AS TongThu
+    FROM dbo.PhieuThu pt
+    INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = pt.MaHoaDon
+    WHERE pt.TrangThai = N''Hợp lệ''
+    GROUP BY YEAR(pt.NgayThu), MONTH(pt.NgayThu)
+),
+refund_totals AS (
+    SELECT YEAR(pc.NgayChi) AS Nam, MONTH(pc.NgayChi) AS Thang,
+           SUM(CASE WHEN hd.LoaiHoaDon = N''TIEN_PHONG'' THEN pha.SoTien ELSE 0 END) AS ChiTienPhong,
+           SUM(CASE WHEN hd.LoaiHoaDon <> N''TIEN_PHONG'' THEN pha.SoTien ELSE 0 END) AS ChiKhac,
+           SUM(pha.SoTien) AS TongChi
+    FROM dbo.PhieuChi pc
+    INNER JOIN dbo.PhieuChi_HoaDon pha ON pha.MaPhieuChi = pc.MaPhieuChi
+    INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = pha.MaHoaDon
+    WHERE pc.TrangThai = N''Hợp lệ''
+    GROUP BY YEAR(pc.NgayChi), MONTH(pc.NgayChi)
+)
+SELECT COALESCE(r.Nam, c.Nam) AS Nam, COALESCE(r.Thang, c.Thang) AS Thang,
+       ISNULL(r.ThuTienPhong, 0) - ISNULL(c.ChiTienPhong, 0) AS DoanhThuTienPhong,
+       ISNULL(r.ThuDichVuKhac, 0) - ISNULL(c.ChiKhac, 0) AS DoanhThuDienNuocKhac,
+       ISNULL(r.TongThu, 0) AS TongThu,
+       ISNULL(c.TongChi, 0) AS TongChi,
+       ISNULL(r.TongThu, 0) - ISNULL(c.TongChi, 0) AS TongDoanhThu
+FROM receipt_totals r
+FULL OUTER JOIN refund_totals c ON c.Nam = r.Nam AND c.Thang = r.Thang;
+';
+
+        INSERT INTO dbo.SchemaMigration (MaMigration, TenFile)
+        VALUES (N'019', N'019_payment_workflows.sql');
+
+        COMMIT TRANSACTION;
+        PRINT N'[019] Hoàn tất: chuyển đổi giao dịch, phiếu thu/chi, quy trình hóa đơn và báo cáo đã sẵn sàng.';
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+GO
+-- END INLINE: db/migrations/019_payment_workflows.sql
+GO
 
 IF SUSER_ID(N'DNKTX') IS NULL
     THROW 50150, N'DNKTX server login must exist before this build script runs.', 1;
@@ -5545,5 +7598,5 @@ IF NOT EXISTS (SELECT 1 FROM sys.database_role_members drm INNER JOIN sys.databa
     ALTER ROLE [db_datawriter] ADD MEMBER [DNKTX];
 GRANT EXECUTE TO [DNKTX];
 GO
-PRINT N'KTX_Group3 schema, migrations 001-015, master data, and DNKTX permissions are ready.'
+PRINT N'KTX_Group3 schema, migrations 001-019, master data, and DNKTX permissions are ready.'
 GO

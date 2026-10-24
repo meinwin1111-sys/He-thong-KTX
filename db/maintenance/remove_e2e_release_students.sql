@@ -132,20 +132,64 @@ BEGIN TRY
     IF EXISTS
     (
         SELECT 1
-        FROM dbo.ChiTietGiaoDich cgd
-        INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = cgd.MaGiaoDich
-        INNER JOIN dbo.ChiTietHoaDon chi ON chi.MaChiTiet = cgd.MaChiTiet
-        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = chi.MaHoaDon
+        FROM dbo.PhieuThu pt
+        INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = pt.MaGiaoDich
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = pt.MaHoaDon
+        LEFT JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = hd.MaChiTiet
+        CROSS APPLY (SELECT COALESCE(hd.MaSinhVien, c.MaSinhVien) AS MaSinhVien) owner
         WHERE (gd.MaSinhVien IN (SELECT MaSinhVien FROM @Students)
                AND NOT EXISTS (
-                   SELECT 1 FROM @Students target WHERE target.MaSinhVien = hd.MaSinhVien
+                   SELECT 1 FROM @Students target WHERE target.MaSinhVien = owner.MaSinhVien
                ))
-           OR (hd.MaSinhVien IN (SELECT MaSinhVien FROM @Students)
+           OR (owner.MaSinhVien IN (SELECT MaSinhVien FROM @Students)
                AND NOT EXISTS (
                    SELECT 1 FROM @Students target WHERE target.MaSinhVien = gd.MaSinhVien
                ))
     )
+    BEGIN
+        SELECT pt.MaPhieuThu, pt.MaGiaoDich, pt.MaHoaDon, gd.MaSinhVien AS SinhVienGiaoDich,
+               COALESCE(hd.MaSinhVien, c.MaSinhVien) AS SinhVienHoaDon
+        FROM dbo.PhieuThu pt
+        INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = pt.MaGiaoDich
+        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = pt.MaHoaDon
+        LEFT JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = hd.MaChiTiet
+        WHERE (gd.MaSinhVien IN (SELECT MaSinhVien FROM @Students)
+               AND NOT EXISTS (
+                   SELECT 1 FROM @Students target
+                   WHERE target.MaSinhVien = COALESCE(hd.MaSinhVien, c.MaSinhVien)
+               ))
+           OR (COALESCE(hd.MaSinhVien, c.MaSinhVien) IN (SELECT MaSinhVien FROM @Students)
+               AND NOT EXISTS (
+                   SELECT 1 FROM @Students target WHERE target.MaSinhVien = gd.MaSinhVien
+               ));
         THROW 51004, N'Dừng: giao dịch đang liên kết chéo giữa test và sinh viên khác. Không xóa.', 1;
+    END;
+
+    IF EXISTS (
+        SELECT 1 FROM dbo.PhieuChi pc
+        INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = pc.MaChiTiet
+        INNER JOIN @Students target ON target.MaSinhVien = c.MaSinhVien
+    )
+    BEGIN
+        SELECT pc.MaPhieuChi, pc.MaChiTiet, pc.SoTien, pc.TrangThai
+        FROM dbo.PhieuChi pc
+        INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = pc.MaChiTiet
+        INNER JOIN @Students target ON target.MaSinhVien = c.MaSinhVien;
+        THROW 51007, N'Dừng: có phiếu chi gắn với sinh viên mục tiêu; cần đối soát và xóa riêng.', 1;
+    END;
+
+    IF EXISTS (
+        SELECT 1 FROM dbo.ChiPhiPhatSinh cp
+        INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = cp.MaChiTiet
+        INNER JOIN @Students target ON target.MaSinhVien = c.MaSinhVien
+    )
+    BEGIN
+        SELECT cp.MaChiPhi, cp.MaHopDong, cp.MaChiTiet, cp.SoTien, cp.TrangThai
+        FROM dbo.ChiPhiPhatSinh cp
+        INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = cp.MaChiTiet
+        INNER JOIN @Students target ON target.MaSinhVien = c.MaSinhVien;
+        THROW 51008, N'Dừng: có chi phí phát sinh; cần đối soát và xóa riêng.', 1;
+    END;
 
     IF EXISTS
     (
@@ -256,25 +300,25 @@ BEGIN TRY
     SET @Rows = @@ROWCOUNT;
     INSERT INTO @Deleted (Bang, SoDong) VALUES (N'ChiTietHopDong (chuyển đại diện)', @Rows);
 
-    DELETE cgd
-    FROM dbo.ChiTietGiaoDich cgd
+    DELETE pt
+    FROM dbo.PhieuThu pt
     WHERE EXISTS
     (
         SELECT 1
         FROM dbo.GiaoDichThanhToan gd
         INNER JOIN @Students target ON target.MaSinhVien = gd.MaSinhVien
-        WHERE gd.MaGiaoDich = cgd.MaGiaoDich
+        WHERE gd.MaGiaoDich = pt.MaGiaoDich
     )
     OR EXISTS
     (
-        SELECT 1
-        FROM dbo.ChiTietHoaDon chi
-        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = chi.MaHoaDon
-        INNER JOIN @Students target ON target.MaSinhVien = hd.MaSinhVien
-        WHERE chi.MaChiTiet = cgd.MaChiTiet
+        SELECT 1 FROM dbo.HoaDon hd
+        LEFT JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = hd.MaChiTiet
+        WHERE hd.MaHoaDon = pt.MaHoaDon
+          AND COALESCE(hd.MaSinhVien, c.MaSinhVien) IN
+              (SELECT MaSinhVien FROM @Students)
     );
     SET @Rows = @@ROWCOUNT;
-    INSERT INTO @Deleted (Bang, SoDong) VALUES (N'ChiTietGiaoDich', @Rows);
+    INSERT INTO @Deleted (Bang, SoDong) VALUES (N'PhieuThu', @Rows);
 
     DELETE gd
     FROM dbo.GiaoDichThanhToan gd
