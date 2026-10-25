@@ -1522,7 +1522,7 @@ function registerApiRoutes(app, {
                     .query("SELECT TOP (1) 1 AS CoHopDong FROM dbo.ChiTietHopDong WHERE MaSinhVien = @MaSinhVien");
                 if (history.recordset.length) {
                     await transaction.rollback();
-                    return respondRequestError(res, 409, "Không thể đổi mã sinh viên đã có lịch sử hợp đồng.");
+                    return respondRequestError(res, 409, "Không thể đổi mã sinh viên đã có chi tiết hợp đồng.");
                 }
             }
             const profile = await new sql.Request(transaction)

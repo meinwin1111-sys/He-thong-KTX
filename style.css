@@ -96,6 +96,36 @@ body {
     display: block;
 }
 
+@media print {
+    @page {
+        size: A4;
+        margin: 12mm;
+    }
+
+    body.admin-printing * {
+        visibility: hidden !important;
+    }
+
+    body.admin-printing .receipt-paper,
+    body.admin-printing .receipt-paper * {
+        visibility: visible !important;
+    }
+
+    body.admin-printing .receipt-paper {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        max-width: none;
+        margin: 0;
+        border: 0;
+        box-shadow: none;
+    }
+
+    .receipt-paper {
+        break-inside: avoid;
+    }
+}
+
 /* FORM INPUT: Ẩn nút tăng giảm của input number trên Chrome */
 input::-webkit-outer-spin-button,
 input::-webkit-inner-spin-button {

@@ -1047,43 +1047,7 @@ async function saveNewInvoice() {
 
     // Ngày lập: ngày 1 của tháng/năm được chọn
     const ngayLap = `${nam}-${String(thang).padStart(2,'0')}-01`;
-    const payload = {
-        MaSinhVien:         maSinhVien,
-        TenPhong:           tenPhong,
-        NgayLap:            ngayLap,
-        Thang:              thang,
-        Nam:                nam,
-        TienPhong:          tienPhong,
-        TienDien:           tienDien,
-        TienNuoc:           tienNuoc,
-        TongTien:           tongTien,
-        SoDienCu:           dienCu,
-        SoDienMoi:          dienMoi,
-        SoNuocCu:           nuocCu,
-        SoNuocMoi:          nuocMoi,
-        TrangThaiThanhToan: "Chưa thanh toán",
-    };
-
-    try {
-        const res = await ApiClient.fetch(API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            showToast(err.message || "Lỗi khi lưu hóa đơn!", "error");
-            return;
-        }
-
-        showToast("Tạo hóa đơn thành công!", "success");
-        closeAddInvoiceModal();
-        fetchHoaDonFromServer();
-    } catch (e) {
-        console.error(e);
-        showToast(e.message || "Không thể tạo hóa đơn.", "error");
-    }
+    showToast("Không còn hỗ trợ tạo hóa đơn thủ công. Vui lòng xuất hóa đơn theo kỳ.", "error");
 }
 
 
@@ -1305,24 +1269,5 @@ async function saveEditInvoice() {
         trangThai: document.getElementById('edit-trangThai').value
     };
 
-    try {
-        const res = await ApiClient.fetch(`${API_URL}/${encodeURIComponent(id)}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(formData)
-        });
-
-        if (!res.ok) throw new Error("Không thể cập nhật hóa đơn.");
-
-        // Cập nhật local
-        const hd = dsHoaDon.find(h => h.id === id);
-        if (hd) Object.assign(hd, formData);
-
-        showToast('Cập nhật hóa đơn thành công!', 'success');
-        closeEditInvoiceModal();
-        updateInvoiceStats();
-        renderHoaDonTable();
-    } catch (err) {
-        showToast(err.message || 'Không thể cập nhật hóa đơn.', 'error');
-    }
+    showToast("Không còn hỗ trợ chỉnh sửa hóa đơn đã lập.", "error");
 }

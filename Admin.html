@@ -166,6 +166,10 @@
             <i class="fa-solid fa-wallet"></i> Hóa đơn
         </div>
 
+        <div onclick="switchPage('Thanh Toan', this)" class="nav-item">
+            <i class="fa-solid fa-money-bill-transfer"></i> Thanh toán
+        </div>
+
         <button type="button" onclick="switchPage('Duyet & Kiem soat', this)" class="nav-item">
             <i class="fa-solid fa-clipboard-check"></i> Duyệt &amp; Kiểm soát
         </button>
@@ -295,19 +299,8 @@
     <!-- Import module trang chủ -->
     <script src="js/module/TrangChu.js"></script>
 
-    <!-- Import module quản lý phòng -->
-    <script src="js/module/Phong.js"></script>
-
     <!-- Import module quản lý sinh viên -->
     <script src="js/module/SinhVien.js"></script>
-
-    <!-- Import module quản lý hợp đồng -->
-    <script src="js/module/HopDong.js"></script>
-
-    <!-- Import module quản lý hóa đơn -->
-    <script src="js/module/HoaDon.js"></script>
-    <script src="js/payment-demo.js"></script>
-    <script src="js/module/ThanhToanDemo.js"></script>
     <script src="js/module/DuyetKiemSoat.js"></script>
 
     <!-- Thư viện SheetJS để xuất file Excel -->
@@ -318,6 +311,8 @@
 
     <!-- Import module báo cáo và thống kê -->
     <script src="js/module/BaoCaoThongKe.js"></script>
+    <script src="js/module/AdminWorkflowUtils.js"></script>
+    <script src="js/module/AdminWorkflows.js"></script>
 
 </body>
 

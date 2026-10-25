@@ -420,7 +420,7 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
 
     <!-- HEADER -->
     <div class="px-6 py-4 border-b flex justify-between items-center">
-        <h2 class="text-2xl font-bold text-slate-900">Lịch sử hợp đồng</h2>
+        <h2 class="text-2xl font-bold text-slate-900">Chi tiết hợp đồng</h2>
         <button onclick="closeHistoryModal()"
             class="text-slate-500 text-xl hover:text-slate-500">✕</button>
     </div>
@@ -1410,12 +1410,12 @@ async function confirmEnd() {
 }
 // ======================= MỞ MODAL LỊCH SỬ =======================
 async function openHistoryModal() {
-    const res = await fetch(`${BASE_URL}/api/history`);
+    const res = await fetch(`${BASE_URL}/api/chitiethopdong`);
     const data = await res.json();
 
 
     if (data.length === 0) {
-        showToast("Không có lịch sử hợp đồng", "error");
+        showToast("Không có chi tiết hợp đồng", "error");
         return;
     }
 
@@ -1531,7 +1531,7 @@ function prevHistoryPage() {
 
 
 async function openHistoryModal() {
-    const res = await fetch(`${BASE_URL}/api/history`);
+    const res = await fetch(`${BASE_URL}/api/chitiethopdong`);
     const data = await res.json();
 
 

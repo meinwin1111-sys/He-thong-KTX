@@ -65,7 +65,6 @@ function switchPage(pageId, element) {
 
     if (pageId === "Phong") {
         renderPhongModule();
-        loadPhong("Phong");
     }
     else if (pageId === "Bao cao & Thong ke") {
         renderBaoCaoThongKeModule();
@@ -78,10 +77,12 @@ function switchPage(pageId, element) {
     }
     else if (pageId === "Hop Dong") {
         renderHopDongModule();
-        loadHopDong();
     }
     else if (pageId === "Hoa Don") {
         renderHoaDonModule();
+    }
+    else if (pageId === "Thanh Toan") {
+        renderThanhToanDemoModule();
     }
     else if (pageId === "Duyet & Kiem soat") {
         renderDuyetKiemSoatModule();
