@@ -192,6 +192,11 @@ function routeHarness() {
                 if (statement.includes("SUM(chi.SoTien)")) {
                     return { recordset: [{ MaHoaDon: inputs.MaHoaDon, TongTien: 1200, SoKhoan: 1 }] };
                 }
+                if (statement.includes("SELECT hd.MaHoaDon, total.TongThuc")) {
+                    return { recordset: [{
+                        MaHoaDon: inputs.MaHoaDon, TongThuc: 1200, ConNo: 1200, SoKhoan: 1
+                    }] };
+                }
                 if (statement.includes("dbo.vw_HoaDonTongHop")) {
                     return { recordset: [{ MaSinhVien: studentId, MaHoaDon: inputs.MaHoaDon || `HD-${studentId}`, TrangThaiThanhToan: "Đã thanh toán" }] };
                 }
@@ -275,11 +280,11 @@ test("student-scoped APIs bind each session to its own records; missing auth is 
             assert.equal(res.body.MaHoaDon, `HD-${studentId}`);
             const query = queries.at(-1);
             assert.equal(query.inputs.MaSinhVien, studentId);
-            assert.match(query.statement, /hd\.MaSinhVien = @MaSinhVien/);
+            assert.match(query.statement, /ChiTietHopDong/);
         }
         const unauthenticated = response();
         await routes.get("get /api/payments/qr")({ query: { MaHoaDon: "HD-SV-A" } }, unauthenticated);
-        assert.equal(unauthenticated.statusCode, 403);
+        assert.equal(unauthenticated.statusCode, 401);
     } finally {
         if (originalBankConfig.bin === undefined) delete process.env.PAYMENT_BANK_BIN;
         else process.env.PAYMENT_BANK_BIN = originalBankConfig.bin;

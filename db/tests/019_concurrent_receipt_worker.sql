@@ -24,10 +24,10 @@ SELECT @DaThu = ISNULL(SUM(SoTien), 0)
 FROM dbo.PhieuThu
 WHERE MaHoaDon = @MaHoaDon AND TrangThai = N'Hợp lệ';
 
-IF @TongHoaDon <> 300 OR @DaThu NOT IN (0, 200)
+IF @TongHoaDon <> 300 OR @DaThu NOT IN (100, 300)
 BEGIN
     SELECT @MaHoaDon AS MaHoaDon, @TongHoaDon AS TongHoaDon, @DaThu AS DaThu;
-    THROW 52000, N'Hóa đơn phải có tổng 300 và tối đa một phiếu thu hợp lệ 200.', 1;
+    THROW 52000, N'Hóa đơn phải có tổng 300, đã thu ban đầu 100 và tối đa một phiếu thu đồng thời 200.', 1;
 END;
 
 BEGIN TRANSACTION;

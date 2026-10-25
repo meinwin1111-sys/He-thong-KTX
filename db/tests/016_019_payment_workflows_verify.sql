@@ -169,21 +169,35 @@ BEGIN TRY
         @TrangThai = N'Chờ xác nhận';
     SELECT @WaitingReceipt = MAX(MaPhieuThu)
     FROM dbo.PhieuThu WHERE MaHoaDon = @Invoice300 AND TrangThai = N'Chờ xác nhận';
-    BEGIN TRY
-        UPDATE dbo.PhieuThu SET TrangThai = N'Hợp lệ'
-        WHERE MaPhieuThu = @WaitingReceipt;
+    DECLARE @Confirmation TABLE (
+        MaPhieuThu bigint,
+        TrangThaiGiaoDich nvarchar(20),
+        LyDoDoiSoat nvarchar(255)
+    );
+    INSERT INTO @Confirmation
+    EXEC dbo.sp_XacNhanPhieuThu
+        @MaPhieuThu = @WaitingReceipt, @NguoiXacNhan = @Manager;
+    IF NOT EXISTS (
+        SELECT 1 FROM @Confirmation
+        WHERE MaPhieuThu = @WaitingReceipt
+          AND TrangThaiGiaoDich = N'RECONCILIATION'
+          AND LyDoDoiSoat IS NOT NULL
+    ) OR NOT EXISTS (
+        SELECT 1 FROM dbo.PhieuThu
+        WHERE MaPhieuThu = @WaitingReceipt AND TrangThai = N'Chờ xác nhận'
+    )
+    BEGIN
         SELECT hd.MaHoaDon, pt.MaPhieuThu, pt.SoTien, pt.TrangThai,
-               SUM(c.SoTien) AS TongHoaDon
+               SUM(c.SoTien) AS TongHoaDon, cf.TrangThaiGiaoDich, cf.LyDoDoiSoat
         FROM dbo.HoaDon hd
         INNER JOIN dbo.PhieuThu pt ON pt.MaHoaDon = hd.MaHoaDon
         INNER JOIN dbo.ChiTietHoaDon c ON c.MaHoaDon = hd.MaHoaDon
+        LEFT JOIN @Confirmation cf ON cf.MaPhieuThu = pt.MaPhieuThu
         WHERE pt.MaPhieuThu = @WaitingReceipt
-        GROUP BY hd.MaHoaDon, pt.MaPhieuThu, pt.SoTien, pt.TrangThai;
+        GROUP BY hd.MaHoaDon, pt.MaPhieuThu, pt.SoTien, pt.TrangThai,
+                 cf.TrangThaiGiaoDich, cf.LyDoDoiSoat;
         THROW 51988, N'Không chặn xác nhận phiếu chờ làm vượt tổng hóa đơn.', 1;
-    END TRY
-    BEGIN CATCH
-        IF ERROR_NUMBER() <> 51802 THROW;
-    END CATCH;
+    END;
     DELETE FROM dbo.PhieuThu WHERE MaPhieuThu = @WaitingReceipt;
 
     INSERT INTO dbo.ChiPhiPhatSinh
@@ -389,12 +403,19 @@ BEGIN TRY
             @Manager, N'T019 concurrency fixture');
     SET @ConcurrencyCost = SCOPE_IDENTITY();
     EXEC dbo.sp_TaoHoaDonPhatSinh @ConcurrencyCost, @ConcurrentInvoice OUTPUT;
+    EXEC dbo.sp_GhiPhieuThu
+        @MaHoaDon = @ConcurrentInvoice, @SoTien = 100, @PhuongThuc = N'CASH',
+        @MaSinhVienNop = @Student3, @NguoiThu = @Manager;
 
     SELECT @ConcurrentInvoice AS ConcurrentReceiptTestInvoice,
            CONVERT(decimal(18,2), 300) AS InvoiceTotal,
+           CONVERT(decimal(18,2), 100) AS InitialReceipt,
            CONVERT(decimal(18,2), 200) AS EachConcurrentReceipt;
+    SET @ExitDate = DATEADD(day, 3, DATEADD(month, 5, @Start));
+    SELECT @Detail2 AS ConcurrentRefundTestMember, @ExitDate AS ConcurrentRefundTestExitDate;
     PRINT N'[016-019 verify] Đạt: thu 100+200, chặn thu vượt/xác nhận chờ vượt, hai INCIDENT, PHAT_SINH cùng kỳ DICH_VU, hủy/lập lại, hoàn qua hai hóa đơn, chặn chi vượt thu, hoàn 0 ngày/5 tháng+3 ngày/12 tháng/đóng tháng/đã hoàn một phần.';
     PRINT N'Chạy db/tests/019_concurrent_receipt_worker.sql đồng thời hai lần với MaHoaDon vừa in; chỉ một phiên được ghi nhận.';
+    PRINT N'Chạy db/tests/019_concurrent_refund_worker.sql đồng thời hai lần với ConcurrentRefundTestMember và ConcurrentRefundTestExitDate; chỉ một phiên được hoàn.';
     PRINT N'Fixture T019 được giữ tạm trên KTX_Group3_test; restore lại DB test để dọn dữ liệu sau kiểm thử.';
 END TRY
 BEGIN CATCH

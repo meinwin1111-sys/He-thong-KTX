@@ -92,6 +92,38 @@ const registrationRateLimiter = createIpRateLimiter({
     max: 5,
     message: "Quá nhiều lần gửi đăng ký. Vui lòng thử lại sau."
 });
+
+const PAYMENT_STATUS_TO_DATABASE = Object.freeze({
+    PENDING: "PENDING",
+    SUCCESS: "SUCCESS",
+    REJECTED: "REJECTED",
+    EXPIRED: "EXPIRED",
+    RECONCILIATION: "RECONCILIATION",
+    "Cần đối soát": "RECONCILIATION",
+    "Chờ xác nhận": "Chờ xác nhận",
+    WAITING_CASH: "Chờ xác nhận",
+    "Hợp lệ": "Hợp lệ",
+    "Đã hủy": "Đã hủy",
+    PAID: "Đã thanh toán",
+    UNPAID: "Chưa thanh toán"
+});
+const PAYMENT_METHOD_TO_DATABASE = Object.freeze({
+    CASH: "CASH",
+    "Tiền mặt": "CASH",
+    ONLINE: "ONLINE",
+    "Chuyển khoản": "ONLINE",
+    "Ví điện tử": "ONLINE",
+    CHUYEN_DOI: "CHUYEN_DOI"
+});
+
+function mapPaymentStatusToDatabase(status) {
+    return PAYMENT_STATUS_TO_DATABASE[status] || null;
+}
+
+function mapPaymentMethodToDatabase(method) {
+    return PAYMENT_METHOD_TO_DATABASE[method] || null;
+}
+
 const loginRateLimiter = createIpRateLimiter({
     windowMs: 15 * 60 * 1000,
     max: 10,
@@ -165,7 +197,9 @@ app.use("/api", createApiAuthenticationMiddleware({
 const apiRouteInitialization = registerApiRoutes(app, {
     getPool: () => pool,
     sql,
-    bcrypt
+    bcrypt,
+    mapPaymentStatusToDatabase,
+    mapPaymentMethodToDatabase
 });
 
 /* =========================================================

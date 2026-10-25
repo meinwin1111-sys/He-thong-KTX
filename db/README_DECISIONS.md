@@ -19,7 +19,9 @@
 
 ## Map thanh toán tập trung
 
-Phần map dưới đây mô tả luồng BE legacy trước migration 019; không dùng làm hợp đồng ghi thanh toán sau migration 019. `server.js` vẫn là nơi duy nhất để map giá trị giao diện trong luồng legacy.
+`mapPaymentStatusToDatabase` và `mapPaymentMethodToDatabase` được định nghĩa một lần tại `server.js` và truyền vào route; không nhân đôi ở `api-routes.js` hay backend phụ. Các trạng thái giao dịch là `PENDING`, `SUCCESS`, `REJECTED`, `EXPIRED`, `RECONCILIATION`; API hiển thị `RECONCILIATION` thành `Cần đối soát`. Phiếu thu dùng `Hợp lệ`, `Chờ xác nhận`, `Đã hủy`.
+
+Migration 021 giữ `GiaoDichThanhToan.TrangThai` ở `nvarchar(20)` để lưu đủ `RECONCILIATION`; trước đó cột `nvarchar(10)` có thể làm webhook nhận tiền vượt hóa đơn lỗi cắt chuỗi thay vì chuyển giao dịch sang đối soát.
 
 | Giá trị FE | Giá trị CSDL | Cột/ý nghĩa |
 | --- | --- | --- |
@@ -30,11 +32,11 @@ Phần map dưới đây mô tả luồng BE legacy trước migration 019; khô
 | `Chuyển khoản` | `ONLINE` | `GiaoDichThanhToan.PhuongThuc` |
 | `Ví điện tử` | `ONLINE` | Nhóm thanh toán không tiền mặt trong schema hiện tại |
 
-Header `HoaDon.TrangThaiThanhToan` chỉ nhận `Đã thanh toán`/`Chưa thanh toán`; trạng thái chờ tiền mặt nằm ở các hạng mục. Phương thức `ONLINE` hiện gộp chuyển khoản và ví điện tử vì schema chỉ có hai giá trị `CASH`/`ONLINE`.
+Sau migration 018, trạng thái header được trigger suy ra từ tổng phiếu thu `Hợp lệ`, gồm cả `Thanh toán một phần`; không cập nhật trạng thái header hay hạng mục để giả lập khoản thu. Phương thức `ONLINE` gộp chuyển khoản và ví điện tử vì schema chỉ có `CASH`/`ONLINE`.
 
 ## Endpoint FE đang gọi nhưng server.js chưa có
 
-`server.js` hiện có `POST /api/login` và `GET /api/HoaDon`; các endpoint dưới đây chưa được cài. Student hiện là demo localStorage và chưa gọi API.
+Backend Bước 5 đã cung cấp API quản lý hóa đơn, phát sinh, phiếu thu/chi, công nợ và payment. Student FE vẫn dùng localStorage/demo cho tới Bước 6. `POST /api/HoaDon` và `PUT /api/HoaDon/:id` trả HTTP 410 để FE cũ hiển thị thông báo; dùng `POST /api/HoaDon/xuat-ky` cho API mới.
 
 | Method + endpoint | Nguồn dữ liệu/đối tượng BE nên dùng |
 | --- | --- |
@@ -75,30 +77,42 @@ Header `HoaDon.TrangThaiThanhToan` chỉ nhận `Đã thanh toán`/`Chưa thanh 
 
 ## Dựng DB sạch
 
-`db/KTX_Group3_clean.sql` là một file sqlcmd UTF-8 tự chứa: schema từ dump gốc (đã loại các dòng INSERT dữ liệu vận hành), nội dung migrations 001-020 được nhúng trực tiếp, rồi master seeds và quyền database cho login `DNKTX`. File tạo DB đúng tên `KTX_Group3` để khớp `server.js`, bật database `QUOTED_IDENTIFIER`, đặt ANSI session options cần cho filtered indexes, dùng đường dẫn MDF/LDF mặc định của instance, giữ `DNKTX` trong `db_datareader`/`db_datawriter` và cấp `EXECUTE` tường minh cho các procedure hợp đồng được API Bước 4 gọi. Yêu cầu login server-level `DNKTX` đã tồn tại và quyền tạo DB. Chạy từ thư mục gốc: `sqlcmd -f 65001 -I -S <server> -d master -U <user> -i db/KTX_Group3_clean.sql`. `-f 65001` bảo đảm input UTF-8 được đọc đúng. Script không drop DB đã có; chỉ chạy khi `KTX_Group3` chưa tồn tại.
+`db/KTX_Group3_clean.sql` là một file sqlcmd UTF-8 tự chứa: schema từ dump gốc (đã loại các dòng INSERT dữ liệu vận hành), nội dung migrations 001-021 được nhúng trực tiếp, rồi master seeds và quyền database cho login `DNKTX`. File tạo DB đúng tên `KTX_Group3` để khớp `server.js`, bật database `QUOTED_IDENTIFIER`, đặt ANSI session options cần cho filtered indexes, dùng đường dẫn MDF/LDF mặc định của instance, giữ `DNKTX` trong `db_datareader`/`db_datawriter` và cấp `EXECUTE` tường minh cho đúng các procedure hợp đồng (Bước 4) và tiền (Bước 5) được API gọi. Yêu cầu login server-level `DNKTX` đã tồn tại và quyền tạo DB. Chạy từ thư mục gốc: `sqlcmd -f 65001 -I -S <server> -d master -U <user> -i db/KTX_Group3_clean.sql`. `-f 65001` bảo đảm input UTF-8 được đọc đúng. Script không drop DB đã có; chỉ chạy khi `KTX_Group3` chưa tồn tại.
 
-Với database đã có schema nhưng các bảng vận hành đang rỗng, `db/run_all.sql` chạy migrations 001-020 bằng `sqlcmd -f 65001 -I -S <server> -d KTX_Group3 -U <user> -i db/run_all.sql`; sau đó nạp dữ liệu nền bằng `sqlcmd -f 65001 -I -S <server> -d KTX_Group3 -U <user> -i db/seed/run_master.sql`. Không chạy master room seed trên DB đang có người ở vì seed đặt sĩ số về 0. Các seed master dùng `MERGE` theo khóa tự nhiên và không tạo dữ liệu vận hành. `003_taikhoan_admin.sql` và clean SQL lưu bcrypt hash cost 12; BE chuyển các mật khẩu plaintext cũ sang bcrypt trước khi mở cổng. Mật khẩu bootstrap cũ từng xuất hiện trong bản gốc, do đó phải đổi mật khẩu trước khi cấp hệ thống cho người dùng khác.
+Với database đã có schema nhưng các bảng vận hành đang rỗng, `db/run_all.sql` chạy migrations 001-021 bằng `sqlcmd -f 65001 -I -S <server> -d KTX_Group3 -U <user> -i db/run_all.sql`; sau đó nạp dữ liệu nền bằng `sqlcmd -f 65001 -I -S <server> -d KTX_Group3 -U <user> -i db/seed/run_master.sql`. Không chạy master room seed trên DB đang có người ở vì seed đặt sĩ số về 0. Các seed master dùng `MERGE` theo khóa tự nhiên và không tạo dữ liệu vận hành. `003_taikhoan_admin.sql` và clean SQL lưu bcrypt hash cost 12; BE chuyển các mật khẩu plaintext cũ sang bcrypt trước khi mở cổng. Mật khẩu bootstrap cũ từng xuất hiện trong bản gốc, do đó phải đổi mật khẩu trước khi cấp hệ thống cho người dùng khác.
 
 Migration 020 cấp `EXECUTE` theo danh sách tường minh chỉ cho bảy procedure hợp đồng mà API Bước 4 gọi; nếu user database `DNKTX` chưa tồn tại, migration in cảnh báo và không ghi ledger để có thể thử lại sau khi user được tạo. Không cấp EXECUTE ở cấp database hoặc schema. `db_datareader` hiện có cung cấp SELECT cho các bảng/view; `db_datawriter` cung cấp quyền ghi bảng. Các procedure thanh toán như `sp_GhiPhieuThu` và `sp_TaoPhieuChi` chưa được cấp quyền; Bước 5 sẽ bổ sung đúng các procedure mà API mới sử dụng bằng migration riêng.
 
 Sau khi chạy migration 014 trên bản sao DB cô lập, có thể kiểm thử mô hình bằng `sqlcmd -f 65001 -I -b -S <server> -d KTX_Group3_test -E -i db/tests/014_contract_members_verify.sql`; script tạo và dọn dữ liệu test. Để kiểm tra idempotence, chạy từ thư mục gốc repo: `sqlcmd -f 65001 -I -b -S <server> -d KTX_Group3_test -E -i db/tests/run_all_twice.sql`. Harness gọi `db/run_all.sql` hai lần liên tiếp và dừng ngay khi sqlcmd gặp lỗi. Cả hai script đều từ chối chạy nếu database hiện hành là `master`; không script test nào tự đổi database. `db/optional/merge_legacy_room_contracts.sql` không thuộc luồng migration mặc định: chạy trước bằng `-v ApDung=0` để xem ánh xạ, đối soát thủ công rồi mới dùng `-v ApDung=1`. Script chỉ gộp các hợp đồng cùng phòng có thời gian chồng lấn, khóa bảng hợp đồng khi áp dụng, rollback nếu vẫn còn nhiều hợp đồng hiệu lực/phòng, rồi tạo filtered unique index theo phòng.
 
-## Migrations 016-019: hóa đơn, phát sinh, thu và hoàn
+## Migrations 016-021: hóa đơn, phát sinh, thu và hoàn
 
 - Migration 016 thêm kỳ hóa đơn, liên kết hợp đồng/thành viên và snapshot dòng chi tiết. Hóa đơn mới dùng `TIEN_PHONG`, `DICH_VU_PHONG` hoặc `PHAT_SINH`; hóa đơn cũ tiếp tục là `CU`. Các unique kỳ tiền phòng/dịch vụ loại trừ hóa đơn `Đã hủy`; `PHAT_SINH` không chiếm unique kỳ dịch vụ. `MaSinhVien` trên hóa đơn nullable để các hóa đơn mới gắn chủ thể qua `MaChiTiet`/`MaHopDong`.
 - Migration 017 lưu chi phí phát sinh; khi đã lập hóa đơn, dòng INCIDENT và khoản chi phí được khóa liên kết, không cho sửa/xóa để tránh mất dấu vết.
 - Migration 018 tạo `PhieuThu`, `PhieuChi` và `PhieuChi_HoaDon`. Trạng thái hóa đơn sau chuyển đổi được suy ra từ tổng phiếu thu `Hợp lệ`; cả insert/update/delete thu đều khóa dòng hóa đơn để chống vượt tổng. Trigger bảo vệ chi tiết ngăn giảm tổng hóa đơn thấp hơn tổng đã thu. Phiếu chi chỉ được phân bổ vào hóa đơn `TIEN_PHONG` đúng thành viên, và tổng chi hợp lệ trên mỗi hóa đơn không vượt tổng thu hợp lệ.
 - Migration 019 chuyển SUCCESS theo từng hóa đơn qua `ChiTietGiaoDich`; các dòng chi tiết cũ đã thanh toán nhận thêm phiếu `CHUYEN_DOI` cho phần còn thiếu, có ghi chú `Chuyển đổi từ dữ liệu cũ`. Chỉ xóa `ChiTietGiaoDich` sau khi in và xác nhận tổng đối chiếu. `GiaoDichThanhToan` vẫn được giữ làm bản ghi yêu cầu/đối soát và trigger đồng bộ trạng thái giao dịch sang phiếu thu.
+- Migration 021 thêm `sp_XacNhanPhieuThu`/`sp_HuyPhieuThu`. Hai proc khóa hóa đơn bằng `UPDLOCK, HOLDLOCK`, chỉ xử lý phiếu `Chờ xác nhận`, kiểm tra `@@ROWCOUNT`, đồng bộ giao dịch và ghi `NhatKyHeThong`. Giao dịch xác nhận vượt tổng chuyển sang `RECONCILIATION` với `LyDoDoiSoat`; webhook nhận HTTP 200 và Quản lý thấy giao dịch trong `/api/payments/history`. Index lọc duy nhất trên `PhieuThu.MaGiaoDich` loại trừ phiếu đã hủy ngăn ghi thu trùng.
+- API ghi số tiền VND dạng số nguyên dương; không nhận số dạng chuỗi, số thập phân hoặc số âm. Mọi thao tác ghi nhiều bước được bọc transaction và ghi nhật ký; API chỉ xác nhận/hủy phiếu chờ bằng hai stored procedure, không UPDATE trạng thái phiếu thu trực tiếp.
+- `DNKTX` hiện thuộc `db_datawriter`, vì vậy GRANT EXECUTE tường minh **không phải** ranh giới bảo vệ số liệu tiền. Ràng buộc thực tế là trigger trên `PhieuThu`, `HoaDon`, `ChiTietHoaDon`, `PhieuChi` và phân bổ: khóa hóa đơn, chặn thu vượt tổng, chặn sửa/hủy trái điều kiện và chặn chi vượt thu. Migration 021 vẫn cấp EXECUTE riêng cho đúng tám procedure mà route Bước 5 gọi: `sp_TaoHoaDonTienPhong`, `sp_TaoHoaDonDichVuPhong`, `sp_TaoHoaDonPhatSinh`, `sp_GhiPhieuThu`, `sp_TinhGoiYHoanTien`, `sp_TaoPhieuChi`, `sp_XacNhanPhieuThu`, `sp_HuyPhieuThu`. Không cấp EXECUTE theo schema.
 - `sp_TaoHoaDonTienPhong` tạo kỳ tháng hoặc năm theo snapshot giá hợp đồng. `sp_TaoHoaDonDichVuPhong` lấy dịch vụ/đơn giá từ hạng phòng, bỏ dịch vụ ngừng hoạt động và gom các khoản phát sinh chưa lập hóa đơn vào các dòng INCIDENT có tên duy nhất. `sp_TaoHoaDonPhatSinh` lập hóa đơn độc lập cho một khoản chi phí. Các view doanh thu dùng số thu hợp lệ trừ chi hợp lệ.
 - Công thức gợi ý hoàn: số tháng sử dụng bằng 0 nếu ngày ra trùng ngày vào; nếu không, tính số tháng lịch đã bắt đầu và làm tròn lên khi còn ngày lẻ (5 tháng + 3 ngày thành 6 tháng). Tiền sử dụng = số tháng × giá tháng snapshot, làm tròn đến đồng; không có khấu trừ mặc định. Gợi ý = max(0, tổng thu tiền phòng hợp lệ - tiền sử dụng - khấu trừ - tổng hoàn hợp lệ trước đó). Quy tắc này không hoàn lại ưu đãi năm nếu tổng thu thấp hơn giá tháng nhân số tháng đã sử dụng.
-- Kiểm thử sau khi restore bản sao `KTX_Group3_test`: chạy `db/run_all.sql` hai lần, rồi `db/tests/016_019_payment_workflows_verify.sql`. Bài test tạo fixture giữ lại đến lần restore tiếp theo và in `ConcurrentReceiptTestInvoice`. Chạy hai sqlcmd worker đồng thời với cùng mã hóa đơn và kiểm tra chỉ một tiến trình thành công, tiến trình còn lại bị chặn bởi lỗi vượt tổng:
+- Kiểm thử sau khi restore bản sao `KTX_Group3_test`: chạy `db/run_all.sql` hai lần, rồi `db/tests/016_019_payment_workflows_verify.sql` và `db/tests/021_money_api_verify.sql`. Bài test tạo fixture giữ lại đến lần restore tiếp theo và in `ConcurrentReceiptTestInvoice`. Chạy hai sqlcmd worker đồng thời với cùng mã hóa đơn và kiểm tra chỉ một tiến trình thành công, tiến trình còn lại bị chặn bởi lỗi vượt tổng:
 
 ```powershell
 # Chạy gần như đồng thời trong hai cửa sổ PowerShell riêng:
 sqlcmd -f 65001 -I -b -S <server> -d KTX_Group3_test -E -v MaHoaDon=<mã vừa in> -i db/tests/019_concurrent_receipt_worker.sql
 ```
 
-Kết quả hợp lệ là đúng một phiên in thông báo ghi nhận thành công; phiên kia báo lỗi 51916. Sau đó tổng `PhieuThu` hợp lệ của hóa đơn phải là 200, thấp hơn tổng 300.
+Kết quả hợp lệ là đúng một phiên in thông báo ghi nhận thành công; phiên kia báo lỗi 51916 (API ánh xạ lỗi này thành HTTP 409). Hóa đơn đã có 100 trước khi mở hai worker cùng thu 200; sau đó tổng `PhieuThu` hợp lệ phải đúng 300. `db/tests/021_money_api_verify.sql` cũng kiểm quyền bằng `EXECUTE AS USER = 'DNKTX'` và xác nhận quyền SELECT/INSERT/UPDATE cần cho route cùng EXECUTE chỉ trên tám procedure nêu trên.
+
+Để kiểm tra đồng thời hoàn tiền, lấy `ConcurrentRefundTestMember` và `ConcurrentRefundTestExitDate` từ cùng bài test rồi chạy hai worker với các giá trị đó:
+
+```powershell
+# Chạy gần như đồng thời trong hai cửa sổ PowerShell riêng:
+sqlcmd -f 65001 -I -b -S <server> -d KTX_Group3_test -E -v MaChiTiet=<mã thành viên> NgayRa=<YYYY-MM-DD> -i db/tests/019_concurrent_refund_worker.sql
+```
+
+Một worker phải lập được phiếu chi, worker còn lại bị chặn với lỗi 51937; cả hai đều in tổng thu/chi hợp lệ và kiểm tra tổng chi không vượt tổng thu.
 
 - Kiểm thử backfill legacy bằng `db/tests/019_backfill_verify.sql`: restore bản backup vào `KTX_Group3_test`, chạy migrations 001-015, sau đó chạy script bằng `sqlcmd -f 65001 -I -b -S <server> -d KTX_Group3_test -E -i db/tests/019_backfill_verify.sql`. Script tự tạo hóa đơn/giao dịch legacy, chạy migrations 016-018, cố ý tăng sai tổng giao dịch SUCCESS để xác nhận lần chạy migration 019 đầu THROW 51902/rollback, sửa fixture rồi chạy lại 019 và đối chiếu tổng đã thu. Test phân biệt hóa đơn paid không giao dịch, paid partial/full SUCCESS, PENDING/REJECTED/EXPIRED và chi tiết `Chờ tiền mặt`; restore lại test DB sau khi hoàn thành vì fixture được giữ làm bằng chứng.
 
