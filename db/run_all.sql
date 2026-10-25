@@ -89,5 +89,9 @@ PRINT N'=== Migration 021 ==='
 GO
 :r db/migrations/021_money_api_permissions.sql
 GO
+PRINT N'=== Migration 022 ==='
+GO
+:r db/migrations/022_complete_financial_reports.sql
+GO
 PRINT N'=== Hết run_all (master seed chạy riêng: db/seed/run_master.sql) ==='
 GO

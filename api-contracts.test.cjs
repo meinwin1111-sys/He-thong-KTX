@@ -711,11 +711,31 @@ test("duplicate signed bank webhook is acknowledged without creating another rec
 });
 
 test("financial list, report, and legacy routes enforce their intended access", async () => {
-    const harness = fakeApi();
+    const harness = fakeApi({
+        queryResult: call => call.statement.includes("FROM dbo.vw_DoanhThuThang")
+            ? { recordset: [{
+                Thang: 1,
+                ThuTienPhong: 1200,
+                ChiTienPhong: 200,
+                DoanhThuTienPhong: 1000,
+                ThuDichVu: 300,
+                ChiDichVu: 50,
+                DoanhThuDichVu: 250,
+                ThuPhatSinh: 80,
+                ChiPhatSinh: 0,
+                DoanhThuPhatSinh: 80,
+                DoanhThuDienNuocKhac: 250,
+                TongThu: 1580,
+                TongChi: 250,
+                TongDoanhThu: 1330
+            }] }
+            : { recordset: [], rowsAffected: [1] }
+    });
     for (const route of [
         "post /api/HoaDon/xuat-ky",
         "get /api/HoaDon",
         "get /api/HoaDon/:id",
+        "get /api/doanhthu/:year",
         "put /api/HoaDon/:id/huy",
         "get /api/ChiPhiPhatSinh",
         "post /api/ChiPhiPhatSinh",
@@ -752,6 +772,31 @@ test("financial list, report, and legacy routes enforce their intended access", 
     const debt = await invoke(harness, "get", "/api/congno");
     assert.equal(debt.statusCode, 200);
     assert.match(harness.queries[0].statement, /vw_CongNo/);
+
+    const revenue = await invoke(harness, "get", "/api/doanhthu/:year", {
+        params: { year: "2026" }
+    });
+    assert.equal(revenue.statusCode, 200);
+    assert.equal(revenue.body.thang.length, 12);
+    assert.deepEqual(revenue.body.thang[0], {
+        Nam: 2026,
+        Thang: 1,
+        ThuTienPhong: 1200,
+        ChiTienPhong: 200,
+        DoanhThuTienPhong: 1000,
+        ThuDichVu: 300,
+        ChiDichVu: 50,
+        DoanhThuDichVu: 250,
+        ThuPhatSinh: 80,
+        ChiPhatSinh: 0,
+        DoanhThuPhatSinh: 80,
+        DoanhThuDienNuocKhac: 250,
+        TongThu: 1580,
+        TongChi: 250,
+        TongDoanhThu: 1330,
+        DoanhThuRong: 1330
+    });
+    assert.match(harness.queries[1].statement, /ThuPhatSinh/);
 
     const oldCreate = await invoke(harness, "post", "/api/HoaDon");
     assert.equal(oldCreate.statusCode, 410);

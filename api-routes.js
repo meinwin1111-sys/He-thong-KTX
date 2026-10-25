@@ -2172,17 +2172,45 @@ function registerApiRoutes(app, {
             const result = await getPool().request()
                 .input("Nam", sql.Int, year)
                 .query(`
-                    SELECT Thang, DoanhThuTienPhong, DoanhThuDienNuocKhac
+                    SELECT Thang, ThuTienPhong, ChiTienPhong, DoanhThuTienPhong,
+                           ThuDichVu, ChiDichVu, DoanhThuDichVu,
+                           ThuPhatSinh, ChiPhatSinh, DoanhThuPhatSinh,
+                           DoanhThuDienNuocKhac, TongThu, TongChi, TongDoanhThu
                     FROM dbo.vw_DoanhThuThang
                     WHERE Nam = @Nam
+                    ORDER BY Thang
                 `);
             const phong = Array(12).fill(0);
             const dienNuoc = Array(12).fill(0);
+            const rowsByMonth = new Map();
             for (const row of result.recordset) {
                 phong[row.Thang - 1] = Number(row.DoanhThuTienPhong || 0);
                 dienNuoc[row.Thang - 1] = Number(row.DoanhThuDienNuocKhac || 0);
+                rowsByMonth.set(row.Thang, row);
             }
-            return res.json({ phong, dienNuoc });
+            const thang = Array.from({ length: 12 }, (_, index) => {
+                const month = index + 1;
+                const row = rowsByMonth.get(month) || {};
+                return {
+                    Nam: year,
+                    Thang: month,
+                    ThuTienPhong: Number(row.ThuTienPhong || 0),
+                    ChiTienPhong: Number(row.ChiTienPhong || 0),
+                    DoanhThuTienPhong: Number(row.DoanhThuTienPhong || 0),
+                    ThuDichVu: Number(row.ThuDichVu || 0),
+                    ChiDichVu: Number(row.ChiDichVu || 0),
+                    DoanhThuDichVu: Number(row.DoanhThuDichVu || 0),
+                    ThuPhatSinh: Number(row.ThuPhatSinh || 0),
+                    ChiPhatSinh: Number(row.ChiPhatSinh || 0),
+                    DoanhThuPhatSinh: Number(row.DoanhThuPhatSinh || 0),
+                    DoanhThuDienNuocKhac: Number(row.DoanhThuDienNuocKhac || 0),
+                    TongThu: Number(row.TongThu || 0),
+                    TongChi: Number(row.TongChi || 0),
+                    TongDoanhThu: Number(row.TongDoanhThu || 0),
+                    DoanhThuRong: Number(row.TongDoanhThu || 0)
+                };
+            });
+            return res.json({ thang, phong, dienNuoc });
         } catch (error) {
             return respondDatabaseError(res, "LỖI LẤY DOANH THU", error, "Không thể lấy báo cáo doanh thu.");
         }
