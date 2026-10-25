@@ -158,7 +158,11 @@ function getBankTransferConfig() {
 }
 
 function logDatabaseError(operation, error) {
-    console.error(`${operation}:`, error.code || error.name || "Unknown database error");
+    const sqlNumber = getSqlErrorNumber(error);
+    console.error(
+        `${operation}: ${error.code || error.name || "Unknown database error"}`
+        + (sqlNumber ? ` (SQL ${sqlNumber})` : "")
+    );
 }
 
 function respondDatabaseError(res, operation, error, message) {
@@ -166,30 +170,110 @@ function respondDatabaseError(res, operation, error, message) {
     return respondRequestError(res, 500, message);
 }
 
+const CONTRACT_PROCEDURE_ERRORS = Object.freeze({
+    51420: [400, "Ngày kết thúc hợp đồng phải sau ngày bắt đầu."],
+    51421: [400, "Danh sách sinh viên không hợp lệ."],
+    51422: [400, "Hợp đồng phải có ít nhất một sinh viên."],
+    51423: [400, "Kỳ hạn tiền phòng chỉ nhận THANG hoặc NAM."],
+    51424: [400, "Hợp đồng chỉ được có tối đa một người đại diện thanh toán dịch vụ."],
+    51425: [404, "Không tìm thấy phòng hoặc hạng phòng."],
+    51426: [409, "Phòng đang bảo trì hoặc ngưng sử dụng."],
+    51427: [409, "Phòng đã có hợp đồng hiệu lực; hãy thêm thành viên vào hợp đồng đó."],
+    51428: [409, "Sinh viên không tồn tại, sai giới tính hoặc đã có chỗ ở hiệu lực."],
+    51429: [409, "Số sinh viên vượt sức chứa hạng phòng."],
+    51430: [409, "Mã hợp đồng đã tồn tại."],
+    51431: [400, "Kỳ hạn tiền phòng chỉ nhận THANG hoặc NAM."],
+    51433: [409, "Phòng đang bảo trì hoặc ngưng sử dụng."],
+    51434: [409, "Phòng đã đủ sức chứa."],
+    51435: [409, "Sinh viên không tồn tại, sai giới tính hoặc đã có hợp đồng hiệu lực."],
+    51437: [400, "Ngày rời không được trước ngày vào."],
+    51438: [409, "Hợp đồng không còn hiệu lực."],
+    51440: [400, "Ngày kết thúc mới phải sau ngày kết thúc hiện tại."],
+    51442: [409, "Sinh viên không thuộc hợp đồng hiệu lực."],
+    51443: [404, "Không tìm thấy phòng đích hoặc hạng phòng."],
+    51444: [409, "Không thể chuyển khác hạng phòng vì cần đối soát giá đã áp dụng."],
+    51445: [409, "Phòng đích đang bảo trì hoặc ngưng sử dụng."],
+    51446: [409, "Giới tính sinh viên không phù hợp với phòng đích."],
+    51447: [409, "Phòng đích đã đủ sức chứa."],
+    51448: [409, "Sinh viên đã ở phòng này."],
+    51450: [409, "Giới tính sinh viên không phù hợp với phòng."],
+    51451: [409, "Số thành viên đang ở vượt sức chứa phòng."],
+    51454: [409, "Phòng đã có hợp đồng hiệu lực; hãy thêm thành viên vào hợp đồng hiện có."],
+    51456: [409, "Không thể đổi phòng trực tiếp; hãy dùng nghiệp vụ chuyển phòng."],
+    51457: [409, "Không thể đổi hạng snapshot của hợp đồng đã tạo."]
+});
+
+function getSqlErrorNumber(error) {
+    return Number(error?.number ?? error?.originalError?.info?.number
+        ?? error?.precedingErrors?.[0]?.number);
+}
+
+async function respondContractProcedureError(res, operation, error, {
+    getPool, sql, fallback = "Không thể thực hiện nghiệp vụ hợp đồng.",
+    missingObject = null, missingId = null
+} = {}) {
+    const number = getSqlErrorNumber(error);
+    if (number === 51432 || number === 51436 || number === 51439) {
+        try {
+            const request = getPool().request();
+            const query = number === 51436
+                ? (request.input("MaChiTiet", sql.Int, Number(missingId)),
+                    "SELECT 1 AS TonTai FROM dbo.ChiTietHopDong WHERE MaChiTiet = @MaChiTiet")
+                : (request.input("MaHopDong", sql.NVarChar(20), missingId),
+                    "SELECT 1 AS TonTai FROM dbo.HopDong WHERE MaHopDong = @MaHopDong");
+            const result = await request.query(query);
+            return respondRequestError(
+                res,
+                result.recordset.length ? 409 : 404,
+                number === 51436
+                    ? (result.recordset.length
+                        ? "Chi tiết hợp đồng không còn trạng thái đang ở."
+                        : "Không tìm thấy chi tiết hợp đồng.")
+                    : (result.recordset.length
+                        ? "Hợp đồng không còn hiệu lực."
+                        : "Không tìm thấy hợp đồng.")
+            );
+        } catch (probeError) {
+            logDatabaseError(`${operation} kiểm tra đối tượng`, probeError);
+            return respondRequestError(res, 500, fallback);
+        }
+    }
+
+    const mapped = CONTRACT_PROCEDURE_ERRORS[number];
+    if (mapped) {
+        logDatabaseError(operation, error);
+        return respondRequestError(res, mapped[0], mapped[1]);
+    }
+    if (number === 2601 || number === 2627) {
+        logDatabaseError(operation, error);
+        return respondRequestError(res, 409, "Dữ liệu bị trùng; vui lòng kiểm tra lại thông tin.");
+    }
+    if (number === 547) {
+        logDatabaseError(operation, error);
+        return respondRequestError(res, 409, "Dữ liệu đang được sử dụng hoặc không thỏa mãn ràng buộc.");
+    }
+    return respondDatabaseError(res, operation, error, fallback);
+}
+
 async function rollback(transaction, operation) {
     try {
         await transaction.rollback();
     } catch (error) {
+        if (error.code === "EABORT") return;
         console.error(`${operation} rollback failed:`, error.code || error.name || "Unknown database error");
     }
 }
 
-function addContractHistory(request, sql, { contractId, studentId, studentName, room, startDate, endDate, status, action }) {
+function writeSystemAudit(request, sql, { actorId, action, entity, entityId, detail }) {
     return request
-        .input("HistoryContractId", sql.NVarChar(20), contractId)
-        .input("HistoryStudentId", sql.NVarChar(30), studentId)
-        .input("HistoryStudentName", sql.NVarChar(100), studentName)
-        .input("HistoryRoom", sql.NVarChar(50), room)
-        .input("HistoryStartDate", sql.Date, startDate)
-        .input("HistoryEndDate", sql.Date, endDate)
-        .input("HistoryStatus", sql.NVarChar(20), status)
-        .input("HistoryAction", sql.NVarChar(30), action)
+        .input("MaTaiKhoan", sql.Int, actorId ?? null)
+        .input("HanhDong", sql.NVarChar(50), action)
+        .input("DoiTuong", sql.NVarChar(50), entity)
+        .input("MaDoiTuong", sql.NVarChar(60), entityId)
+        .input("ChiTiet", sql.NVarChar(500), detail || null)
         .query(`
-            INSERT INTO dbo.LichSuHopDong
-            (MaHopDong, MaSinhVien, HoTen, TenPhong, NgayBatDau, NgayKetThuc, TrangThaiHopDong, ThaoTac, ThoiGian)
-            VALUES
-                (@HistoryContractId, @HistoryStudentId, @HistoryStudentName, @HistoryRoom,
-             @HistoryStartDate, @HistoryEndDate, @HistoryStatus, @HistoryAction, GETDATE())
+            INSERT INTO dbo.NhatKyHeThong (MaTaiKhoan, HanhDong, DoiTuong, MaDoiTuong, ChiTiet)
+            VALUES (@MaTaiKhoan, @HanhDong, @DoiTuong, @MaDoiTuong, @ChiTiet)
         `);
 }
 
@@ -477,12 +561,16 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
             const roomResult = await getPool().request()
                 .input("MaSinhVien", sql.NVarChar(20), req.auth.studentId)
                 .query(`
-                    SELECT p.TenPhong, p.Khu, p.LoaiPhong, p.SucChuaToiDa,
-                           p.SoSinhVienHienTai, p.TrangThaiPhong, p.GiaPhong
-                    FROM dbo.SinhVien sv
-                    INNER JOIN dbo.Phong p ON p.TenPhong = sv.TenPhong
-                    WHERE sv.MaSinhVien = @MaSinhVien
-                      AND sv.TrangThaiSinhVien = N'Đang ở'
+                    SELECT TOP (1) p.TenPhong, p.Khu, p.LoaiPhong,
+                           hp.SucChuaToiDa, p.SoSinhVienHienTai, p.TrangThaiPhong,
+                           hp.GiaPhongThang AS GiaPhong
+                    FROM dbo.ChiTietHopDong c
+                    INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                    INNER JOIN dbo.Phong p ON p.TenPhong = hd.TenPhong
+                    INNER JOIN dbo.HangPhong hp ON hp.MaHangPhong = hd.MaHangPhong
+                    WHERE c.MaSinhVien = @MaSinhVien AND c.TrangThai = N'Đang ở'
+                      AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                    ORDER BY c.NgayVao DESC, c.MaChiTiet DESC
                 `);
             const room = roomResult.recordset[0] || null;
             if (!room) return res.json({ room: null, members: [] });
@@ -490,10 +578,13 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
             const membersResult = await getPool().request()
                 .input("TenPhong", sql.NVarChar(50), room.TenPhong)
                 .query(`
-                    SELECT MaSinhVien, HoTen
-                    FROM dbo.SinhVien
-                    WHERE TenPhong = @TenPhong AND TrangThaiSinhVien = N'Đang ở'
-                    ORDER BY HoTen, MaSinhVien
+                    SELECT c.MaSinhVien, sv.HoTen
+                    FROM dbo.ChiTietHopDong c
+                    INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                    INNER JOIN dbo.SinhVien sv ON sv.MaSinhVien = c.MaSinhVien
+                    WHERE hd.TenPhong = @TenPhong AND c.TrangThai = N'Đang ở'
+                      AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                    ORDER BY sv.HoTen, c.MaSinhVien
                 `);
             return res.json({ room, members: membersResult.recordset });
         } catch (error) {
@@ -509,12 +600,14 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
             const result = await getPool().request()
                 .input("MaSinhVien", sql.NVarChar(20), req.auth.studentId)
                 .query(`
-                    SELECT hd.MaHopDong, hd.MaSinhVien, hd.TenPhong,
-                           p.Khu, p.GiaPhong, hd.NgayBatDau, hd.NgayKetThuc,
+                    SELECT hd.MaHopDong, c.MaSinhVien, hd.TenPhong,
+                           p.Khu, hp.GiaPhongThang AS GiaPhong, hd.NgayBatDau, hd.NgayKetThuc,
                            hd.TrangThaiHopDong, hd.GhiChu, hd.NgayKetThucThucTe
                     FROM dbo.HopDong hd
+                    INNER JOIN dbo.ChiTietHopDong c ON c.MaHopDong = hd.MaHopDong
+                    INNER JOIN dbo.HangPhong hp ON hp.MaHangPhong = hd.MaHangPhong
                     LEFT JOIN dbo.Phong p ON p.TenPhong = hd.TenPhong
-                    WHERE hd.MaSinhVien = @MaSinhVien
+                    WHERE c.MaSinhVien = @MaSinhVien
                     ORDER BY hd.NgayBatDau DESC, hd.MaHopDong DESC
                 `);
             return res.json(result.recordset);
@@ -572,10 +665,12 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
                     FROM dbo.SinhVien sv WITH (UPDLOCK, HOLDLOCK)
                     OUTER APPLY (
                         SELECT TOP (1) NgayKetThuc
-                        FROM dbo.HopDong
-                        WHERE MaSinhVien = sv.MaSinhVien
-                          AND TrangThaiHopDong = N'Còn hiệu lực'
-                        ORDER BY NgayBatDau DESC, MaHopDong DESC
+                        FROM dbo.ChiTietHopDong c
+                        INNER JOIN dbo.HopDong h ON h.MaHopDong = c.MaHopDong
+                        WHERE c.MaSinhVien = sv.MaSinhVien
+                          AND c.TrangThai = N'Đang ở'
+                          AND h.TrangThaiHopDong = N'Còn hiệu lực'
+                        ORDER BY c.NgayVao DESC, c.MaChiTiet DESC
                     ) hd
                     WHERE sv.MaSinhVien = @MaSinhVien
                 `);
@@ -683,13 +778,308 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
         }
     });
 
+    function validateTierServices(services) {
+        if (services === undefined) return null;
+        if (!Array.isArray(services)) return "Danh sách dịch vụ phải là một mảng.";
+        const seen = new Set();
+        for (const item of services) {
+            if (!isObjectBody(item) || !isValidId(item.maDichVu, 20)
+                || typeof item.donGia !== "number" || !Number.isFinite(item.donGia)
+                || item.donGia < 0 || item.donGia > 999999999999
+                || !["CHI_SO", "CO_DINH_KY"].includes(item.cachTinh)
+                || !["PHONG", "CA_NHAN"].includes(item.doiTuongThanhToan)
+                || (item.hoatDong !== undefined && typeof item.hoatDong !== "boolean")) {
+                return "Thông tin dịch vụ theo hạng phòng không hợp lệ.";
+            }
+            const serviceId = item.maDichVu.trim();
+            if (seen.has(serviceId)) return "Không được lặp dịch vụ trong cùng một hạng phòng.";
+            seen.add(serviceId);
+        }
+        return null;
+    }
+
+    async function replaceTierServices(transaction, tierId, services) {
+        await new sql.Request(transaction).input("MaHangPhong", sql.NVarChar(20), tierId)
+            .query("DELETE FROM dbo.HangPhong_DichVu WHERE MaHangPhong = @MaHangPhong");
+        for (const service of services) {
+            await new sql.Request(transaction)
+                .input("MaHangPhong", sql.NVarChar(20), tierId)
+                .input("MaDichVu", sql.NVarChar(20), service.maDichVu.trim())
+                .input("DonGia", sql.Decimal(18, 2), service.donGia)
+                .input("CachTinh", sql.NVarChar(20), service.cachTinh)
+                .input("DoiTuongThanhToan", sql.NVarChar(10), service.doiTuongThanhToan)
+                .input("HoatDong", sql.Bit, service.hoatDong !== false)
+                .query(`
+                    INSERT INTO dbo.HangPhong_DichVu
+                        (MaHangPhong, MaDichVu, DonGia, CachTinh, DoiTuongThanhToan, HoatDong)
+                    VALUES
+                        (@MaHangPhong, @MaDichVu, @DonGia, @CachTinh, @DoiTuongThanhToan, @HoatDong)
+                `);
+        }
+    }
+
+    app.get("/api/HangPhong", async (_req, res) => {
+        try {
+            const result = await getPool().request().query(`
+                SELECT hp.MaHangPhong, hp.TenHangPhong, hp.SucChuaToiDa,
+                       hp.GiaPhongThang, hp.GiaPhongNam, d.MaDichVu, d.TenDichVu,
+                       d.DonVi, d.HoatDong AS DichVuHoatDong, hpdv.DonGia,
+                       hpdv.CachTinh, hpdv.DoiTuongThanhToan,
+                       hpdv.HoatDong AS GiaDichVuHoatDong
+                FROM dbo.HangPhong hp
+                LEFT JOIN dbo.HangPhong_DichVu hpdv ON hpdv.MaHangPhong = hp.MaHangPhong
+                LEFT JOIN dbo.DichVu d ON d.MaDichVu = hpdv.MaDichVu
+                ORDER BY hp.MaHangPhong, d.TenDichVu
+            `);
+            const tiers = new Map();
+            for (const row of result.recordset) {
+                let tier = tiers.get(row.MaHangPhong);
+                if (!tier) {
+                    tier = {
+                        MaHangPhong: row.MaHangPhong,
+                        TenHangPhong: row.TenHangPhong,
+                        SucChuaToiDa: row.SucChuaToiDa,
+                        GiaPhongThang: row.GiaPhongThang,
+                        GiaPhongNam: row.GiaPhongNam,
+                        dichVu: []
+                    };
+                    tiers.set(row.MaHangPhong, tier);
+                }
+                if (row.MaDichVu) {
+                    const hasRate = row.DonGia > 0 && row.DichVuHoatDong && row.GiaDichVuHoatDong;
+                    tier.dichVu.push({
+                        MaDichVu: row.MaDichVu,
+                        TenDichVu: row.TenDichVu,
+                        DonVi: row.DonVi,
+                        DonGia: row.DonGia,
+                        CachTinh: row.CachTinh,
+                        DoiTuongThanhToan: row.DoiTuongThanhToan,
+                        HoatDong: row.GiaDichVuHoatDong,
+                        CanhBao: hasRate ? null : "chưa có đơn giá"
+                    });
+                }
+            }
+            return res.json([...tiers.values()]);
+        } catch (error) {
+            return respondDatabaseError(res, "LỖI LẤY HẠNG PHÒNG", error, "Không thể lấy danh sách hạng phòng.");
+        }
+    });
+
+    app.post("/api/HangPhong", async (req, res) => {
+        if (!isObjectBody(req.body)) return respondRequestError(res, 400, "Request body phải là một đối tượng JSON.");
+        const { maHangPhong, tenHangPhong, sucChuaToiDa, giaPhongThang, giaPhongNam, dichVu } = req.body;
+        const serviceError = validateTierServices(dichVu);
+        if (!isValidId(maHangPhong, 20) || !isValidId(tenHangPhong, 100)
+            || !isJsonInteger(sucChuaToiDa, 1, 200)
+            || typeof giaPhongThang !== "number" || !Number.isFinite(giaPhongThang) || giaPhongThang < 0
+            || typeof giaPhongNam !== "number" || !Number.isFinite(giaPhongNam) || giaPhongNam < 0
+            || serviceError) {
+            return respondRequestError(res, 400, serviceError || "Mã/tên hạng, sức chứa và giá phòng không hợp lệ.");
+        }
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const request = new sql.Request(transaction);
+            await request
+                .input("MaHangPhong", sql.NVarChar(20), maHangPhong.trim())
+                .input("TenHangPhong", sql.NVarChar(100), tenHangPhong.trim())
+                .input("SucChuaToiDa", sql.Int, sucChuaToiDa)
+                .input("GiaPhongThang", sql.Decimal(18, 2), giaPhongThang)
+                .input("GiaPhongNam", sql.Decimal(18, 2), giaPhongNam)
+                .query(`
+                    INSERT INTO dbo.HangPhong
+                        (MaHangPhong, TenHangPhong, SucChuaToiDa, GiaPhongThang, GiaPhongNam)
+                    VALUES
+                        (@MaHangPhong, @TenHangPhong, @SucChuaToiDa, @GiaPhongThang, @GiaPhongNam)
+                `);
+            if (dichVu !== undefined) await replaceTierServices(transaction, maHangPhong.trim(), dichVu);
+            await writeSystemAudit(new sql.Request(transaction), sql, {
+                actorId: req.auth?.accountId, action: "Tạo hạng phòng", entity: "HangPhong",
+                entityId: maHangPhong.trim(), detail: `Tạo hạng ${tenHangPhong.trim()}.`
+            });
+            await transaction.commit();
+            return res.status(201).json({ success: true, MaHangPhong: maHangPhong.trim() });
+        } catch (error) {
+            await rollback(transaction, "TẠO HẠNG PHÒNG");
+            return respondContractProcedureError(res, "TẠO HẠNG PHÒNG", error, {
+                getPool, sql, fallback: "Không thể tạo hạng phòng."
+            });
+        }
+    });
+
+    app.put("/api/HangPhong/:id", async (req, res) => {
+        if (!isValidId(req.params.id, 20) || !isObjectBody(req.body)) {
+            return respondRequestError(res, 400, "Mã hạng phòng hoặc nội dung yêu cầu không hợp lệ.");
+        }
+        const { tenHangPhong, sucChuaToiDa, giaPhongThang, giaPhongNam, dichVu } = req.body;
+        const serviceError = validateTierServices(dichVu);
+        if (!isValidId(tenHangPhong, 100) || !isJsonInteger(sucChuaToiDa, 1, 200)
+            || typeof giaPhongThang !== "number" || !Number.isFinite(giaPhongThang) || giaPhongThang < 0
+            || typeof giaPhongNam !== "number" || !Number.isFinite(giaPhongNam) || giaPhongNam < 0
+            || serviceError) {
+            return respondRequestError(res, 400, serviceError || "Tên hạng, sức chứa và giá phòng không hợp lệ.");
+        }
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const updated = await new sql.Request(transaction)
+                .input("MaHangPhong", sql.NVarChar(20), req.params.id)
+                .input("TenHangPhong", sql.NVarChar(100), tenHangPhong.trim())
+                .input("SucChuaToiDa", sql.Int, sucChuaToiDa)
+                .input("GiaPhongThang", sql.Decimal(18, 2), giaPhongThang)
+                .input("GiaPhongNam", sql.Decimal(18, 2), giaPhongNam)
+                .query(`
+                    UPDATE dbo.HangPhong WITH (UPDLOCK, HOLDLOCK)
+                    SET TenHangPhong = @TenHangPhong, SucChuaToiDa = @SucChuaToiDa,
+                        GiaPhongThang = @GiaPhongThang, GiaPhongNam = @GiaPhongNam
+                    WHERE MaHangPhong = @MaHangPhong
+                `);
+            if (!updated.rowsAffected[0]) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy hạng phòng.");
+            }
+            if (dichVu !== undefined) await replaceTierServices(transaction, req.params.id, dichVu);
+            await writeSystemAudit(new sql.Request(transaction), sql, {
+                actorId: req.auth?.accountId, action: "Cập nhật hạng phòng", entity: "HangPhong",
+                entityId: req.params.id, detail: `Cập nhật hạng ${tenHangPhong.trim()}.`
+            });
+            await transaction.commit();
+            return res.json({ success: true, MaHangPhong: req.params.id });
+        } catch (error) {
+            await rollback(transaction, "CẬP NHẬT HẠNG PHÒNG");
+            return respondContractProcedureError(res, "CẬP NHẬT HẠNG PHÒNG", error, {
+                getPool, sql, fallback: "Không thể cập nhật hạng phòng."
+            });
+        }
+    });
+
+    app.get("/api/DichVu", async (_req, res) => {
+        try {
+            const result = await getPool().request().query(`
+                SELECT d.MaDichVu, d.TenDichVu, d.DonVi, d.HoatDong AS DichVuHoatDong,
+                       hp.MaHangPhong, hp.TenHangPhong, hpdv.DonGia, hpdv.CachTinh,
+                       hpdv.DoiTuongThanhToan, hpdv.HoatDong AS GiaDichVuHoatDong
+                FROM dbo.DichVu d
+                LEFT JOIN dbo.HangPhong_DichVu hpdv ON hpdv.MaDichVu = d.MaDichVu
+                LEFT JOIN dbo.HangPhong hp ON hp.MaHangPhong = hpdv.MaHangPhong
+                ORDER BY d.TenDichVu, hp.MaHangPhong
+            `);
+            const services = new Map();
+            for (const row of result.recordset) {
+                let service = services.get(row.MaDichVu);
+                if (!service) {
+                    service = {
+                        MaDichVu: row.MaDichVu, TenDichVu: row.TenDichVu, DonVi: row.DonVi,
+                        HoatDong: row.DichVuHoatDong, hangPhong: []
+                    };
+                    services.set(row.MaDichVu, service);
+                }
+                if (row.MaHangPhong) {
+                    const hasRate = row.DonGia > 0 && row.DichVuHoatDong && row.GiaDichVuHoatDong;
+                    service.hangPhong.push({
+                        MaHangPhong: row.MaHangPhong, TenHangPhong: row.TenHangPhong,
+                        DonGia: row.DonGia, CachTinh: row.CachTinh,
+                        DoiTuongThanhToan: row.DoiTuongThanhToan,
+                        HoatDong: row.GiaDichVuHoatDong,
+                        CanhBao: hasRate ? null : "chưa có đơn giá"
+                    });
+                }
+                if (!row.DichVuHoatDong || !row.DonGia || row.DonGia <= 0) {
+                    service.CanhBao = "chưa có đơn giá";
+                }
+            }
+            return res.json([...services.values()]);
+        } catch (error) {
+            return respondDatabaseError(res, "LỖI LẤY DỊCH VỤ", error, "Không thể lấy danh sách dịch vụ.");
+        }
+    });
+
+    app.post("/api/DichVu", async (req, res) => {
+        if (!isObjectBody(req.body) || !isValidId(req.body.maDichVu, 20)
+            || !isValidId(req.body.tenDichVu, 100) || !isValidId(req.body.donVi, 20)
+            || (req.body.hoatDong !== undefined && typeof req.body.hoatDong !== "boolean")) {
+            return respondRequestError(res, 400, "Mã, tên, đơn vị và trạng thái dịch vụ không hợp lệ.");
+        }
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            await new sql.Request(transaction)
+                .input("MaDichVu", sql.NVarChar(20), req.body.maDichVu.trim())
+                .input("TenDichVu", sql.NVarChar(100), req.body.tenDichVu.trim())
+                .input("DonVi", sql.NVarChar(20), req.body.donVi.trim())
+                .input("HoatDong", sql.Bit, req.body.hoatDong !== false)
+                .query(`
+                    INSERT INTO dbo.DichVu (MaDichVu, TenDichVu, DonVi, HoatDong)
+                    VALUES (@MaDichVu, @TenDichVu, @DonVi, @HoatDong)
+                `);
+            await writeSystemAudit(new sql.Request(transaction), sql, {
+                actorId: req.auth?.accountId, action: "Tạo dịch vụ", entity: "DichVu",
+                entityId: req.body.maDichVu.trim(), detail: `Tạo dịch vụ ${req.body.tenDichVu.trim()}.`
+            });
+            await transaction.commit();
+            return res.status(201).json({ success: true, MaDichVu: req.body.maDichVu.trim() });
+        } catch (error) {
+            await rollback(transaction, "TẠO DỊCH VỤ");
+            return respondContractProcedureError(res, "TẠO DỊCH VỤ", error, {
+                getPool, sql, fallback: "Không thể tạo dịch vụ."
+            });
+        }
+    });
+
+    app.put("/api/DichVu/:id", async (req, res) => {
+        if (!isValidId(req.params.id, 20) || !isObjectBody(req.body)
+            || !isValidId(req.body.tenDichVu, 100) || !isValidId(req.body.donVi, 20)
+            || (req.body.hoatDong !== undefined && typeof req.body.hoatDong !== "boolean")) {
+            return respondRequestError(res, 400, "Tên, đơn vị và trạng thái dịch vụ không hợp lệ.");
+        }
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const updated = await new sql.Request(transaction)
+                .input("MaDichVu", sql.NVarChar(20), req.params.id)
+                .input("TenDichVu", sql.NVarChar(100), req.body.tenDichVu.trim())
+                .input("DonVi", sql.NVarChar(20), req.body.donVi.trim())
+                .input("HoatDong", sql.Bit, req.body.hoatDong !== false)
+                .query(`
+                    UPDATE dbo.DichVu WITH (UPDLOCK, HOLDLOCK)
+                    SET TenDichVu = @TenDichVu, DonVi = @DonVi, HoatDong = @HoatDong
+                    WHERE MaDichVu = @MaDichVu
+                `);
+            if (!updated.rowsAffected[0]) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy dịch vụ.");
+            }
+            await writeSystemAudit(new sql.Request(transaction), sql, {
+                actorId: req.auth?.accountId, action: "Cập nhật dịch vụ", entity: "DichVu",
+                entityId: req.params.id, detail: `Cập nhật dịch vụ ${req.body.tenDichVu.trim()}.`
+            });
+            await transaction.commit();
+            return res.json({ success: true, MaDichVu: req.params.id });
+        } catch (error) {
+            await rollback(transaction, "CẬP NHẬT DỊCH VỤ");
+            return respondContractProcedureError(res, "CẬP NHẬT DỊCH VỤ", error, {
+                getPool, sql, fallback: "Không thể cập nhật dịch vụ."
+            });
+        }
+    });
+
     app.get("/api/Phong", async (req, res) => {
         try {
             const result = await getPool().request().query(`
-                SELECT p.TenPhong, p.Khu, p.LoaiPhong, p.SucChuaToiDa, p.SoSinhVienHienTai,
-                       p.TrangThaiPhong, p.GhiChu, hp.GiaPhongThang AS GiaPhong
+                SELECT p.TenPhong, p.Khu, p.LoaiPhong, p.MaHangPhong,
+                       hp.SucChuaToiDa, residents.SoSinhVienHienTai,
+                       p.TrangThaiPhong, p.GhiChu, hp.GiaPhongThang AS GiaPhong,
+                       hp.GiaPhongNam
                 FROM dbo.Phong p
                 INNER JOIN dbo.HangPhong hp ON hp.MaHangPhong = p.MaHangPhong
+                OUTER APPLY (
+                    SELECT COUNT_BIG(*) AS SoSinhVienHienTai
+                    FROM dbo.HopDong hd
+                    INNER JOIN dbo.ChiTietHopDong c ON c.MaHopDong = hd.MaHopDong
+                    WHERE hd.TenPhong = p.TenPhong
+                      AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                      AND c.TrangThai = N'Đang ở'
+                ) residents
                 ORDER BY p.Khu, p.TenPhong
             `);
             return res.json(result.recordset);
@@ -706,10 +1096,14 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
             const result = await getPool().request()
                 .input("TenPhong", sql.NVarChar(50), req.params.roomName)
                 .query(`
-                    SELECT MaSinhVien, HoTen, GioiTinh, SoDienThoai, Email, TrangThaiSinhVien
-                    FROM dbo.SinhVien
-                    WHERE TenPhong = @TenPhong AND TrangThaiSinhVien = N'Đang ở'
-                    ORDER BY HoTen, MaSinhVien
+                    SELECT c.MaSinhVien, sv.HoTen, sv.GioiTinh, sv.SoDienThoai,
+                           sv.Email, sv.TrangThaiSinhVien
+                    FROM dbo.ChiTietHopDong c
+                    INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                    INNER JOIN dbo.SinhVien sv ON sv.MaSinhVien = c.MaSinhVien
+                    WHERE hd.TenPhong = @TenPhong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                      AND c.TrangThai = N'Đang ở'
+                    ORDER BY sv.HoTen, c.MaSinhVien
                 `);
             return res.json(result.recordset);
         } catch (error) {
@@ -719,43 +1113,68 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
 
     app.post("/api/Phong", async (req, res) => {
         if (!isObjectBody(req.body)) return respondRequestError(res, 400, "Request body phải là một đối tượng JSON.");
-        const { TenPhong, Khu, LoaiPhong, SucChuaToiDa, GhiChu } = req.body;
+        const { TenPhong, Khu, LoaiPhong, SucChuaToiDa, MaHangPhong, GhiChu } = req.body;
         const roomName = stringValue(TenPhong);
         const area = stringValue(Khu);
         const roomType = stringValue(LoaiPhong);
         const capacity = SucChuaToiDa;
         if (!roomName || roomName.length > 50 || !["A", "B", "C"].includes(area)
             || !["Nam", "Nữ"].includes(roomType) || !isRoomCapacity(capacity)
-            || !isOptionalText(GhiChu, 255)) {
+            || !isOptionalText(GhiChu, 255)
+            || (MaHangPhong !== undefined && !isValidId(MaHangPhong, 20))) {
             return respondRequestError(res, 400, "Tên phòng (tối đa 50 ký tự), khu A/B/C, loại phòng Nam/Nữ, sức chứa 4/6/8 và ghi chú tối đa 255 ký tự là bắt buộc/được hỗ trợ.");
         }
 
+        const transaction = new sql.Transaction(getPool());
         try {
-            await getPool().request()
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const tier = await new sql.Request(transaction)
+                .input("MaHangPhong", sql.NVarChar(20), stringValue(MaHangPhong) || null)
+                .input("SucChuaToiDa", sql.Int, capacity)
+                .query(`
+                    SELECT TOP (1) MaHangPhong, SucChuaToiDa
+                    FROM dbo.HangPhong WITH (UPDLOCK, HOLDLOCK)
+                    WHERE (@MaHangPhong IS NULL AND SucChuaToiDa = @SucChuaToiDa)
+                       OR (@MaHangPhong IS NOT NULL AND MaHangPhong = @MaHangPhong)
+                    ORDER BY MaHangPhong
+                `);
+            if (!tier.recordset.length || tier.recordset[0].SucChuaToiDa !== capacity) {
+                await transaction.rollback();
+                return respondRequestError(res, 400, "Sức chứa không khớp với hạng phòng đã chọn.");
+            }
+            await new sql.Request(transaction)
                 .input("TenPhong", sql.NVarChar(50), roomName)
                 .input("Khu", sql.NVarChar(10), area)
                 .input("LoaiPhong", sql.NVarChar(10), roomType)
                 .input("SucChuaToiDa", sql.Int, capacity)
+                .input("MaHangPhong", sql.NVarChar(20), tier.recordset[0].MaHangPhong)
                 .input("GhiChu", sql.NVarChar(255), stringValue(GhiChu) || null)
                 .query(`
                     INSERT INTO dbo.Phong
-                        (TenPhong, Khu, LoaiPhong, SucChuaToiDa, SoSinhVienHienTai, TrangThaiPhong, GhiChu)
+                        (TenPhong, Khu, LoaiPhong, SucChuaToiDa, MaHangPhong,
+                         SoSinhVienHienTai, TrangThaiPhong, GhiChu)
                     VALUES
-                        (@TenPhong, @Khu, @LoaiPhong, @SucChuaToiDa, 0, N'Trống', @GhiChu)
+                        (@TenPhong, @Khu, @LoaiPhong, @SucChuaToiDa, @MaHangPhong,
+                         0, N'Trống', @GhiChu)
                 `);
+            await writeSystemAudit(new sql.Request(transaction), sql, {
+                actorId: req.auth?.accountId, action: "Tạo phòng", entity: "Phong",
+                entityId: roomName, detail: `Tạo phòng thuộc hạng ${tier.recordset[0].MaHangPhong}.`
+            });
+            await transaction.commit();
             return res.status(201).json({ success: true, TenPhong: roomName });
         } catch (error) {
-            if (error.number === 2627 || error.number === 2601) {
-                return respondRequestError(res, 409, "Tên phòng đã tồn tại.");
-            }
-            return respondDatabaseError(res, "LỖI TẠO PHÒNG", error, "Không thể tạo phòng.");
+            await rollback(transaction, "TẠO PHÒNG");
+            return respondContractProcedureError(res, "TẠO PHÒNG", error, {
+                getPool, sql, fallback: "Không thể tạo phòng."
+            });
         }
     });
 
     app.put("/api/Phong/:id", async (req, res) => {
         if (!isValidId(req.params.id, 50)) return respondRequestError(res, 400, "Tên phòng không hợp lệ.");
         if (!isObjectBody(req.body)) return respondRequestError(res, 400, "Request body phải là một đối tượng JSON.");
-        const { Khu, LoaiPhong, SucChuaToiDa, TrangThaiPhong, GhiChu } = req.body;
+        const { Khu, LoaiPhong, SucChuaToiDa, MaHangPhong, TrangThaiPhong, GhiChu } = req.body;
         const area = stringValue(Khu);
         const roomType = stringValue(LoaiPhong);
         const capacity = SucChuaToiDa;
@@ -763,28 +1182,93 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
         if (!["A", "B", "C"].includes(area) || !["Nam", "Nữ"].includes(roomType)
             || !isRoomCapacity(capacity)
             || !["Trống", "Đầy", "Bảo trì", "Ngưng sử dụng"].includes(status)
-            || !isOptionalText(GhiChu, 255)) {
+            || !isOptionalText(GhiChu, 255)
+            || (MaHangPhong !== undefined && !isValidId(MaHangPhong, 20))) {
             return respondRequestError(res, 400, "Khu A/B/C, loại phòng Nam/Nữ, sức chứa 4/6/8, trạng thái hợp lệ và ghi chú tối đa 255 ký tự là bắt buộc/được hỗ trợ.");
         }
 
+        const transaction = new sql.Transaction(getPool());
         try {
-            const result = await getPool().request()
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const tier = await new sql.Request(transaction)
+                .input("MaHangPhong", sql.NVarChar(20), stringValue(MaHangPhong) || null)
+                .input("SucChuaToiDa", sql.Int, capacity)
+                .query(`
+                    SELECT TOP (1) MaHangPhong, SucChuaToiDa
+                    FROM dbo.HangPhong WITH (UPDLOCK, HOLDLOCK)
+                    WHERE (@MaHangPhong IS NULL AND SucChuaToiDa = @SucChuaToiDa)
+                       OR (@MaHangPhong IS NOT NULL AND MaHangPhong = @MaHangPhong)
+                    ORDER BY MaHangPhong
+                `);
+            if (!tier.recordset.length || tier.recordset[0].SucChuaToiDa !== capacity) {
+                await transaction.rollback();
+                return respondRequestError(res, 400, "Sức chứa không khớp với hạng phòng đã chọn.");
+            }
+            const currentRoom = await new sql.Request(transaction)
+                .input("TenPhong", sql.NVarChar(50), req.params.id)
+                .input("LoaiPhong", sql.NVarChar(10), roomType)
+                .query(`
+                    SELECT p.MaHangPhong,
+                           (SELECT COUNT_BIG(*)
+                            FROM dbo.HopDong hd
+                            INNER JOIN dbo.ChiTietHopDong c ON c.MaHopDong = hd.MaHopDong
+                            WHERE hd.TenPhong = p.TenPhong
+                              AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                              AND c.TrangThai = N'Đang ở') AS SoSinhVienHienTai,
+                           CASE WHEN EXISTS (
+                               SELECT 1
+                               FROM dbo.HopDong hd
+                               INNER JOIN dbo.ChiTietHopDong c ON c.MaHopDong = hd.MaHopDong
+                               INNER JOIN dbo.SinhVien sv ON sv.MaSinhVien = c.MaSinhVien
+                               WHERE hd.TenPhong = p.TenPhong
+                                 AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                                 AND c.TrangThai = N'Đang ở'
+                                 AND sv.GioiTinh <> @LoaiPhong
+                           ) THEN 1 ELSE 0 END AS SaiGioiTinh
+                    FROM dbo.Phong p WITH (UPDLOCK, HOLDLOCK)
+                    WHERE p.TenPhong = @TenPhong
+                `);
+            if (!currentRoom.recordset.length) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy phòng.");
+            }
+            if (Number(currentRoom.recordset[0].SoSinhVienHienTai) > capacity
+                || currentRoom.recordset[0].SaiGioiTinh
+                || (Number(currentRoom.recordset[0].SoSinhVienHienTai) > 0
+                    && currentRoom.recordset[0].MaHangPhong !== tier.recordset[0].MaHangPhong)) {
+                await transaction.rollback();
+                return respondRequestError(res, 409, "Không thể đổi hạng, sức chứa hoặc giới tính phòng khi đang có thành viên không phù hợp.");
+            }
+            const result = await new sql.Request(transaction)
                 .input("TenPhong", sql.NVarChar(50), req.params.id)
                 .input("Khu", sql.NVarChar(10), area)
                 .input("LoaiPhong", sql.NVarChar(10), roomType)
                 .input("SucChuaToiDa", sql.Int, capacity)
+                .input("MaHangPhong", sql.NVarChar(20), tier.recordset[0].MaHangPhong)
                 .input("TrangThaiPhong", sql.NVarChar(20), status)
                 .input("GhiChu", sql.NVarChar(255), stringValue(GhiChu) || null)
                 .query(`
                     UPDATE dbo.Phong
                     SET Khu = @Khu, LoaiPhong = @LoaiPhong, SucChuaToiDa = @SucChuaToiDa,
+                        MaHangPhong = @MaHangPhong,
                         TrangThaiPhong = @TrangThaiPhong, GhiChu = @GhiChu
                     WHERE TenPhong = @TenPhong
                 `);
-            if (result.rowsAffected[0] === 0) return respondRequestError(res, 404, "Không tìm thấy phòng.");
+            if (result.rowsAffected[0] === 0) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy phòng.");
+            }
+            await writeSystemAudit(new sql.Request(transaction), sql, {
+                actorId: req.auth?.accountId, action: "Cập nhật phòng", entity: "Phong",
+                entityId: req.params.id, detail: `Cập nhật phòng thuộc hạng ${tier.recordset[0].MaHangPhong}.`
+            });
+            await transaction.commit();
             return res.json({ success: true });
         } catch (error) {
-            return respondDatabaseError(res, "LỖI CẬP NHẬT PHÒNG", error, "Không thể cập nhật phòng.");
+            await rollback(transaction, "CẬP NHẬT PHÒNG");
+            return respondContractProcedureError(res, "CẬP NHẬT PHÒNG", error, {
+                getPool, sql, fallback: "Không thể cập nhật phòng."
+            });
         }
     });
 
@@ -872,8 +1356,10 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
                         tk.TrangThai AS TrangThaiTaiKhoan
                     FROM dbo.SinhVien sv
                     LEFT JOIN dbo.Phong p ON p.TenPhong = sv.TenPhong
+                    LEFT JOIN dbo.ChiTietHopDong c
+                        ON c.MaSinhVien = sv.MaSinhVien AND c.TrangThai = N'Đang ở'
                     LEFT JOIN dbo.HopDong hd
-                        ON hd.MaSinhVien = sv.MaSinhVien AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                        ON hd.MaHopDong = c.MaHopDong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
                     LEFT JOIN dbo.TaiKhoan tk ON tk.MaSinhVien = sv.MaSinhVien
                     WHERE sv.MaSinhVien = @MaSinhVien
                     ORDER BY hd.NgayKetThuc DESC
@@ -929,8 +1415,33 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
             return respondRequestError(res, 400, "Sinh viên mới phải có trạng thái 'Đang ở'.");
         }
 
+        const requestedStart = body.NgayBatDau ?? null;
+        const requestedEnd = body.NgayKetThuc ?? null;
+        const term = body.KyHanThanhToanPhong ?? "THANG";
+        if ((requestedStart !== null || requestedEnd !== null)
+            && (!isDateOnly(requestedStart) || !isDateOnly(requestedEnd) || requestedEnd <= requestedStart)) {
+            return respondRequestError(res, 400, "Ngày bắt đầu và kết thúc hợp đồng phải hợp lệ, ngày kết thúc sau ngày bắt đầu.");
+        }
+        if (!["THANG", "NAM"].includes(term)) {
+            return respondRequestError(res, 400, "Kỳ hạn tiền phòng chỉ nhận THANG hoặc NAM.");
+        }
+
+        const transaction = new sql.Transaction(getPool());
         try {
-            await getPool().request()
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const roomRow = await new sql.Request(transaction)
+                .input("TenPhong", sql.NVarChar(50), room)
+                .query(`
+                    SELECT p.MaHangPhong
+                    FROM dbo.Phong p WITH (UPDLOCK, HOLDLOCK)
+                    INNER JOIN dbo.HangPhong hp ON hp.MaHangPhong = p.MaHangPhong
+                    WHERE p.TenPhong = @TenPhong
+                `);
+            if (!roomRow.recordset.length) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy phòng hoặc hạng phòng.");
+            }
+            await new sql.Request(transaction)
                 .input("MaSinhVien", sql.NVarChar(30), studentId)
                 .input("HoTen", sql.NVarChar(100), name)
                 .input("NgaySinh", sql.Date, birthday || null)
@@ -938,25 +1449,67 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
                 .input("SoDienThoai", sql.Char(10), phone)
                 .input("Email", sql.NVarChar(100), email)
                 .input("DiaChi", sql.NVarChar(255), address || null)
-                .input("TenPhong", sql.NVarChar(50), room)
                 .input("GhiChu", sql.NVarChar(255), note || null)
                 .query(`
                     INSERT INTO dbo.SinhVien
                         (MaSinhVien, HoTen, NgaySinh, GioiTinh, SoDienThoai, Email, DiaChi,
-                         TrangThaiSinhVien, TenPhong, GhiChu)
+                         TrangThaiSinhVien, GhiChu)
                     VALUES
                         (@MaSinhVien, @HoTen, @NgaySinh, @GioiTinh, @SoDienThoai, @Email, @DiaChi,
-                         N'Đang ở', @TenPhong, @GhiChu)
+                         NULL, @GhiChu)
                 `);
+
+            const activeContract = await new sql.Request(transaction)
+                .input("TenPhong", sql.NVarChar(50), room)
+                .query(`
+                    SELECT TOP (1) hd.MaHopDong,
+                           CONVERT(bit, CASE WHEN EXISTS (
+                               SELECT 1 FROM dbo.ChiTietHopDong c
+                               WHERE c.MaHopDong = hd.MaHopDong AND c.TrangThai = N'Đang ở'
+                                 AND c.LaNguoiDaiDienThanhToanDichVu = 1
+                           ) THEN 0 ELSE 1 END) AS LaNguoiDaiDien
+                    FROM dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK)
+                    WHERE hd.TenPhong = @TenPhong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                    ORDER BY hd.MaHopDong
+                `);
+            if (activeContract.recordset.length) {
+                await new sql.Request(transaction)
+                    .input("MaHopDong", sql.NVarChar(20), activeContract.recordset[0].MaHopDong)
+                    .input("MaSinhVien", sql.NVarChar(30), studentId)
+                    .input("KyHanThanhToanPhong", sql.NVarChar(10), term)
+                    .input("LaNguoiDaiDien", sql.Bit, activeContract.recordset[0].LaNguoiDaiDien)
+                    .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                    .execute("dbo.sp_ThemSinhVienVaoHopDong");
+            } else {
+                let startDate = requestedStart;
+                let endDate = requestedEnd;
+                if (!startDate) {
+                    const defaults = await new sql.Request(transaction).query(`
+                        SELECT CAST(GETDATE() AS date) AS NgayBatDau,
+                               DATEADD(year, 1, CAST(GETDATE() AS date)) AS NgayKetThuc
+                    `);
+                    startDate = defaults.recordset[0].NgayBatDau;
+                    endDate = defaults.recordset[0].NgayKetThuc;
+                }
+                await new sql.Request(transaction)
+                    .input("TenPhong", sql.NVarChar(50), room)
+                    .input("NgayBatDau", sql.Date, startDate)
+                    .input("NgayKetThuc", sql.Date, endDate)
+                    .input("SinhVienJson", sql.NVarChar(sql.MAX), JSON.stringify([{
+                        maSinhVien: studentId,
+                        kyHanThanhToanPhong: term,
+                        laNguoiDaiDien: true
+                    }]))
+                    .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                    .execute("dbo.sp_TaoHopDong");
+            }
+            await transaction.commit();
             return res.status(201).json({ success: true, MaSinhVien: studentId });
         } catch (error) {
-            if (error.number === 2627 || error.number === 2601) {
-                return respondRequestError(res, 409, "Mã sinh viên hoặc email đã tồn tại.");
-            }
-            if (error.number === 547 || error.number === 50000) {
-                return respondRequestError(res, 409, "Phòng không hợp lệ, đã đầy hoặc không phù hợp với giới tính.");
-            }
-            return respondDatabaseError(res, "LỖI TẠO SINH VIÊN", error, "Không thể tạo sinh viên.");
+            await rollback(transaction, "TẠO SINH VIÊN VÀ GÁN PHÒNG");
+            return respondContractProcedureError(res, "TẠO SINH VIÊN VÀ GÁN PHÒNG", error, {
+                getPool, sql, fallback: "Không thể tạo sinh viên hoặc xếp phòng."
+            });
         }
     });
 
@@ -989,8 +1542,51 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
         });
         if (validationMessage) return respondRequestError(res, 400, validationMessage);
 
+        const requestedStart = bodyValue(body, "ngayBatDau", "NgayBatDau") ?? null;
+        const requestedEnd = bodyValue(body, "ngayKetThuc", "NgayKetThuc") ?? null;
+        const term = bodyValue(body, "kyHanThanhToanPhong", "KyHanThanhToanPhong") ?? "THANG";
+        if ((requestedStart !== null || requestedEnd !== null)
+            && (!isDateOnly(requestedStart) || !isDateOnly(requestedEnd) || requestedEnd <= requestedStart)) {
+            return respondRequestError(res, 400, "Ngày bắt đầu và kết thúc hợp đồng phải hợp lệ, ngày kết thúc sau ngày bắt đầu.");
+        }
+        if (!["THANG", "NAM"].includes(term)) {
+            return respondRequestError(res, 400, "Kỳ hạn tiền phòng chỉ nhận THANG hoặc NAM.");
+        }
+
+        const transaction = new sql.Transaction(getPool());
         try {
-            const result = await getPool().request()
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const existing = await new sql.Request(transaction)
+                .input("MaSinhVienCu", sql.NVarChar(30), req.params.mssv)
+                .query(`
+                    SELECT sv.MaSinhVien, sv.TenPhong,
+                           active.MaChiTiet, active.MaHopDong, active.TenPhong AS PhongHopDong
+                    FROM dbo.SinhVien sv WITH (UPDLOCK, HOLDLOCK)
+                    OUTER APPLY (
+                        SELECT TOP (1) c.MaChiTiet, c.MaHopDong, hd.TenPhong
+                        FROM dbo.ChiTietHopDong c WITH (UPDLOCK, HOLDLOCK)
+                        INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                        WHERE c.MaSinhVien = sv.MaSinhVien AND c.TrangThai = N'Đang ở'
+                          AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                        ORDER BY c.NgayVao DESC, c.MaChiTiet DESC
+                    ) active
+                    WHERE sv.MaSinhVien = @MaSinhVienCu
+                `);
+            const current = existing.recordset[0];
+            if (!current) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy sinh viên.");
+            }
+            if (studentId !== req.params.mssv) {
+                const history = await new sql.Request(transaction)
+                    .input("MaSinhVien", sql.NVarChar(30), req.params.mssv)
+                    .query("SELECT TOP (1) 1 AS CoHopDong FROM dbo.ChiTietHopDong WHERE MaSinhVien = @MaSinhVien");
+                if (history.recordset.length) {
+                    await transaction.rollback();
+                    return respondRequestError(res, 409, "Không thể đổi mã sinh viên đã có lịch sử hợp đồng.");
+                }
+            }
+            const profile = await new sql.Request(transaction)
                 .input("MaSinhVienCu", sql.NVarChar(30), req.params.mssv)
                 .input("MaSinhVien", sql.NVarChar(30), studentId)
                 .input("HoTen", sql.NVarChar(100), name)
@@ -999,267 +1595,507 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
                 .input("SoDienThoai", sql.Char(10), phone)
                 .input("Email", sql.NVarChar(100), email)
                 .input("DiaChi", sql.NVarChar(255), address || null)
-                .input("TenPhong", sql.NVarChar(50), status === "Đang ở" ? room : null)
-                .input("TrangThaiSinhVien", sql.NVarChar(20), status)
                 .input("GhiChu", sql.NVarChar(255), note || null)
                 .query(`
                     UPDATE dbo.SinhVien
                     SET MaSinhVien = @MaSinhVien, HoTen = @HoTen, NgaySinh = @NgaySinh,
                         GioiTinh = @GioiTinh, SoDienThoai = @SoDienThoai, Email = @Email,
-                        DiaChi = @DiaChi, TenPhong = @TenPhong, TrangThaiSinhVien = @TrangThaiSinhVien,
-                        NgayRoiKTX = CASE WHEN @TrangThaiSinhVien = N'Đang ở' THEN NULL ELSE CAST(GETDATE() AS date) END,
-                        GhiChu = @GhiChu
+                        DiaChi = @DiaChi, GhiChu = @GhiChu
                     WHERE MaSinhVien = @MaSinhVienCu
                 `);
-            if (result.rowsAffected[0] === 0) return respondRequestError(res, 404, "Không tìm thấy sinh viên.");
-            return res.json({ success: true, MaSinhVien: studentId });
-        } catch (error) {
-            if (error.number === 2627 || error.number === 2601) {
-                return respondRequestError(res, 409, "Mã sinh viên hoặc email đã tồn tại.");
-            }
-            if (error.number === 547 || error.number === 50000) {
-                return respondRequestError(res, 409, "Không thể đổi phòng hoặc trạng thái theo thông tin đã chọn.");
-            }
-            return respondDatabaseError(res, "LỖI CẬP NHẬT SINH VIÊN", error, "Không thể cập nhật sinh viên.");
-        }
-    });
-
-    app.get("/api/HopDong", async (req, res) => {
-        try {
-            const result = await getPool().request().query(`
-                SELECT hd.MaHopDong, hd.MaSinhVien, sv.HoTen, hd.TenPhong,
-                       hd.NgayBatDau, hd.NgayKetThuc, hd.TrangThaiHopDong, hd.GhiChu,
-                       hd.SoLanGiaHan, hd.NgayKetThucThucTe
-                FROM dbo.HopDong hd
-                INNER JOIN dbo.SinhVien sv ON sv.MaSinhVien = hd.MaSinhVien
-                ORDER BY hd.NgayBatDau DESC, hd.MaHopDong DESC
-            `);
-            return res.json(result.recordset);
-        } catch (error) {
-            return respondDatabaseError(res, "LỖI LẤY DANH SÁCH HỢP ĐỒNG", error, "Không thể lấy danh sách hợp đồng.");
-        }
-    });
-
-    app.post("/api/HopDong", async (req, res) => {
-        if (!isObjectBody(req.body)) return respondRequestError(res, 400, "Request body phải là một đối tượng JSON.");
-        const studentId = stringValue(req.body.MaSinhVien);
-        const room = stringValue(req.body.TenPhong);
-        const startDate = req.body.NgayBatDau;
-        const endDate = req.body.NgayKetThuc;
-        const note = typeof req.body.GhiChu === "string" ? req.body.GhiChu.trim() : "";
-        if (!isValidId(req.body.MaSinhVien, 30) || !isValidId(req.body.TenPhong, 50)
-            || !isDateOnly(startDate) || !isDateOnly(endDate)
-            || endDate <= startDate || !isOptionalText(req.body.GhiChu, 255)) {
-            return respondRequestError(res, 400, "Mã sinh viên và phòng là bắt buộc; ngày bắt đầu/kết thúc phải là ngày hợp lệ theo YYYY-MM-DD, ngày kết thúc phải sau ngày bắt đầu và ghi chú tối đa 255 ký tự.");
-        }
-
-        const transaction = new sql.Transaction(getPool());
-        try {
-            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
-            const studentResult = await new sql.Request(transaction)
-                .input("MaSinhVien", sql.NVarChar(30), studentId)
-                .query(`
-                    SELECT MaSinhVien, HoTen, TenPhong, GioiTinh, TrangThaiSinhVien
-                    FROM dbo.SinhVien WITH (UPDLOCK, HOLDLOCK)
-                    WHERE MaSinhVien = @MaSinhVien
-                `);
-            const student = studentResult.recordset[0];
-            if (!student) {
+            if (!profile.rowsAffected[0]) {
                 await transaction.rollback();
                 return respondRequestError(res, 404, "Không tìm thấy sinh viên.");
             }
-
-            const existing = await new sql.Request(transaction)
-                .input("MaSinhVien", sql.NVarChar(30), studentId)
-                .query(`
-                    SELECT TOP (1) MaHopDong
-                    FROM dbo.HopDong WITH (UPDLOCK, HOLDLOCK)
-                    WHERE MaSinhVien = @MaSinhVien AND TrangThaiHopDong = N'Còn hiệu lực'
-                `);
-            if (existing.recordset.length) {
-                await transaction.rollback();
-                return respondRequestError(res, 409, "Sinh viên đã có hợp đồng còn hiệu lực.");
-            }
-
-            const roomResult = await new sql.Request(transaction)
-                .input("TenPhong", sql.NVarChar(50), room)
-                .query(`
-                    SELECT LoaiPhong, TrangThaiPhong, SucChuaToiDa, SoSinhVienHienTai
-                    FROM dbo.Phong WITH (UPDLOCK, HOLDLOCK)
-                    WHERE TenPhong = @TenPhong
-                `);
-            const roomInfo = roomResult.recordset[0];
-            if (!roomInfo) {
-                await transaction.rollback();
-                return respondRequestError(res, 404, "Không tìm thấy phòng.");
-            }
-            if (student.GioiTinh !== roomInfo.LoaiPhong
-                || ["Bảo trì", "Ngưng sử dụng"].includes(roomInfo.TrangThaiPhong)
-                || (student.TenPhong !== room && roomInfo.SoSinhVienHienTai >= roomInfo.SucChuaToiDa)) {
-                await transaction.rollback();
-                return respondRequestError(res, 409, "Phòng không khả dụng hoặc không phù hợp với sinh viên.");
-            }
-
-            const sequenceResult = await new sql.Request(transaction)
-                .query("SELECT NEXT VALUE FOR dbo.Seq_MaHopDong AS SoThuTu");
-            const contractId = `HD${String(sequenceResult.recordset[0].SoThuTu).padStart(5, "0")}`;
-            await new sql.Request(transaction)
-                .input("MaHopDong", sql.NVarChar(20), contractId)
-                .input("MaSinhVien", sql.NVarChar(30), studentId)
-                .input("TenPhong", sql.NVarChar(50), room)
-                .input("NgayBatDau", sql.Date, startDate)
-                .input("NgayKetThuc", sql.Date, endDate)
-                .input("GhiChu", sql.NVarChar(255), note || null)
-                .query(`
-                    INSERT INTO dbo.HopDong
-                        (MaHopDong, MaSinhVien, TenPhong, NgayBatDau, NgayKetThuc,
-                         TrangThaiHopDong, NgayTao, GhiChu)
-                    VALUES
-                        (@MaHopDong, @MaSinhVien, @TenPhong, @NgayBatDau, @NgayKetThuc,
-                         N'Còn hiệu lực', CAST(GETDATE() AS date), @GhiChu)
-                `);
-            await new sql.Request(transaction)
-                .input("MaSinhVien", sql.NVarChar(30), studentId)
-                .input("TenPhong", sql.NVarChar(50), room)
-                .query(`
-                    UPDATE dbo.SinhVien
-                    SET TenPhong = @TenPhong, TrangThaiSinhVien = N'Đang ở', NgayRoiKTX = NULL
-                    WHERE MaSinhVien = @MaSinhVien
-                `);
-            await addContractHistory(new sql.Request(transaction), sql, {
-                contractId, studentId, studentName: student.HoTen, room, startDate, endDate,
-                status: "Còn hiệu lực", action: "Tạo mới"
+            await writeSystemAudit(new sql.Request(transaction), sql, {
+                actorId: req.auth?.accountId,
+                action: "Cập nhật hồ sơ sinh viên",
+                entity: "SinhVien",
+                entityId: studentId,
+                detail: `Cập nhật hồ sơ và trạng thái lưu trú cho ${studentId}.`
             });
-            await transaction.commit();
-            return res.status(201).json({ success: true, MaHopDong: contractId });
-        } catch (error) {
-            await rollback(transaction, "TẠO HỢP ĐỒNG");
-            return respondDatabaseError(res, "LỖI TẠO HỢP ĐỒNG", error, "Không thể tạo hợp đồng.");
-        }
-    });
 
-    app.put("/api/HopDong/extend/:id", async (req, res) => {
-        if (!isValidId(req.params.id, 20)) return respondRequestError(res, 400, "Mã hợp đồng không hợp lệ.");
-        if (!isObjectBody(req.body)) return respondRequestError(res, 400, "Request body phải là một đối tượng JSON.");
-        const endDate = req.body.NgayKetThuc;
-        if (!isDateOnly(endDate)) return respondRequestError(res, 400, "Ngày kết thúc phải là ngày hợp lệ theo YYYY-MM-DD.");
-
-        const transaction = new sql.Transaction(getPool());
-        try {
-            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
-            const currentResult = await new sql.Request(transaction)
-                .input("MaHopDong", sql.NVarChar(20), req.params.id)
-                .query(`
-                    SELECT hd.MaHopDong, hd.MaSinhVien, sv.HoTen, hd.TenPhong, hd.NgayBatDau,
-                           hd.NgayKetThuc, hd.TrangThaiHopDong
-                    FROM dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK)
-                    INNER JOIN dbo.SinhVien sv ON sv.MaSinhVien = hd.MaSinhVien
-                    WHERE hd.MaHopDong = @MaHopDong
-                `);
-            const contract = currentResult.recordset[0];
-            if (!contract) {
-                await transaction.rollback();
-                return respondRequestError(res, 404, "Không tìm thấy hợp đồng.");
-            }
-            if (contract.TrangThaiHopDong !== "Còn hiệu lực" || endDate <= contract.NgayKetThuc.toISOString().slice(0, 10)) {
-                await transaction.rollback();
-                return respondRequestError(res, 409, "Chỉ có thể gia hạn hợp đồng còn hiệu lực đến ngày sau hạn hiện tại.");
-            }
-            await new sql.Request(transaction)
-                .input("MaHopDong", sql.NVarChar(20), contract.MaHopDong)
-                .input("NgayKetThuc", sql.Date, endDate)
-                .query(`
-                    UPDATE dbo.HopDong
-                    SET NgayKetThucGoc = COALESCE(NgayKetThucGoc, NgayKetThuc),
-                        NgayKetThuc = @NgayKetThuc, SoLanGiaHan = SoLanGiaHan + 1
-                    WHERE MaHopDong = @MaHopDong
-                `);
-            await addContractHistory(new sql.Request(transaction), sql, {
-                contractId: contract.MaHopDong, studentId: contract.MaSinhVien, studentName: contract.HoTen,
-                room: contract.TenPhong, startDate: contract.NgayBatDau, endDate,
-                status: "Còn hiệu lực", action: "Gia hạn"
-            });
-            await transaction.commit();
-            return res.status(200).send("Gia hạn hợp đồng thành công.");
-        } catch (error) {
-            await rollback(transaction, "GIA HẠN HỢP ĐỒNG");
-            return respondDatabaseError(res, "LỖI GIA HẠN HỢP ĐỒNG", error, "Không thể gia hạn hợp đồng.");
-        }
-    });
-
-    app.put("/api/HopDong/end/:id", async (req, res) => {
-        if (!isValidId(req.params.id, 20)) return respondRequestError(res, 400, "Mã hợp đồng không hợp lệ.");
-        const transaction = new sql.Transaction(getPool());
-        try {
-            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
-            const contractResult = await new sql.Request(transaction)
-                .input("MaHopDong", sql.NVarChar(20), req.params.id)
-                .query(`
-                    SELECT hd.MaHopDong, hd.MaSinhVien, sv.HoTen, hd.TenPhong,
-                           hd.NgayBatDau, hd.NgayKetThuc, hd.TrangThaiHopDong
-                    FROM dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK)
-                    INNER JOIN dbo.SinhVien sv ON sv.MaSinhVien = hd.MaSinhVien
-                    WHERE hd.MaHopDong = @MaHopDong
-                `);
-            const contract = contractResult.recordset[0];
-            if (!contract) {
-                await transaction.rollback();
-                return respondRequestError(res, 404, "Không tìm thấy hợp đồng.");
-            }
-            if (contract.TrangThaiHopDong !== "Còn hiệu lực") {
-                await transaction.rollback();
-                return respondRequestError(res, 409, "Hợp đồng không còn hiệu lực.");
-            }
-
-            await addContractHistory(new sql.Request(transaction), sql, {
-                contractId: contract.MaHopDong, studentId: contract.MaSinhVien, studentName: contract.HoTen,
-                room: contract.TenPhong, startDate: contract.NgayBatDau, endDate: contract.NgayKetThuc,
-                status: "Đã kết thúc", action: "Kết thúc"
-            });
-            await new sql.Request(transaction)
-                .input("MaHopDong", sql.NVarChar(20), contract.MaHopDong)
-                .query(`
-                    UPDATE dbo.HopDong
-                    SET TrangThaiHopDong = N'Đã kết thúc',
-                        NgayKetThucThucTe = CAST(GETDATE() AS date)
-                    WHERE MaHopDong = @MaHopDong
-                `);
-            const activeContractResult = await new sql.Request(transaction)
-                .input("MaSinhVien", sql.NVarChar(30), contract.MaSinhVien)
-                .query(`
-                    SELECT TOP (1) 1 AS existsActive
-                    FROM dbo.HopDong
-                    WHERE MaSinhVien = @MaSinhVien AND TrangThaiHopDong = N'Còn hiệu lực'
-                `);
-            if (!activeContractResult.recordset.length) {
+            if (status === "Đang ở") {
+                if (current.MaChiTiet) {
+                    if (current.PhongHopDong !== room) {
+                        await new sql.Request(transaction)
+                            .input("MaSinhVien", sql.NVarChar(30), studentId)
+                            .input("PhongMoi", sql.NVarChar(50), room)
+                            .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                            .execute("dbo.sp_ChuyenPhong");
+                    }
+                } else {
+                    const roomRow = await new sql.Request(transaction)
+                        .input("TenPhong", sql.NVarChar(50), room)
+                        .query(`
+                            SELECT p.MaHangPhong
+                            FROM dbo.Phong p WITH (UPDLOCK, HOLDLOCK)
+                            INNER JOIN dbo.HangPhong hp ON hp.MaHangPhong = p.MaHangPhong
+                            WHERE p.TenPhong = @TenPhong
+                        `);
+                    if (!roomRow.recordset.length) {
+                        await transaction.rollback();
+                        return respondRequestError(res, 404, "Không tìm thấy phòng hoặc hạng phòng.");
+                    }
+                    const activeContract = await new sql.Request(transaction)
+                        .input("TenPhong", sql.NVarChar(50), room)
+                        .query(`
+                            SELECT TOP (1) hd.MaHopDong,
+                                   CONVERT(bit, CASE WHEN EXISTS (
+                                       SELECT 1 FROM dbo.ChiTietHopDong c
+                                       WHERE c.MaHopDong = hd.MaHopDong AND c.TrangThai = N'Đang ở'
+                                         AND c.LaNguoiDaiDienThanhToanDichVu = 1
+                                   ) THEN 0 ELSE 1 END) AS LaNguoiDaiDien
+                            FROM dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK)
+                            WHERE hd.TenPhong = @TenPhong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                            ORDER BY hd.MaHopDong
+                        `);
+                    if (activeContract.recordset.length) {
+                        await new sql.Request(transaction)
+                            .input("MaHopDong", sql.NVarChar(20), activeContract.recordset[0].MaHopDong)
+                            .input("MaSinhVien", sql.NVarChar(30), studentId)
+                            .input("KyHanThanhToanPhong", sql.NVarChar(10), term)
+                            .input("LaNguoiDaiDien", sql.Bit, activeContract.recordset[0].LaNguoiDaiDien)
+                            .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                            .execute("dbo.sp_ThemSinhVienVaoHopDong");
+                    } else {
+                        let startDate = requestedStart;
+                        let endDate = requestedEnd;
+                        if (!startDate) {
+                            const defaults = await new sql.Request(transaction).query(`
+                                SELECT CAST(GETDATE() AS date) AS NgayBatDau,
+                                       DATEADD(year, 1, CAST(GETDATE() AS date)) AS NgayKetThuc
+                            `);
+                            startDate = defaults.recordset[0].NgayBatDau;
+                            endDate = defaults.recordset[0].NgayKetThuc;
+                        }
+                        await new sql.Request(transaction)
+                            .input("TenPhong", sql.NVarChar(50), room)
+                            .input("NgayBatDau", sql.Date, startDate)
+                            .input("NgayKetThuc", sql.Date, endDate)
+                            .input("SinhVienJson", sql.NVarChar(sql.MAX), JSON.stringify([{
+                                maSinhVien: studentId,
+                                kyHanThanhToanPhong: term,
+                                laNguoiDaiDien: true
+                            }]))
+                            .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                            .execute("dbo.sp_TaoHopDong");
+                    }
+                }
+            } else if (current.MaChiTiet) {
                 await new sql.Request(transaction)
-                    .input("MaSinhVien", sql.NVarChar(30), contract.MaSinhVien)
+                    .input("MaChiTiet", sql.Int, current.MaChiTiet)
+                    .input("NgayRa", sql.Date, null)
+                    .input("LyDoRoi", sql.NVarChar(100), "Cập nhật trạng thái sinh viên")
+                    .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                    .execute("dbo.sp_SinhVienRoiHopDong");
+            } else {
+                await new sql.Request(transaction)
+                    .input("MaSinhVien", sql.NVarChar(30), studentId)
                     .query(`
                         UPDATE dbo.SinhVien
-                        SET TrangThaiSinhVien = N'Đã rời KTX', TenPhong = NULL,
+                        SET TrangThaiSinhVien = N'Đã rời KTX',
                             NgayRoiKTX = CAST(GETDATE() AS date)
                         WHERE MaSinhVien = @MaSinhVien
                     `);
             }
             await transaction.commit();
-            return res.status(200).send("Kết thúc hợp đồng thành công.");
+            return res.json({ success: true, MaSinhVien: studentId });
         } catch (error) {
-            await rollback(transaction, "KẾT THÚC HỢP ĐỒNG");
-            return respondDatabaseError(res, "LỖI KẾT THÚC HỢP ĐỒNG", error, "Không thể kết thúc hợp đồng.");
+            await rollback(transaction, "CẬP NHẬT SINH VIÊN VÀ PHÒNG");
+            return respondContractProcedureError(res, "CẬP NHẬT SINH VIÊN VÀ PHÒNG", error, {
+                getPool, sql, fallback: "Không thể cập nhật sinh viên hoặc phòng."
+            });
         }
     });
 
-    app.get("/api/history", async (req, res) => {
+    const contractQuery = `
+        SELECT hd.MaHopDong, hd.TenPhong, hd.MaHangPhong, hd.NgayBatDau, hd.NgayKetThuc,
+               hd.TrangThaiHopDong, hd.GhiChu, hd.SoLanGiaHan, hd.NgayKetThucThucTe,
+               c.MaChiTiet, c.MaSinhVien, sv.HoTen, c.NgayVao, c.NgayRa,
+               c.KyHanThanhToanPhong, c.GiaPhongApDung, c.GiaPhongThangApDung,
+               c.LaNguoiDaiDienThanhToanDichVu, c.TrangThai AS TrangThaiThanhVien,
+               counts.SoSinhVienHienTai, hp.SucChuaToiDa, hp.TenHangPhong
+        FROM dbo.HopDong hd
+        INNER JOIN dbo.HangPhong hp ON hp.MaHangPhong = hd.MaHangPhong
+        LEFT JOIN dbo.ChiTietHopDong c ON c.MaHopDong = hd.MaHopDong
+        LEFT JOIN dbo.SinhVien sv ON sv.MaSinhVien = c.MaSinhVien
+        OUTER APPLY (
+            SELECT COUNT_BIG(*) AS SoSinhVienHienTai
+            FROM dbo.ChiTietHopDong active
+            WHERE active.MaHopDong = hd.MaHopDong AND active.TrangThai = N'Đang ở'
+        ) counts
+    `;
+
+    async function readContracts(req, res, single = false) {
+        if (single && !isValidId(req.params.id, 20)) {
+            return respondRequestError(res, 400, "Mã hợp đồng không hợp lệ.");
+        }
+        const room = req.query?.tenPhong ?? req.query?.TenPhong ?? null;
+        const status = req.query?.trangThai ?? req.query?.TrangThaiHopDong ?? null;
+        if (!isOptionalText(room, 50) || !isOptionalText(status, 20)) {
+            return respondRequestError(res, 400, "Bộ lọc phòng hoặc trạng thái không hợp lệ.");
+        }
         try {
-            const result = await getPool().request().query(`
-                SELECT MaLS, MaHopDong, MaSinhVien, HoTen, TenPhong, NgayBatDau,
-                       NgayKetThuc, TrangThaiHopDong, ThaoTac, ThoiDiem
-                FROM dbo.vw_LichSuHopDongFE
-                ORDER BY ThoiDiem DESC, MaLS DESC
+            const request = getPool().request()
+                .input("TenPhong", sql.NVarChar(50), stringValue(room) || null)
+                .input("TrangThai", sql.NVarChar(20), stringValue(status) || null);
+            if (single) request.input("MaHopDong", sql.NVarChar(20), req.params.id);
+            const result = await request.query(`
+                ${contractQuery}
+                WHERE (@TenPhong IS NULL OR hd.TenPhong = @TenPhong)
+                  AND (@TrangThai IS NULL OR hd.TrangThaiHopDong = @TrangThai)
+                  ${single ? "AND hd.MaHopDong = @MaHopDong" : ""}
+                ORDER BY hd.NgayBatDau DESC, hd.MaHopDong DESC, c.NgayVao, c.MaChiTiet
             `);
+            if (single && !result.recordset.length) {
+                return respondRequestError(res, 404, "Không tìm thấy hợp đồng.");
+            }
+            const grouped = new Map();
+            for (const row of result.recordset) {
+                let contract = grouped.get(row.MaHopDong);
+                if (!contract) {
+                    contract = {
+                        MaHopDong: row.MaHopDong,
+                        TenPhong: row.TenPhong,
+                        MaHangPhong: row.MaHangPhong,
+                        TenHangPhong: row.TenHangPhong,
+                        SucChuaToiDa: row.SucChuaToiDa,
+                        SoSinhVienHienTai: Number(row.SoSinhVienHienTai),
+                        NgayBatDau: row.NgayBatDau,
+                        NgayKetThuc: row.NgayKetThuc,
+                        TrangThaiHopDong: row.TrangThaiHopDong,
+                        GhiChu: row.GhiChu,
+                        SoLanGiaHan: row.SoLanGiaHan,
+                        NgayKetThucThucTe: row.NgayKetThucThucTe,
+                        sinhVien: []
+                    };
+                    grouped.set(row.MaHopDong, contract);
+                }
+                if (row.MaChiTiet != null) {
+                    contract.sinhVien.push({
+                        MaChiTiet: row.MaChiTiet,
+                        MaSinhVien: row.MaSinhVien,
+                        HoTen: row.HoTen,
+                        NgayVao: row.NgayVao,
+                        NgayRa: row.NgayRa,
+                        KyHanThanhToanPhong: row.KyHanThanhToanPhong,
+                        GiaPhongApDung: row.GiaPhongApDung,
+                        GiaPhongThangApDung: row.GiaPhongThangApDung,
+                        LaNguoiDaiDienThanhToanDichVu: row.LaNguoiDaiDienThanhToanDichVu,
+                        TrangThai: row.TrangThaiThanhVien
+                    });
+                }
+            }
+            const contracts = [...grouped.values()];
+            return single ? res.json(contracts[0]) : res.json(contracts);
+        } catch (error) {
+            return respondDatabaseError(res, "LỖI LẤY HỢP ĐỒNG", error, "Không thể lấy danh sách hợp đồng.");
+        }
+    }
+
+    app.get("/api/HopDong", (req, res) => readContracts(req, res));
+    app.get("/api/HopDong/:id", (req, res) => readContracts(req, res, true));
+
+    app.post("/api/HopDong", async (req, res) => {
+        if (!isObjectBody(req.body)) return respondRequestError(res, 400, "Request body phải là một đối tượng JSON.");
+        const { tenPhong, maHangPhong, ngayBatDau, ngayKetThuc, sinhVien } = req.body;
+        if (!isValidId(tenPhong, 50) || !isValidId(maHangPhong, 20)
+            || !isDateOnly(ngayBatDau) || !isDateOnly(ngayKetThuc) || ngayKetThuc <= ngayBatDau
+            || !Array.isArray(sinhVien) || sinhVien.length === 0
+            || sinhVien.some(member => !isObjectBody(member)
+                || !isValidId(member.maSinhVien, 30)
+                || !["THANG", "NAM"].includes(member.kyHanThanhToanPhong)
+                || (member.laNguoiDaiDien !== undefined && typeof member.laNguoiDaiDien !== "boolean"))
+            || sinhVien.filter(member => member.laNguoiDaiDien === true).length > 1) {
+            return respondRequestError(res, 400, "Thông tin hợp đồng hoặc danh sách sinh viên không hợp lệ.");
+        }
+
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const room = await new sql.Request(transaction)
+                .input("TenPhong", sql.NVarChar(50), tenPhong.trim())
+                .query(`
+                    SELECT p.MaHangPhong, p.TrangThaiPhong
+                    FROM dbo.Phong p WITH (UPDLOCK, HOLDLOCK)
+                    WHERE p.TenPhong = @TenPhong
+                `);
+            if (!room.recordset.length) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy phòng.");
+            }
+            if (room.recordset[0].MaHangPhong !== maHangPhong.trim()) {
+                await transaction.rollback();
+                return respondRequestError(res, 400, "Mã hạng phòng không khớp với hạng hiện tại của phòng đã chọn.");
+            }
+            const result = await new sql.Request(transaction)
+                .input("TenPhong", sql.NVarChar(50), tenPhong.trim())
+                .input("NgayBatDau", sql.Date, ngayBatDau)
+                .input("NgayKetThuc", sql.Date, ngayKetThuc)
+                .input("SinhVienJson", sql.NVarChar(sql.MAX), JSON.stringify(sinhVien))
+                .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                .execute("dbo.sp_TaoHopDong");
+            await transaction.commit();
+            return res.status(201).json({
+                success: true,
+                MaHopDong: result.recordset?.[0]?.MaHopDong
+            });
+        } catch (error) {
+            await rollback(transaction, "TẠO HỢP ĐỒNG");
+            return respondContractProcedureError(res, "TẠO HỢP ĐỒNG", error, {
+                getPool, sql, fallback: "Không thể tạo hợp đồng."
+            });
+        }
+    });
+
+    const extendContractHandler = async (req, res) => {
+        if (!isValidId(req.params.id, 20)) return respondRequestError(res, 400, "Mã hợp đồng không hợp lệ.");
+        const endDate = req.body?.ngayKetThuc ?? req.body?.NgayKetThuc;
+        if (!isDateOnly(endDate)) return respondRequestError(res, 400, "Ngày kết thúc phải là ngày hợp lệ theo YYYY-MM-DD.");
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            await new sql.Request(transaction)
+                .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .input("NgayKetThucMoi", sql.Date, endDate)
+                .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                .execute("dbo.sp_GiaHanHopDong");
+            await transaction.commit();
+            return res.json({ success: true, MaHopDong: req.params.id, NgayKetThuc: endDate });
+        } catch (error) {
+            await rollback(transaction, "GIA HẠN HỢP ĐỒNG");
+            return respondContractProcedureError(res, "GIA HẠN HỢP ĐỒNG", error, {
+                getPool, sql, missingId: req.params.id, fallback: "Không thể gia hạn hợp đồng."
+            });
+        }
+    };
+    app.put("/api/HopDong/extend/:id", extendContractHandler);
+    app.put("/api/HopDong/:id/gia-han", extendContractHandler);
+
+    const endContractHandler = async (req, res) => {
+        if (!isValidId(req.params.id, 20)) return respondRequestError(res, 400, "Mã hợp đồng không hợp lệ.");
+        const endDate = req.body?.ngayKetThucThucTe ?? req.body?.NgayKetThucThucTe ?? null;
+        if (endDate !== null && !isDateOnly(endDate)) {
+            return respondRequestError(res, 400, "Ngày kết thúc thực tế phải theo định dạng YYYY-MM-DD.");
+        }
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            await new sql.Request(transaction)
+                .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .input("NgayKetThucThucTe", sql.Date, endDate)
+                .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                .execute("dbo.sp_KetThucHopDong");
+            await transaction.commit();
+            return res.json({ success: true, MaHopDong: req.params.id, TrangThaiHopDong: "Đã kết thúc" });
+        } catch (error) {
+            await rollback(transaction, "KẾT THÚC HỢP ĐỒNG");
+            return respondContractProcedureError(res, "KẾT THÚC HỢP ĐỒNG", error, {
+                getPool, sql, missingId: req.params.id, fallback: "Không thể kết thúc hợp đồng."
+            });
+        }
+    };
+    app.put("/api/HopDong/end/:id", endContractHandler);
+    app.put("/api/HopDong/:id/ket-thuc", endContractHandler);
+
+    const moveStudentHandler = async (req, res) => {
+        if (!isValidId(req.params.id, 20) || !isObjectBody(req.body)
+            || !isValidId(req.body.maSinhVien, 30) || !isValidId(req.body.tenPhong, 50)) {
+            return respondRequestError(res, 400, "Mã hợp đồng, sinh viên và phòng đích là bắt buộc.");
+        }
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const member = await new sql.Request(transaction)
+                .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .input("MaSinhVien", sql.NVarChar(30), req.body.maSinhVien.trim())
+                .query(`
+                    SELECT c.MaChiTiet
+                    FROM dbo.ChiTietHopDong c WITH (UPDLOCK, HOLDLOCK)
+                    INNER JOIN dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK) ON hd.MaHopDong = c.MaHopDong
+                    WHERE c.MaHopDong = @MaHopDong AND c.MaSinhVien = @MaSinhVien
+                      AND c.TrangThai = N'Đang ở' AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                `);
+            if (!member.recordset.length) {
+                await transaction.rollback();
+                return respondRequestError(res, 409, "Sinh viên không thuộc hợp đồng hiệu lực đã chọn.");
+            }
+            const result = await new sql.Request(transaction)
+                .input("MaSinhVien", sql.NVarChar(30), req.body.maSinhVien.trim())
+                .input("PhongMoi", sql.NVarChar(50), req.body.tenPhong.trim())
+                .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                .execute("dbo.sp_ChuyenPhong");
+            await transaction.commit();
+            return res.json({
+                success: true,
+                MaChiTietCu: member.recordset[0].MaChiTiet,
+                MaHopDongMoi: result.recordset?.[0]?.MaHopDongMoi
+            });
+        } catch (error) {
+            await rollback(transaction, "CHUYỂN PHÒNG SINH VIÊN");
+            return respondContractProcedureError(res, "CHUYỂN PHÒNG SINH VIÊN", error, {
+                getPool, sql, fallback: "Không thể chuyển phòng cho sinh viên."
+            });
+        }
+    };
+    app.put("/api/HopDong/:id/chuyen-phong", moveStudentHandler);
+
+    app.put("/api/HopDong/:id/dai-dien", async (req, res) => {
+        const detailId = req.body?.maChiTiet;
+        if (!isValidId(req.params.id, 20) || !isJsonInteger(detailId, 1, 2147483647)) {
+            return respondRequestError(res, 400, "Mã hợp đồng và mã chi tiết thành viên hợp lệ là bắt buộc.");
+        }
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const target = await new sql.Request(transaction)
+                .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .input("MaChiTiet", sql.Int, detailId)
+                .query(`
+                    SELECT c.MaChiTiet, c.MaSinhVien, hd.TrangThaiHopDong
+                    FROM dbo.ChiTietHopDong c WITH (UPDLOCK, HOLDLOCK)
+                    INNER JOIN dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK) ON hd.MaHopDong = c.MaHopDong
+                    WHERE c.MaHopDong = @MaHopDong AND c.MaChiTiet = @MaChiTiet
+                      AND c.TrangThai = N'Đang ở'
+                `);
+            if (!target.recordset.length) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy thành viên đang ở trong hợp đồng.");
+            }
+            if (target.recordset[0].TrangThaiHopDong !== "Còn hiệu lực") {
+                await transaction.rollback();
+                return respondRequestError(res, 409, "Không thể đổi đại diện của hợp đồng đã kết thúc.");
+            }
+            await new sql.Request(transaction)
+                .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .input("MaChiTiet", sql.Int, detailId)
+                .query(`
+                    UPDATE dbo.ChiTietHopDong
+                    SET LaNguoiDaiDienThanhToanDichVu = 0
+                    WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
+                      AND LaNguoiDaiDienThanhToanDichVu = 1 AND MaChiTiet <> @MaChiTiet;
+                    UPDATE dbo.ChiTietHopDong
+                    SET LaNguoiDaiDienThanhToanDichVu = 1
+                    WHERE MaHopDong = @MaHopDong AND MaChiTiet = @MaChiTiet
+                      AND TrangThai = N'Đang ở';
+                `);
+            await new sql.Request(transaction)
+                .input("HanhDong", sql.NVarChar(50), "Đổi đại diện")
+                .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .input("ChiTiet", sql.NVarChar(500), `Đặt sinh viên ${target.recordset[0].MaSinhVien} làm đại diện thanh toán dịch vụ.`)
+                .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                .execute("dbo.sp_GhiNhatKyHopDong");
+            await transaction.commit();
+            return res.json({ success: true, MaChiTiet: detailId });
+        } catch (error) {
+            await rollback(transaction, "ĐỔI ĐẠI DIỆN THANH TOÁN");
+            return respondContractProcedureError(res, "ĐỔI ĐẠI DIỆN THANH TOÁN", error, {
+                getPool, sql, fallback: "Không thể đổi người đại diện."
+            });
+        }
+    });
+
+    async function readContractDetails(req, res) {
+        const contractId = req.query?.maHopDong ?? null;
+        const studentId = req.query?.maSinhVien ?? null;
+        const status = req.query?.trangThai ?? null;
+        if (!isOptionalText(contractId, 20) || !isOptionalText(studentId, 30)
+            || !isOptionalText(status, 20)) {
+            return respondRequestError(res, 400, "Bộ lọc chi tiết hợp đồng không hợp lệ.");
+        }
+        try {
+            const result = await getPool().request()
+                .input("MaHopDong", sql.NVarChar(20), stringValue(contractId) || null)
+                .input("MaSinhVien", sql.NVarChar(30), stringValue(studentId) || null)
+                .input("TrangThai", sql.NVarChar(20), stringValue(status) || null)
+                .query(`
+                    SELECT c.MaChiTiet, c.MaHopDong, c.MaSinhVien, sv.HoTen, hd.TenPhong,
+                           hd.MaHangPhong, c.NgayVao, c.NgayRa, c.KyHanThanhToanPhong,
+                           c.GiaPhongApDung, c.GiaPhongThangApDung,
+                           c.LaNguoiDaiDienThanhToanDichVu, c.TrangThai, c.GhiChu,
+                           c.LyDoRoi, hd.NgayBatDau, hd.NgayKetThuc, hd.TrangThaiHopDong
+                    FROM dbo.ChiTietHopDong c
+                    INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                    INNER JOIN dbo.SinhVien sv ON sv.MaSinhVien = c.MaSinhVien
+                    WHERE (@MaHopDong IS NULL OR c.MaHopDong = @MaHopDong)
+                      AND (@MaSinhVien IS NULL OR c.MaSinhVien = @MaSinhVien)
+                      AND (@TrangThai IS NULL OR c.TrangThai = @TrangThai)
+                    ORDER BY c.NgayVao DESC, c.MaChiTiet DESC
+                `);
             return res.json(result.recordset);
         } catch (error) {
-            return respondDatabaseError(res, "LỖI LẤY LỊCH SỬ HỢP ĐỒNG", error, "Không thể lấy lịch sử hợp đồng.");
+            return respondDatabaseError(res, "LỖI LẤY CHI TIẾT HỢP ĐỒNG", error, "Không thể lấy chi tiết hợp đồng.");
+        }
+    }
+    app.get("/api/chitiethopdong", readContractDetails);
+    app.get("/api/history", readContractDetails);
+
+    app.post("/api/HopDong/:id/chitiet", async (req, res) => {
+        if (!isValidId(req.params.id, 20) || !isObjectBody(req.body)
+            || !isValidId(req.body.maSinhVien, 30)
+            || !["THANG", "NAM"].includes(req.body.kyHanThanhToanPhong)
+            || (req.body.laNguoiDaiDien !== undefined && typeof req.body.laNguoiDaiDien !== "boolean")) {
+            return respondRequestError(res, 400, "Thông tin sinh viên, kỳ hạn hoặc đại diện không hợp lệ.");
+        }
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            await new sql.Request(transaction)
+                .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .input("MaSinhVien", sql.NVarChar(30), req.body.maSinhVien.trim())
+                .input("KyHanThanhToanPhong", sql.NVarChar(10), req.body.kyHanThanhToanPhong)
+                .input("LaNguoiDaiDien", sql.Bit, req.body.laNguoiDaiDien === true)
+                .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                .execute("dbo.sp_ThemSinhVienVaoHopDong");
+            await transaction.commit();
+            return res.status(201).json({
+                success: true, MaHopDong: req.params.id, MaSinhVien: req.body.maSinhVien.trim()
+            });
+        } catch (error) {
+            await rollback(transaction, "THÊM SINH VIÊN VÀO HỢP ĐỒNG");
+            return respondContractProcedureError(res, "THÊM SINH VIÊN VÀO HỢP ĐỒNG", error, {
+                getPool, sql, missingId: req.params.id, fallback: "Không thể thêm sinh viên vào hợp đồng."
+            });
+        }
+    });
+
+    app.put("/api/HopDong/:id/chitiet/:maChiTiet/roi", async (req, res) => {
+        const detailId = Number(req.params.maChiTiet);
+        const leaveDate = req.body?.ngayRa ?? null;
+        if (!isValidId(req.params.id, 20) || !Number.isSafeInteger(detailId) || detailId < 1
+            || (leaveDate !== null && !isDateOnly(leaveDate))
+            || !isOptionalText(req.body?.lyDoRoi, 100)) {
+            return respondRequestError(res, 400, "Mã chi tiết, ngày rời hoặc lý do rời không hợp lệ.");
+        }
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const member = await new sql.Request(transaction)
+                .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .input("MaChiTiet", sql.Int, detailId)
+                .query(`
+                    SELECT MaChiTiet FROM dbo.ChiTietHopDong WITH (UPDLOCK, HOLDLOCK)
+                    WHERE MaHopDong = @MaHopDong AND MaChiTiet = @MaChiTiet
+                      AND TrangThai = N'Đang ở'
+                `);
+            if (!member.recordset.length) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy thành viên đang ở trong hợp đồng.");
+            }
+            await new sql.Request(transaction)
+                .input("MaChiTiet", sql.Int, detailId)
+                .input("NgayRa", sql.Date, leaveDate)
+                .input("LyDoRoi", sql.NVarChar(100), stringValue(req.body?.lyDoRoi) || null)
+                .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                .execute("dbo.sp_SinhVienRoiHopDong");
+            await transaction.commit();
+            return res.json({ success: true, MaChiTiet: detailId });
+        } catch (error) {
+            await rollback(transaction, "SINH VIÊN RỜI HỢP ĐỒNG");
+            return respondContractProcedureError(res, "SINH VIÊN RỜI HỢP ĐỒNG", error, {
+                getPool, sql, missingId: detailId, fallback: "Không thể cập nhật thành viên rời hợp đồng."
+            });
         }
     });
 
@@ -1273,15 +2109,13 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
 
         const transaction = new sql.Transaction(getPool());
         try {
-            await transaction.begin();
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
             const currentResult = await new sql.Request(transaction)
                 .input("MaHopDong", sql.NVarChar(20), req.params.id)
                 .query(`
-                    SELECT hd.MaHopDong, hd.MaSinhVien, sv.HoTen, hd.TenPhong,
-                           hd.NgayBatDau, hd.NgayKetThuc, hd.TrangThaiHopDong
-                    FROM dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK)
-                    INNER JOIN dbo.SinhVien sv ON sv.MaSinhVien = hd.MaSinhVien
-                    WHERE hd.MaHopDong = @MaHopDong
+                    SELECT MaHopDong, TenPhong, NgayBatDau, NgayKetThuc, TrangThaiHopDong
+                    FROM dbo.HopDong WITH (UPDLOCK, HOLDLOCK)
+                    WHERE MaHopDong = @MaHopDong
                 `);
             const contract = currentResult.recordset[0];
             if (!contract) {
@@ -1292,16 +2126,19 @@ function registerApiRoutes(app, { getPool, sql, bcrypt }) {
                 .input("MaHopDong", sql.NVarChar(20), req.params.id)
                 .input("GhiChu", sql.NVarChar(255), note || null)
                 .query("UPDATE dbo.HopDong SET GhiChu = @GhiChu WHERE MaHopDong = @MaHopDong");
-            await addContractHistory(new sql.Request(transaction), sql, {
-                contractId: contract.MaHopDong, studentId: contract.MaSinhVien, studentName: contract.HoTen,
-                room: contract.TenPhong, startDate: contract.NgayBatDau, endDate: contract.NgayKetThuc,
-                status: contract.TrangThaiHopDong, action: "Ghi chú"
-            });
+            await new sql.Request(transaction)
+                .input("HanhDong", sql.NVarChar(50), "Ghi chú")
+                .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .input("ChiTiet", sql.NVarChar(500), note)
+                .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                .execute("dbo.sp_GhiNhatKyHopDong");
             await transaction.commit();
             return res.status(200).send("Lưu ghi chú thành công.");
         } catch (error) {
             await rollback(transaction, "LƯU GHI CHÚ HỢP ĐỒNG");
-            return respondDatabaseError(res, "LỖI LƯU GHI CHÚ HỢP ĐỒNG", error, "Không thể lưu ghi chú hợp đồng.");
+            return respondContractProcedureError(res, "LƯU GHI CHÚ HỢP ĐỒNG", error, {
+                getPool, sql, fallback: "Không thể lưu ghi chú hợp đồng."
+            });
         }
     });
 

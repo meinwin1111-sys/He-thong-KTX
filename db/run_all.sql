@@ -81,5 +81,9 @@ PRINT N'=== Migration 019 ==='
 GO
 :r db/migrations/019_payment_workflows.sql
 GO
+PRINT N'=== Migration 020 ==='
+GO
+:r db/migrations/020_grant_app_permissions.sql
+GO
 PRINT N'=== Hết run_all (master seed chạy riêng: db/seed/run_master.sql) ==='
 GO
