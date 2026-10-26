@@ -9,6 +9,8 @@ let totalPagesFromDB = 1;
 
 let students = [];
 let currentFilteredStudents = [];
+const rowsPerPage = 10;
+let currentPage = 1;
 let currentDetailIndex = null;
 let currentEditIndex = null;
 
@@ -110,6 +112,7 @@ async function renderSinhVienModule() {
                 </button>
             </div>
 
+            <p id="studentLoadError" class="mb-3 min-h-5 text-sm text-red-700" role="alert" aria-live="polite"></p>
             <div class="bg-white rounded-lg shadow-sm overflow-x-auto border border-slate-200">
                 <table class="min-w-[1620px] w-full text-left table-fixed">
                     <thead class="bg-slate-50 border-b border-slate-200">
@@ -275,10 +278,15 @@ async function loadDanhSachSinhVien(
 
         const response = await ApiClient.fetch(url);
         const result = await response.json();
+        if (!result || !Array.isArray(result.data)) {
+            throw new Error("Dữ liệu danh sách sinh viên từ máy chủ không hợp lệ.");
+        }
 
         // Chuẩn hóa và lưu trữ danh sách
-        students = (result.data || []).map(normalizeStudentFromAPI);
+        students = result.data.map(normalizeStudentFromAPI);
         currentFilteredStudents = [...students];
+        const loadError = document.getElementById("studentLoadError");
+        if (loadError) loadError.textContent = "";
 
         // Cập nhật thông tin phân trang
         currentPage = result.page || 1;
@@ -288,10 +296,15 @@ async function loadDanhSachSinhVien(
         // Vẽ lại bảng dữ liệu
         renderTable(students);
     } catch (error) {
+        console.error("Lỗi tải danh sách sinh viên:", error);
         students = [];
         currentFilteredStudents = [];
-        renderTable(students);
-        showToast(error.message || "Không thể tải danh sách sinh viên.", "error");
+        const tableBody = document.getElementById("studentTableBody");
+        if (tableBody) tableBody.innerHTML = '<tr><td colspan="11" class="text-center py-10 text-red-700">Không thể tải danh sách sinh viên.</td></tr>';
+        const loadError = document.getElementById("studentLoadError");
+        const message = error.message || "Không thể tải danh sách sinh viên.";
+        if (loadError) loadError.textContent = message;
+        showToast(message, "error");
     }
 }
 
@@ -299,24 +312,24 @@ async function loadDanhSachSinhVien(
  * Tạo nhãn Badge màu sắc cho cột trạng thái
  */
 function getStatusBadge(status) {
-    const label = String(status || "").trim() || "Chưa xếp phòng";
+    const label = window.AdminWorkflowUtils?.displayLabel(status, "Chưa xếp phòng") || "Chưa xếp phòng";
     if (label === "Đang ở") {
         return `
                 <span class="inline-flex items-center justify-center whitespace-nowrap min-w-[100px] h-[24px] px-3 rounded-full text-[11px] font-medium bg-[#DDF8E8] text-[#166534]">
-                    ${label}
+                    ${escapeStudentHtml(label)}
                 </span>
             `;
     }
     if (label === "Chưa xếp phòng") {
         return `
                 <span class="inline-flex items-center justify-center whitespace-nowrap min-w-[100px] h-[24px] px-3 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600">
-                    ${label}
+                    ${escapeStudentHtml(label)}
                 </span>
             `;
     }
     return `
             <span class="inline-flex items-center justify-center whitespace-nowrap min-w-[100px] h-[24px] px-3 rounded-full text-[11px] font-medium bg-[#FFE3E3] text-[#991b1b]">
-                ${label}
+                ${escapeStudentHtml(label)}
             </span>
         `;
 }
@@ -344,53 +357,33 @@ function renderActionButtons(studentIndex) {
  * @param {Array} data - Mảng danh sách sinh viên
  */
 function renderTable(data) {
-    // --- KHAI BÁO CÁC PHẦN TỬ DOM ---
     const tableBody = document.getElementById("studentTableBody");
     const studentCountText = document.getElementById("studentCountText");
     const currentPageBox = document.getElementById("currentPageBox");
     const totalPageText = document.getElementById("totalPageText");
     if (!tableBody) return;
+    const U = window.AdminWorkflowUtils;
+    const columns = [
+        { label: "MSSV", render: student => escapeStudentHtml(student.mssv || "—") },
+        { label: "Tên sinh viên", render: student => escapeStudentHtml(student.name || "—"), longText: true, title: student => student.name || "—" },
+        { label: "Ngày sinh", render: student => escapeStudentHtml(student.birthday || "—") },
+        { label: "Giới tính", render: student => escapeStudentHtml(U?.displayLabel(student.gender) || student.gender || "—") },
+        { label: "Điện thoại", render: student => escapeStudentHtml(student.phone || "—") },
+        { label: "Email", render: student => escapeStudentHtml(student.email || "—"), longText: true, title: student => student.email || "—" },
+        { label: "Địa chỉ", render: student => escapeStudentHtml(student.address || "—"), longText: true, title: student => student.address || "—" },
+        { label: "Phòng", render: student => escapeStudentHtml(student.room || "—") },
+        { label: "Trạng thái", render: student => getStatusBadge(student.status) },
+        { label: "Ghi chú", render: student => escapeStudentHtml(student.note || "—"), longText: true, title: student => student.note || "—" },
+        { label: "Thao tác", render: (_, index) => renderActionButtons(index) }
+    ];
+    const table = tableBody.closest("table");
+    if (!table) return;
+    const tableHost = table.parentElement;
+    table.outerHTML = U.renderTable(columns, data, "Không có sinh viên phù hợp", () =>
+        'class="hover:bg-slate-50 transition-colors text-[13px] text-slate-500"', "min-w-[1620px] table-fixed");
+    const nextBody = tableHost.querySelector("table tbody");
+    if (nextBody) nextBody.id = "studentTableBody";
 
-    tableBody.innerHTML = "";
-
-    // Xử lý trường hợp không tìm thấy kết quả
-    if (data.length === 0) {
-        tableBody.innerHTML = `
-                <tr>
-                    <td colspan="11" class="text-center py-10 text-[13px] text-slate-500 italic">
-                        Không tìm thấy sinh viên phù hợp
-                    </td>
-                </tr>
-            `;
-        studentCountText.textContent = `Hiển thị 0-0/${totalStudentsFromDB} sinh viên`;
-        currentPageBox.textContent = currentPage;
-        totalPageText.textContent = totalPagesFromDB;
-        updatePaginationButtons(totalPagesFromDB);
-        return;
-    }
-
-    // Render từng dòng sinh viên vào tbody
-    data.forEach((s, index) => {
-        tableBody.innerHTML += `
-                <tr class="hover:bg-slate-50 border-b border-slate-200 transition-colors text-[13px] text-slate-500">
-                    <td class="px-5 py-4 text-left font-bold text-slate-900 whitespace-nowrap">${s.mssv}</td>
-                    <td class="px-5 py-4 text-left font-medium text-slate-900 truncate whitespace-nowrap" title="${s.name}">${s.name}</td>
-                    <td class="px-5 py-4 text-left whitespace-nowrap">${s.birthday}</td>
-                    <td class="px-5 py-4 text-left whitespace-nowrap">${s.gender}</td>
-                    <td class="px-5 py-4 text-left whitespace-nowrap">${s.phone}</td>
-                    <td class="px-5 py-4 text-left truncate whitespace-nowrap" title="${s.email}">${s.email}</td>
-                    <td class="px-5 py-4 text-left truncate whitespace-nowrap" title="${s.address}">${s.address}</td>
-                    <td class="px-5 py-4 text-left font-bold text-emerald-600 whitespace-nowrap">${s.room}</td>
-                    <td class="px-5 py-4 text-left whitespace-nowrap">${getStatusBadge(s.status)}</td>
-                    <td class="px-5 py-4 text-left text-slate-500 italic truncate whitespace-nowrap" title="${s.note}">${s.note}</td>
-                    <td class="px-5 py-4 text-center">
-                        ${renderActionButtons(index)}
-                    </td>
-                </tr>
-            `;
-    });
-
-    // Tính toán thông báo hiển thị dưới chân trang
     const displayStart =
         totalStudentsFromDB === 0 ? 0 : (currentPage - 1) * rowsPerPage + 1;
     const displayEnd = Math.min(currentPage * rowsPerPage, totalStudentsFromDB);
@@ -399,8 +392,13 @@ function renderTable(data) {
     currentPageBox.textContent = currentPage;
     totalPageText.textContent = totalPagesFromDB;
 
-    // Cập nhật trạng thái các nút phân trang (Next/Prev)
     updatePaginationButtons(totalPagesFromDB);
+}
+
+function escapeStudentHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, character => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+    })[character]);
 }
 
 // ====================================================================================================================
@@ -509,18 +507,18 @@ window.openDetailStudentModal = async function (index) {
                     ${renderDetailField("Mã số sinh viên", student.MaSinhVien || s.mssv)}
                     ${renderDetailField("Họ và tên sinh viên", student.HoTen || s.name)}
                     ${renderDetailField("Ngày sinh", formatApiDateToDisplay(student.NgaySinh))}
-                    ${renderDetailField("Giới tính", student.GioiTinh || s.gender)}
+                    ${renderDetailField("Giới tính", window.AdminWorkflowUtils?.displayLabel(student.GioiTinh || s.gender) || student.GioiTinh || s.gender)}
                     ${renderDetailField("Số điện thoại", student.SoDienThoai || s.phone)}
                     ${renderDetailField("Email", student.Email || s.email)}
                     ${renderDetailField("Địa chỉ", student.DiaChi || s.address)}
                     ${renderDetailField("Phòng", student.TenPhong || s.room)}
-                    ${renderDetailField("Trạng thái sinh viên", student.TrangThaiSinhVien || s.status)}
+                    ${renderDetailField("Trạng thái sinh viên", window.AdminWorkflowUtils?.displayLabel(student.TrangThaiSinhVien || s.status) || student.TrangThaiSinhVien || s.status)}
                     <div class="pt-2 border-t border-slate-200 mt-1">
                         <p class="font-semibold text-[#0f172a] mb-2">Thông tin hợp đồng:</p>
                         ${renderDetailField("Mã hợp đồng", contractData.code)}
                         ${renderDetailField("Ngày bắt đầu", contractData.start)}
                         ${renderDetailField("Ngày kết thúc", contractData.end)}
-                        ${renderDetailField("Trạng thái HĐ", contractData.status)}
+                        ${renderDetailField("Trạng thái HĐ", window.AdminWorkflowUtils?.displayLabel(contractData.status) || contractData.status)}
                     </div>
                     ${renderDetailField("Ghi chú", student.GhiChu || s.note || "-")}
                 </div>
@@ -647,12 +645,12 @@ function validateStudentForm(formData, mode = "add", editIndex = null) {
     if (!formData.birthday) {
         errors.birthday = "Vui lòng chọn ngày sinh";
     } else {
-        const birthDate = new Date(formData.birthday);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const birthDate = window.AdminWorkflowUtils?.date(formData.birthday, "parse");
+        const now = new Date();
+        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-        if (isNaN(birthDate.getTime()) || birthDate >= today) {
-            errors.birthday = "Ngày sinh không hợp lệ";
+        if (!birthDate || birthDate >= today || Number(birthDate.slice(0, 4)) < 1900) {
+            errors.birthday = "Ngày sinh không hợp lệ. Năm phải từ 1900 trở lên và không được ở tương lai.";
         }
     }
 
@@ -785,31 +783,16 @@ function showValidationErrors(form, errors, errorBoxId) {
  * Chuyển đổi Date từ API sang định dạng dd/mm/yyyy để hiển thị
  */
 function formatApiDateToDisplay(value) {
-    if (!value) return "--/--/----";
-
-    const date = new Date(value);
-    if (!isNaN(date.getTime())) {
-        const dd = String(date.getDate()).padStart(2, "0");
-        const mm = String(date.getMonth() + 1).padStart(2, "0");
-        const yyyy = date.getFullYear();
-        return `${dd}/${mm}/${yyyy}`;
-    }
-
-    if (typeof value === "string" && value.includes("/")) return value;
-    return String(value);
+    if (!value) return "—";
+    return window.AdminWorkflowUtils?.date(String(value).slice(0, 10), "format") || "—";
 }
 
 /**
- * Chuyển đổi dd/mm/yyyy sang yyyy-mm-dd cho input[type="date"]
+ * Normalize API dates for the shared dd/mm/yyyy text input.
  */
 function formatDateForInput(dateStr) {
     if (!dateStr) return "";
-    if (dateStr.includes("-") && !dateStr.includes("/")) return dateStr;
-
-    const parts = dateStr.split("/");
-    if (parts.length !== 3) return "";
-    const [dd, mm, yyyy] = parts;
-    return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+    return window.AdminWorkflowUtils?.date(String(dateStr).slice(0, 10), "format") || "";
 }
 
 /**
@@ -869,7 +852,7 @@ function renderStudentForm(data = "", isAdd = false) {
     return `
             ${renderInputRow("Mã số sinh viên", "text", "mssv", "SV001", d.mssv || "", true)}
             ${renderInputRow("Họ và tên sinh viên", "text", "name", "Nguyễn Văn An", d.name || "", true)}
-            ${renderInputRow("Ngày sinh", "date", "birthday", "", formatDateForInput(d.birthday || ""), true)}
+            ${renderInputRow("Ngày sinh (dd/mm/yyyy)", "text", "birthday", "dd/mm/yyyy", formatDateForInput(d.birthday || ""), true)}
             ${renderSelectRow("Giới tính", "gender", ["Nam", "Nữ"], d.gender || "", true)}
             ${renderInputRow("Số điện thoại", "text", "phone", "0914268735", (d.phone || "").replace(/\s/g, ""), true)}
             ${renderInputRow("Email", "email", "email", "nguyenvanan@gmail.com", d.email || "", true)}
@@ -893,6 +876,10 @@ function renderInputRow(
     value,
     required = false,
 ) {
+    if (name === "birthday" && window.AdminWorkflowUtils) {
+        window.AdminWorkflowUtils.bindDateInputs(document.body);
+        return window.AdminWorkflowUtils.dateField(label, name, value, { required, birthDate: true });
+    }
     return `
             <div class="grid grid-cols-[160px_1fr] items-center gap-3">
                 <label class="text-[13px] font-semibold text-[#0f172a]">
@@ -1132,7 +1119,7 @@ function initStudentEvents() {
                     body: JSON.stringify({
                         MaSinhVien: formData.mssv,
                         HoTen: formData.name,
-                        NgaySinh: formData.birthday,
+                        NgaySinh: window.AdminWorkflowUtils.date(formData.birthday, "parse"),
                         GioiTinh: formData.gender,
                         SoDienThoai: formData.phone,
                         Email: formData.email,
@@ -1184,7 +1171,7 @@ function initStudentEvents() {
                     body: JSON.stringify({
                         mssv: formData.mssv,
                         hoTen: formData.name,
-                        ngaySinh: formData.birthday,
+                        ngaySinh: window.AdminWorkflowUtils.date(formData.birthday, "parse"),
                         gioiTinh: formData.gender,
                         soDienThoai: formData.phone,
                         email: formData.email,

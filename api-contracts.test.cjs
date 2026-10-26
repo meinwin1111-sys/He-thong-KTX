@@ -200,6 +200,74 @@ async function invoke(harness, method, route, request = {}) {
     return res;
 }
 
+test("student notifications are session-scoped and admin removal is a soft delete", async () => {
+    const harness = fakeApi({
+        queryResult: call => {
+            if (call.statement.includes("SELECT tb.MaThongBao")) return { recordset: [] };
+            if (call.statement.includes("UPDATE dbo.ThongBao")) return { recordset: [{ MaThongBao: 12 }] };
+            return { recordset: [] };
+        }
+    });
+    const denied = await invoke(harness, "get", "/api/student/notifications", {
+        auth: { role: "Sinh viên", studentId: "SV-A" },
+        query: { MaSinhVien: "SV-B" }
+    });
+    assert.equal(denied.statusCode, 200);
+    assert.equal(harness.queries.length, 1);
+    const select = harness.queries[0];
+    assert.equal(select.inputs.MaSinhVien, "SV-A");
+    assert.match(select.statement, /PhamViNhan = N'TAT_CA'/);
+    assert.match(select.statement, /tb\.PhamViNhan = N'SINH_VIEN' AND tb\.MaSinhVien = @MaSinhVien/);
+    assert.match(select.statement, /dbo\.ChiTietHopDong/);
+    assert.match(select.statement, /c\.TrangThai = N'Đang ở'/);
+    assert.match(select.statement, /hd\.TrangThaiHopDong = N'Còn hiệu lực'/);
+    assert.match(select.statement, /tb\.DaXoa = 0/);
+    assert.doesNotMatch(select.statement, /SinhVien\.TenPhong|req\.query|req\.body/);
+
+    const deniedManager = await invoke(harness, "post", "/api/admin/notifications", {
+        auth: { role: "Sinh viên", studentId: "SV-A" },
+        body: { TieuDe: "T", NoiDung: "N", PhamViNhan: "TAT_CA" }
+    });
+    assert.equal(deniedManager.statusCode, 403);
+    const hidden = await invoke(harness, "delete", "/api/admin/notifications/:id", {
+        auth: { role: "Quản lý", accountId: 17 },
+        params: { id: "12" }
+    });
+    assert.equal(hidden.statusCode, 200);
+    assert.match(harness.queries[1].statement, /UPDATE dbo\.ThongBao\s+SET DaXoa = 1/);
+    assert.doesNotMatch(harness.queries[1].statement, /\bDELETE\s+FROM\b/i);
+});
+
+test("Yêu cầu khác requires non-empty description and rejects proposed end dates", async () => {
+    const harness = fakeApi({
+        queryResult: call => call.statement.includes("SELECT sv.TenPhong")
+            ? { recordset: [{ TenPhong: null, NgayKetThuc: null }] }
+            : { recordset: [{ MaYeuCau: "YC1" }], rowsAffected: [1] }
+    });
+    const empty = await invoke(harness, "post", "/api/student/requests", {
+        auth: { role: "Sinh viên", studentId: "SV-A" },
+        body: { Loai: "Yêu cầu khác", NoiDung: " " }
+    });
+    assert.equal(empty.statusCode, 400);
+    assert.equal(harness.queries.length, 0);
+
+    const withDate = await invoke(harness, "post", "/api/student/requests", {
+        auth: { role: "Sinh viên", studentId: "SV-A" },
+        body: { Loai: "Yêu cầu khác", NoiDung: "Mô tả sự việc", NgayKetThucDeXuat: "2026-12-31" }
+    });
+    assert.equal(withDate.statusCode, 400);
+    assert.equal(harness.queries.length, 0);
+
+    const accepted = await invoke(harness, "post", "/api/student/requests", {
+        auth: { role: "Sinh viên", studentId: "SV-A" },
+        body: { Loai: "Yêu cầu khác", NoiDung: "Mô tả sự việc" }
+    });
+    assert.equal(accepted.statusCode, 201);
+    const insert = harness.queries.find(call => call.statement.includes("INSERT INTO dbo.YeuCauSinhVien"));
+    assert.equal(insert.inputs.Loai, "Yêu cầu khác");
+    assert.equal(insert.inputs.NgayKetThucDeXuat, null);
+});
+
 test("contract endpoints validate and create contracts through sp_TaoHopDong", async () => {
     const harness = fakeApi({
         queryResult: call => call.statement.includes("SELECT p.MaHangPhong")

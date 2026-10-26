@@ -2,21 +2,41 @@
     const ui = StudentUI;
     const data = ui.repository.data;
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    const money = value => value.toLocaleString('vi-VN', { style: 'currency', currency: 'VND' });
-    const date = value => {
-        const normalized = typeof value === 'string' ? value.slice(0, 10) : '';
-        return /^\d{4}-\d{2}-\d{2}$/.test(normalized)
-            ? normalized.split('-').reverse().join('/')
+    const money = value => {
+        if (value === null || value === undefined || value === '') return '—';
+        const amount = Number(value);
+        return Number.isFinite(amount)
+            ? `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(amount)}\u00a0đ`
             : '—';
+    };
+    const date = value => {
+        const input = String(value ?? '').trim();
+        if (!input) return '—';
+        const shared = window.AdminWorkflowUtils?.date(input.slice(0, 10), 'format');
+        if (shared) return shared;
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input.slice(0, 10));
+        if (!match) return '—';
+        const [, year, month, day] = match;
+        return `${day}/${month}/${year}`;
     };
     const total = invoice => Array.isArray(invoice.items)
         ? invoice.items.reduce((sum, item) => sum + Number(item.amount || 0), 0)
         : Number(invoice.room) + Number(invoice.electricity) + Number(invoice.water);
-    const badge = status => `<span class="st-badge ${['Đã duyệt', 'Đã thanh toán', 'Đang hiệu lực'].includes(status) ? 'st-success' : status === 'Từ chối' ? 'st-danger' : 'st-warning'}">${esc(status)}</span>`;
-    const fields = entries => `<dl class="st-fields">${entries.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`;
+    const badge = status => {
+        const value = String(status ?? '').trim() || '—';
+        const tone = ['Đã duyệt', 'Đã thanh toán', 'Đang hiệu lực', 'Đã xử lý', 'Hoàn tất'].includes(value)
+            ? 'st-success'
+            : ['Từ chối', 'Đã hủy', 'Đã huỷ'].includes(value)
+                ? 'st-neutral'
+                : ['Chờ xác nhận', 'Cần đối soát', 'Còn nợ', 'Chờ duyệt', 'Chờ xử lý', 'Quá hạn'].includes(value)
+                    ? 'st-warning'
+                    : 'st-neutral';
+        return `<span class="st-badge ${tone}">${esc(value)}</span>`;
+    };
+    const fields = entries => `<dl class="st-fields">${entries.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value === null || value === undefined || value === '' ? '—' : value)}</dd></div>`).join('')}</dl>`;
     const card = (title, content) => `<article class="st-card"><h2>${title}</h2>${content}</article>`;
     const table = (headers, rows) => `<div class="st-table-wrap"><table><thead><tr>${headers.map(h => `<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${headers.length}" class="st-empty">Chưa có dữ liệu.</td></tr>`}</tbody></table></div>`;
-    const requestTable = rows => table(['Mã yêu cầu', 'Loại yêu cầu', 'Ngày gửi', 'Nội dung', 'Trạng thái', 'Phản hồi'], rows.map(r => `<tr><td>${esc(r.id)}</td><td>${esc(r.type)}</td><td>${date(r.date)}</td><td class="st-long">${esc(r.content)}</td><td>${badge(r.status)}</td><td class="st-long">${esc(r.reply || 'Chưa có phản hồi')}</td></tr>`).join(''));
+    const requestTable = rows => table(['Mã yêu cầu', 'Loại yêu cầu', 'Ngày gửi', 'Nội dung', 'Trạng thái', 'Phản hồi', 'Chi tiết'], rows.map(r => `<tr><td>${esc(r.id || '—')}</td><td>${esc(r.type || '—')}</td><td>${date(r.date)}</td><td class="st-long" title="${esc(r.content || '—')}">${esc(r.content || '—')}</td><td>${badge(r.status)}</td><td class="st-long" title="${esc(r.reply || 'Chưa có phản hồi')}">${esc(r.reply || 'Chưa có phản hồi')}</td><td><button type="button" class="st-button st-request-detail" data-action="request-detail" data-id="${esc(r.id)}">Xem</button></td></tr>`).join(''));
     const calendarDay = value => {
         const [year, month, day] = value.split('-').map(Number);
         return Date.UTC(year, month - 1, day) / 86400000;

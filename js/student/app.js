@@ -68,59 +68,6 @@
         toast('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
         window.setTimeout(() => window.location.replace('Admin.html'), 1200);
     });
-    async function loadStudentDashboardData(root) {
-        const paymentsNode = root.querySelector('[data-student-payment-notices]');
-        const rulesNode = root.querySelector('[data-student-rules]');
-        const contactNode = root.querySelector('[data-student-contact]');
-        if (!backendStudent) {
-            paymentsNode.textContent = 'Thông báo thanh toán chỉ khả dụng với tài khoản Sinh viên đã kết nối máy chủ.';
-            rulesNode.textContent = 'Nội quy dùng chung chưa khả dụng trong chế độ demo.';
-            contactNode.textContent = 'Thông tin liên hệ dùng chung chưa khả dụng trong chế độ demo.';
-            return;
-        }
-
-        const load = async (url, onData, onError) => {
-            try {
-                const response = await ApiClient.fetch(url);
-                const value = await response.json();
-                if (root.isConnected) onData(value);
-            } catch (error) {
-                if (root.isConnected && error.name !== 'AbortError') onError(error.message || 'Không thể tải dữ liệu.');
-            }
-        };
-        const localDateTime = value => {
-            const timestamp = new Date(value);
-            return Number.isFinite(timestamp.getTime())
-                ? timestamp.toLocaleString('vi-VN')
-                : 'Chưa có thời gian';
-        };
-        load('/api/payments/history', payments => {
-            if (!Array.isArray(payments)) throw new Error('Dữ liệu giao dịch không hợp lệ.');
-            const successful = payments.filter(payment => payment.TrangThai === 'SUCCESS');
-            paymentsNode.innerHTML = successful.length ? successful.map(payment => `
-                <li>
-                    <span class="sh-news-icon sh-news-0"><i class="fa-solid fa-circle-check" aria-hidden="true"></i></span>
-                    <div class="sh-news-content">
-                        <h3>Bạn đã thanh toán ${esc(payment.TenKhoan || 'khoản phí')}</h3>
-                        <p>Hóa đơn ${esc(payment.MaHoaDon)} · ${money(Number(payment.SoTien || 0))} · ${esc(payment.PhuongThuc === 'ONLINE' ? 'Chuyển khoản' : 'Tiền mặt')}</p>
-                        <p>${esc(localDateTime(payment.NgayThanhToan || payment.NgayTao))}</p>
-                    </div>
-                </li>`).join('') : '<li class="st-muted">Chưa có khoản thanh toán thành công.</li>';
-        }, message => { paymentsNode.textContent = message; });
-        load('/api/noi-quy', rules => {
-            if (!Array.isArray(rules)) throw new Error('Dữ liệu nội quy không hợp lệ.');
-            rulesNode.innerHTML = rules.length
-                ? rules.map(rule => `<li>${esc(rule.NoiDung)}</li>`).join('')
-                : '<li class="st-muted">Hiện chưa có nội quy.</li>';
-        }, message => { rulesNode.textContent = message; });
-        load('/api/lien-he', contact => {
-            contactNode.innerHTML = [
-                ['Điện thoại', contact.DienThoai],
-                ['Email', contact.Email],
-                ['Giờ làm việc', contact.GioLamViec]
-            ].map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value || 'Chưa cập nhật')}</dd></div>`).join('');
-        }, message => { contactNode.textContent = message; });
-    }
     function paint() {
         const key = ui.routeFromHash(location.hash);
         const page = ui.pages[key];
@@ -130,11 +77,12 @@
             if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
         });
         main.innerHTML = `<h1 tabindex="-1">${esc(page.title)}</h1>${page.render()}`;
-        const campusBanner = main.querySelector('[data-campus-banner]');
-        if (campusBanner) campusBanner.addEventListener('error', () => { campusBanner.hidden = true; }, { once: true });
         if (!backendStudent) ui.billing.afterRender?.(main);
-        if (key === 'home') loadStudentDashboardData(main);
-        if (backendStudent) page.load?.(main);
+        if (key === 'home') {
+            ui.pages.home.load?.(main);
+            ui.loadStudentDashboardData?.(main, backendStudent);
+        }
+        if (backendStudent || key === 'requests') page.load?.(main);
         document.title = `${page.title} - Sinh viên`;
     }
     function render() {
@@ -159,6 +107,11 @@
         const action = button.dataset.action;
         if (action === 'invoice') event.stopPropagation();
         if (action === 'close') { dialog.close(); return; }
+        if (action === 'request-detail') {
+            modal('Chi tiết yêu cầu', ui.pages.requests.detail(button.dataset.id) +
+                '<div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>');
+            return;
+        }
         if (action === 'resume') {
             signedOut = false;
             document.querySelector('header').style.display = '';
@@ -301,15 +254,24 @@
         }
     }
     main.addEventListener('submit', async event => {
+        if (event.defaultPrevented) return;
         event.preventDefault();
         const form = event.target;
         if (form.id === 'student-request-form') {
             const type = form.elements.type.value;
             const content = form.elements.content.value.trim();
-            if (!content) { toast('Vui lòng nhập nội dung yêu cầu.'); form.elements.content.focus(); return; }
-            if (!['Gia hạn hợp đồng', 'Báo hỏng thiết bị'].includes(type) || content.length > 1000) return;
+            if (!content) {
+                form.querySelector('[data-content-error]').textContent = 'Vui lòng nhập nội dung yêu cầu.';
+                form.elements.content.focus();
+                return;
+            }
+            if (!ui.requestRules?.isValid(type, content)) {
+                form.querySelector('[data-content-error]').textContent = 'Vui lòng chọn loại yêu cầu hợp lệ và nhập nội dung từ 1 đến 1.000 ký tự.';
+                return;
+            }
             if (backendStudent) {
                 const button = form.querySelector('button[type="submit"]');
+                if (button.disabled) return;
                 button.disabled = true;
                 try {
                     const response = await ApiClient.fetch('/api/student/requests', {
@@ -328,10 +290,11 @@
                     toast(result.message || 'Yêu cầu đã được gửi.');
                 } catch (error) {
                     button.disabled = false;
-                    toast(error.message || 'Không thể gửi yêu cầu.');
+                    form.querySelector('[data-form-error]').textContent = error.message || 'Không thể gửi yêu cầu.';
                 }
                 return;
             }
+            form.querySelector('button[type="submit"]').disabled = true;
             ui.repository.addRequest(type, content);
             render();
             toast('Đã thêm yêu cầu demo vào danh sách chờ duyệt.');

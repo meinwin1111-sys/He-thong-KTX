@@ -4,7 +4,7 @@
     const rejected = 'Từ chối';
     const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const fold = value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
-    const dateText = value => value ? new Date(value).toLocaleString('vi-VN') : '—';
+    const dateText = value => window.AdminWorkflowUtils?.dateTime(value) || '—';
     const badge = status => {
         const label = String(status || '').trim() || 'Chưa xác định';
         return `<span class="dk-badge ${label === pending ? 'dk-pending' : label === rejected ? 'dk-rejected' : label === 'Chưa xác định' ? '' : 'dk-approved'}">${escape(label)}</span>`;
@@ -27,6 +27,15 @@
         note: row.PhanHoi,
         extensionEndDate: row.NgayKetThucDeXuat
     }));
+    const tableColumns = () => [
+        { label: 'Mã yêu cầu', render: row => `<strong>${escape(row.id)}</strong>` },
+        { label: 'Sinh viên', render: row => `<span>${escape(row.student || '—')} · ${escape(row.code || '—')}</span>`, longText: true, title: row => `${row.student || '—'} · ${row.code || '—'}` },
+        { label: 'Phòng', render: row => escape(row.room || '—') },
+        { label: 'Loại yêu cầu', render: row => escape(row.type || '—'), longText: true, title: row => row.type || '—' },
+        { label: 'Ngày gửi', render: row => escape(dateText(row.date)) },
+        { label: 'Trạng thái', render: row => badge(row.status) },
+        { label: 'Thao tác', render: row => `<button type="button" class="dk-button" data-detail="${escape(row.id)}">${row.status === pending ? 'Xử lý' : 'Chi tiết'}</button>` }
+    ];
 
     window.renderDuyetKiemSoatModule = function () {
         requests = [];
@@ -43,12 +52,12 @@
                         <label class="dk-search">Tìm kiếm<input id="dk-search" type="search" placeholder="Mã, tên sinh viên, phòng..." maxlength="100"></label>
                         <label>Loại yêu cầu<select id="dk-type"></select></label>
                         <label>Trạng thái<select id="dk-status"></select></label>
-                        <label>Từ ngày<input id="dk-from" type="date"></label>
-                        <label>Đến ngày<input id="dk-to" type="date"></label>
+                        <label>Từ ngày<input id="dk-from" type="text" placeholder="dd/mm/yyyy" inputmode="numeric" autocomplete="off"></label>
+                        <label>Đến ngày<input id="dk-to" type="text" placeholder="dd/mm/yyyy" inputmode="numeric" autocomplete="off"></label>
                         <button type="button" id="dk-reset" class="dk-button">Đặt lại</button>
                     </form>
                     <p id="dk-date-error" class="text-red-600 px-5" role="alert"></p>
-                    <div class="dk-table-wrap"><table class="dk-table"><thead id="dk-head"></thead><tbody id="dk-body"></tbody></table></div>
+                    <div class="dk-table-wrap" id="dk-table-wrap"></div>
                     <footer class="dk-footer"><span id="dk-count" role="status"></span><div class="flex items-center gap-3"><button id="dk-prev" class="dk-button" aria-label="Trang trước">‹</button><span id="dk-page"></span><button id="dk-next" class="dk-button" aria-label="Trang sau">›</button></div></footer>
                 </div>
                 </section>
@@ -60,7 +69,7 @@
         root.querySelector('#dk-reset').addEventListener('click', configureFilters);
         root.querySelector('#dk-prev').addEventListener('click', () => { page--; renderRows(); });
         root.querySelector('#dk-next').addEventListener('click', () => { page++; renderRows(); });
-        root.querySelector('#dk-body').addEventListener('click', event => {
+        root.querySelector('#dk-table-wrap').addEventListener('click', event => {
             const button = event.target.closest('[data-detail]');
             if (button) openDetail(button.dataset.detail);
         });
@@ -69,9 +78,9 @@
     };
 
     async function loadRequests() {
-        const body = root.querySelector('#dk-body');
+        const tableHost = root.querySelector('#dk-table-wrap');
         const errorNode = root.querySelector('#dk-load-error');
-        body.innerHTML = '<tr><td colspan="7" class="dk-empty" role="status">Đang tải yêu cầu...</td></tr>';
+        tableHost.innerHTML = window.AdminWorkflowUtils.renderTable(tableColumns(), [], 'Đang tải yêu cầu...', () => '', 'dk-table');
         errorNode.textContent = '';
         try {
             const response = await ApiClient.fetch('/api/requests');
@@ -80,7 +89,7 @@
             requests = result;
             renderRows();
         } catch (error) {
-            body.innerHTML = '<tr><td colspan="7" class="dk-empty">Không thể tải danh sách yêu cầu.</td></tr>';
+            tableHost.innerHTML = window.AdminWorkflowUtils.renderTable(tableColumns(), [], 'Không thể tải danh sách yêu cầu.', () => '', 'dk-table');
             errorNode.textContent = error.message || 'Không thể tải danh sách yêu cầu.';
         }
     }
@@ -100,10 +109,14 @@
         root.querySelector('#dk-stats').innerHTML = stats.map(([label, count]) => `<div class="dk-stat"><p>${label}</p><strong>${count}</strong></div>`).join('');
         const value = id => root.querySelector(`#dk-${id}`).value;
         const keyword = fold(value('search').trim());
-        const from = value('from');
-        const to = value('to');
-        const invalidDates = from && to && from > to;
-        root.querySelector('#dk-date-error').textContent = invalidDates ? 'Ngày kết thúc phải bằng hoặc sau ngày bắt đầu.' : '';
+        const fromText = value('from').trim();
+        const toText = value('to').trim();
+        const from = fromText ? window.AdminWorkflowUtils.date(fromText, 'parse') : '';
+        const to = toText ? window.AdminWorkflowUtils.date(toText, 'parse') : '';
+        const invalidDates = (fromText && !from) || (toText && !to) || (from && to && from > to);
+        root.querySelector('#dk-date-error').textContent = invalidDates
+            ? (fromText && !from || toText && !to ? 'Ngày không hợp lệ. Nhập theo dd/mm/yyyy.' : 'Ngày kết thúc phải bằng hoặc sau ngày bắt đầu.')
+            : '';
         const rows = allRequests.filter(row => {
             const day = row.date.slice(0, 10);
             return !invalidDates && (!keyword || fold([row.id, row.student, row.code, row.room].join(' ')).includes(keyword)) &&
@@ -112,14 +125,11 @@
         }).sort((a, b) => b.date.localeCompare(a.date));
         const pages = Math.max(1, Math.ceil(rows.length / pageSize));
         page = Math.min(Math.max(page, 1), pages);
-        const headers = ['Mã yêu cầu', 'Sinh viên', 'Phòng', 'Loại yêu cầu', 'Ngày gửi', 'Trạng thái', 'Thao tác'];
-        root.querySelector('#dk-head').innerHTML = `<tr>${headers.map(h => `<th scope="col">${h}</th>`).join('')}</tr>`;
-        root.querySelector('#dk-body').innerHTML = rows.slice((page - 1) * pageSize, page * pageSize).map(row => `<tr>
-            <td><strong>${escape(row.id)}</strong></td>
-            <td><strong>${escape(row.student)}</strong><small>${escape(row.code)}</small></td>
-            <td>${escape(row.room)}</td><td>${escape(row.type)}</td><td>${dateText(row.date)}</td>
-            <td>${badge(row.status)}</td><td><button type="button" class="dk-button" data-detail="${escape(row.id)}">${row.status === pending ? 'Xử lý' : 'Chi tiết'}</button></td>
-        </tr>`).join('') || '<tr><td colspan="7" class="dk-empty">Không có kết quả phù hợp. Hãy thử thay đổi bộ lọc.</td></tr>';
+        root.querySelector('#dk-table-wrap').innerHTML = window.AdminWorkflowUtils.renderTable(
+            tableColumns(), rows.slice((page - 1) * pageSize, page * pageSize),
+            'Không có kết quả phù hợp. Hãy thử thay đổi bộ lọc.',
+            () => 'class="transition-colors hover:bg-slate-50"', 'dk-table'
+        );
         root.querySelector('#dk-count').textContent = `Hiển thị ${rows.length ? (page - 1) * pageSize + 1 : 0}–${Math.min(page * pageSize, rows.length)} / ${rows.length} kết quả`;
         root.querySelector('#dk-page').textContent = `${page} / ${pages}`;
         root.querySelector('#dk-prev').disabled = page <= 1;
@@ -152,6 +162,7 @@
                 dialog.querySelector('#dk-note').focus();
                 return;
             }
+            if (!window.confirm(`${status === approved ? 'Duyệt' : 'Từ chối'} yêu cầu ${id}?`)) return;
             const buttons = [...dialog.querySelectorAll('#dk-decision button[type="submit"]')];
             buttons.forEach(button => { button.disabled = true; });
             try {

@@ -42,99 +42,44 @@
         }
     }
 
+    const sharedDates = () => window.AdminWorkflowUtils;
     function parseDate(value) {
-        const match = /^([0-3]\d)\/([01]\d)\/(\d{4})$/.exec(String(value || '').trim());
-        if (!match) return null;
-        const day = Number(match[1]);
-        const month = Number(match[2]);
-        const year = Number(match[3]);
-        const date = new Date(year, month - 1, day);
-        if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
-        const iso = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        return { date, iso };
+        const iso = sharedDates()?.date(String(value || ''), 'parse');
+        if (!iso) return null;
+        const [year, month, day] = iso.split('-').map(Number);
+        return { year, month, day, iso };
     }
-
-    function formatDateInput(value, caretPosition = String(value || '').length, { backspace = false, inputType = '' } = {}) {
-        let source = String(value || '');
-        let caret = Math.max(0, Math.min(Number(caretPosition) || 0, source.length));
-        if (backspace && caret > 0 && source[caret - 1] === '/') {
-            const slashIndex = caret - 1;
-            const groups = source.split('/').slice(0, 3).map(group => group.replace(/\D/g, ''));
-            const groupIndex = source.slice(0, slashIndex).split('/').length - 1;
-            if (groupIndex < groups.length && groups[groupIndex]) {
-                groups[groupIndex] = groups[groupIndex].slice(0, -1);
-                const limits = [2, 2, 4];
-                const formatted = groups.map((group, index) => group.slice(0, limits[index])).join('/');
-                const selectionStart = groups.slice(0, groupIndex + 1).reduce((total, group) => total + group.length, groupIndex);
-                return { value: formatted, selectionStart };
-            }
-        }
-
-        const digitsBeforeCaret = source.slice(0, caret).replace(/\D/g, '').length;
-        const digits = source.replace(/\D/g, '').slice(0, 8);
-        const formatted = digits.length > 4
-            ? `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`
-            : digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits;
-        const targetDigit = Math.min(digitsBeforeCaret, digits.length);
-        let selectionStart = 0;
-        let seenDigits = 0;
-        while (selectionStart < formatted.length && seenDigits < targetDigit) {
-            if (/\d/.test(formatted[selectionStart])) seenDigits++;
-            selectionStart++;
-        }
-        if (/^insert/.test(inputType) && [2, 4].includes(targetDigit) && formatted[selectionStart] === '/') {
-            selectionStart++;
-        }
-        return { value: formatted, selectionStart };
+    function formatDateInput(value, caretPosition = String(value || '').length) {
+        const result = sharedDates()?.sanitizeDateInput(value, caretPosition) || { value, caret: caretPosition };
+        return { value: result.value, selectionStart: result.caret };
     }
-
-    function bindDateInput(input) {
-        let keepBackspaceFormat = false;
-        input.addEventListener('input', event => {
-            if (keepBackspaceFormat) {
-                keepBackspaceFormat = false;
-                return;
-            }
-            const result = formatDateInput(input.value, input.selectionStart, { inputType: event.inputType });
-            if (input.value !== result.value) input.value = result.value;
-            input.setSelectionRange(result.selectionStart, result.selectionStart);
-        });
-        input.addEventListener('keydown', event => {
-            if (event.key !== 'Backspace' || input.selectionStart !== input.selectionEnd
-                || input.value[input.selectionStart - 1] !== '/') return;
-            event.preventDefault();
-            const result = formatDateInput(input.value, input.selectionStart, { backspace: true });
-            input.value = result.value;
-            input.setSelectionRange(result.selectionStart, result.selectionStart);
-            keepBackspaceFormat = true;
-            input.dispatchEvent(new Event('input', { bubbles: true, inputType: 'deleteContentBackward' }));
-        });
-        input.addEventListener('paste', event => {
-            event.preventDefault();
-            const start = input.selectionStart;
-            const end = input.selectionEnd;
-            const pasted = event.clipboardData.getData('text');
-            const value = input.value.slice(0, start) + pasted + input.value.slice(end);
-            const result = formatDateInput(value, start + pasted.length, { inputType: 'insertFromPaste' });
-            input.value = result.value;
-            input.setSelectionRange(result.selectionStart, result.selectionStart);
-            input.dispatchEvent(new Event('input', { bubbles: true, inputType: 'insertFromPaste' }));
-        });
+    function bindDateInput(input, { birth = false } = {}) {
+        input.maxLength = 10;
+        input.inputMode = 'numeric';
+        input.dataset.adminDate = 'true';
+        if (birth) input.dataset.dateBirth = 'true';
+        else delete input.dataset.dateBirth;
+        sharedDates()?.bindDateInputs(document.body);
     }
 
     window.StudentDate = Object.freeze({
         parse: parseDate,
         formatInput: formatDateInput,
         bindInput: bindDateInput,
+        formatIso(value) {
+            const formatted = sharedDates()?.date(String(value || ''), 'format');
+            if (!formatted) throw new Error('Ngày không hợp lệ.');
+            return formatted;
+        },
         birthDateToIso(value) {
             const parsed = parseDate(value);
             if (!parsed) throw new Error('Ngày sinh phải đúng định dạng dd/mm/yyyy.');
             const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            let age = today.getFullYear() - parsed.date.getFullYear();
-            if (today.getMonth() < parsed.date.getMonth() ||
-                (today.getMonth() === parsed.date.getMonth() && today.getDate() < parsed.date.getDate())) age--;
-            if (parsed.date > today || age < 15 || age > 100) {
+            const todayParts = { year: today.getFullYear(), month: today.getMonth() + 1, day: today.getDate() };
+            let age = todayParts.year - parsed.year;
+            if (todayParts.month < parsed.month ||
+                (todayParts.month === parsed.month && todayParts.day < parsed.day)) age--;
+            if (parsed.iso > `${todayParts.year}-${String(todayParts.month).padStart(2, '0')}-${String(todayParts.day).padStart(2, '0')}` || parsed.year < 1900 || age < 15 || age > 100) {
                 throw new Error('Sinh viên phải từ 15 đến 100 tuổi và ngày sinh không được ở tương lai.');
             }
             return parsed.iso;
@@ -143,8 +88,8 @@
             const parsed = parseDate(value);
             if (!parsed) throw new Error('Ngày phải đúng định dạng dd/mm/yyyy.');
             const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            if (parsed.date <= today) throw new Error('Ngày kết thúc đề xuất phải sau ngày hôm nay.');
+            const isoToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            if (parsed.iso <= isoToday) throw new Error('Ngày kết thúc đề xuất phải sau ngày hôm nay.');
             return parsed.iso;
         }
     });

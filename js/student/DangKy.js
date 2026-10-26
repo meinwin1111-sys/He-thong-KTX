@@ -24,13 +24,18 @@ function openStudentRegistration() {
         <form><div class="sr-profile-columns"><div>
             ${field('name', 'Họ và tên', 'text', 'maxlength="100" autocomplete="name"')}
             ${field('code', 'Mã sinh viên', 'text', 'maxlength="20" autocomplete="off"')}
-            ${field('birthday', 'Ngày sinh', 'text', 'inputmode="numeric" maxlength="10" placeholder="dd/mm/yyyy" autocomplete="bday"')}
+            <div class="sr-profile-field"><label for="sr-birthday">Ngày sinh <span>*</span></label>
+                <div class="relative flex gap-2"><input id="sr-birthday" name="birthday" type="text" required inputmode="numeric"
+                    maxlength="10" placeholder="dd/mm/yyyy" autocomplete="bday">
+                    <button type="button" data-action="date-picker-open" aria-label="Chọn ngày sinh">▦</button>
+                    <input type="date" data-date-picker aria-hidden="true" tabindex="-1"></div>
+                <small data-date-error class="text-red-700" role="alert"></small></div>
             <div class="sr-profile-field"><label for="sr-gender">Giới tính <span>*</span></label><select id="sr-gender" name="gender" required><option value="">Chọn giới tính</option><option>Nam</option><option>Nữ</option><option>Khác</option></select></div>
             ${field('phone', 'Số điện thoại', 'tel', 'maxlength="20" autocomplete="tel" placeholder="0901234567 hoặc +84901234567"')}
         </div><div>
             ${field('email', 'Gmail', 'email', 'maxlength="100" autocomplete="username" placeholder="ten@gmail.com"')}
             ${field('school', 'Trường', 'text', 'maxlength="150" autocomplete="organization"')}
-            ${field('className', 'Lớp', 'text', 'maxlength="50"')}
+            ${field('className', 'Lớp', 'text', 'maxlength="50" autocomplete="off"')}
             ${field('address', 'Địa chỉ', 'text', 'maxlength="250" autocomplete="street-address"', false)}
             ${field('password', 'Mật khẩu', 'password', 'minlength="8" maxlength="72" autocomplete="new-password"')}
             ${field('confirm', 'Xác nhận mật khẩu', 'password', 'minlength="8" maxlength="72" autocomplete="new-password"')}
@@ -39,7 +44,7 @@ function openStudentRegistration() {
         <div class="sr-actions"><button type="button" data-close class="sr-back">Quay lại Login</button><button type="submit" class="sr-submit">Đăng ký</button></div>
         </form></section></div>`;
     document.body.appendChild(dialog);
-    StudentDate.bindInput(dialog.querySelector('#sr-birthday'));
+    StudentDate.bindInput(dialog.querySelector('#sr-birthday'), { birth: true });
     dialog.addEventListener('cancel', event => {
         event.preventDefault();
         dialog.close();

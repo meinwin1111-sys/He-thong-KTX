@@ -78,6 +78,21 @@ function renderTrangChuModule() {
                         </div>
                         <div class="space-y-3" data-payment-announcements role="status">Đang tải giao dịch…</div>
                     </div>
+                    <section class="mt-6 border-t border-slate-200 pt-5" aria-labelledby="manage-student-notices">
+                        <h3 id="manage-student-notices" class="home-section-title">Thông báo đến Sinh viên</h3>
+                        <form data-notice-form class="mt-3 grid gap-3">
+                            <input name="TieuDe" maxlength="200" required placeholder="Tiêu đề (tối đa 200 ký tự)" aria-label="Tiêu đề thông báo" class="w-full rounded-lg border px-3 py-2">
+                            <textarea name="NoiDung" maxlength="2000" required rows="3" placeholder="Nội dung (tối đa 2.000 ký tự)" aria-label="Nội dung thông báo" class="w-full rounded-lg border px-3 py-2"></textarea>
+                            <select name="PhamViNhan" aria-label="Đối tượng nhận" class="w-full rounded-lg border px-3 py-2">
+                                <option value="TAT_CA">Tất cả sinh viên</option><option value="PHONG">Theo phòng</option><option value="SINH_VIEN">Theo mã sinh viên</option>
+                            </select>
+                            <input name="TenPhong" maxlength="50" placeholder="Tên phòng" aria-label="Tên phòng nhận thông báo" hidden>
+                            <input name="MaSinhVien" maxlength="30" placeholder="Mã sinh viên" aria-label="Mã sinh viên nhận thông báo" hidden>
+                            <p data-notice-status role="status" class="text-sm"></p>
+                            <button type="submit" class="w-fit rounded-lg bg-emerald-700 px-4 py-2 font-semibold text-white">Gửi thông báo</button>
+                        </form>
+                        <ul data-notice-list class="mt-4 space-y-2"><li class="text-sm text-slate-500">Đang tải thông báo…</li></ul>
+                    </section>
 
                 </div>
 
@@ -192,8 +207,11 @@ function startHomeDashboard(root) {
     const updateClock = () => {
         const time = new Date();
         clock.dateTime = time.toISOString();
-        clock.querySelector('[data-home-weekday]').textContent = time.toLocaleDateString('vi-VN', { weekday: 'long' });
-        clock.querySelector('[data-home-date]').textContent = time.toLocaleDateString('vi-VN');
+        clock.querySelector('[data-home-weekday]').textContent = new Intl.DateTimeFormat('vi-VN', { weekday: 'long' }).format(time);
+        clock.querySelector('[data-home-date]').textContent = window.AdminWorkflowUtils.date(
+            `${time.getFullYear()}-${String(time.getMonth() + 1).padStart(2, '0')}-${String(time.getDate()).padStart(2, '0')}`,
+            'format'
+        );
         clock.querySelector('[data-home-hour]').textContent = time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     };
     updateClock();
@@ -369,6 +387,33 @@ function startHomeDashboard(root) {
             }
         }
     };
+    const renderManagedNotices = notices => {
+        const list = root.querySelector("[data-notice-list]");
+        list.innerHTML = notices.length ? notices.map(notice => {
+            const scope = notice.PhamViNhan === "PHONG"
+                ? `Phòng ${notice.TenPhong || "—"}`
+                : notice.PhamViNhan === "SINH_VIEN" ? `Sinh viên ${notice.MaSinhVien || "—"}` : "Tất cả sinh viên";
+            return `<li class="rounded-lg border p-3">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0"><strong>${escapeHtml(notice.TieuDe || "—")}</strong>
+                        <p class="mt-1 whitespace-pre-wrap break-words text-sm">${escapeHtml(notice.NoiDung || "—")}</p>
+                        <p class="mt-1 text-xs text-slate-500">${escapeHtml(scope)} · ${escapeHtml(window.AdminWorkflowUtils.dateTime(notice.NgayTao))}</p>
+                    </div>
+                    <button type="button" data-notice-delete="${escapeHtml(notice.MaThongBao)}" class="shrink-0 rounded bg-red-50 px-3 py-1 text-sm font-semibold text-red-800">Ẩn</button>
+                </div>
+            </li>`;
+        }).join("") : '<li class="text-sm text-slate-500">Chưa có thông báo.</li>';
+    };
+    const loadManagedNotices = async () => {
+        const list = root.querySelector("[data-notice-list]");
+        try {
+            const notices = await fetchJson("/api/admin/notifications");
+            if (!Array.isArray(notices)) throw new Error("Dữ liệu thông báo không hợp lệ.");
+            if (root.isConnected) renderManagedNotices(notices);
+        } catch (error) {
+            if (error.name !== "AbortError" && root.isConnected) list.textContent = error.message || "Không thể tải thông báo.";
+        }
+    };
     const loadPaymentAnnouncements = async () => {
         const list = root.querySelector("[data-payment-announcements]");
         try {
@@ -381,7 +426,7 @@ function startHomeDashboard(root) {
                     aria-label="Xem chi tiết thanh toán của ${escapeHtml(payment.HoTen)}"
                     class="block w-full cursor-pointer rounded-xl border-y border-r border-l-4 border-slate-200 border-l-emerald-400 bg-emerald-50/40 p-4 text-left transition-colors hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2">
                     <p class="font-bold text-slate-900 text-sm">${escapeHtml(payment.HoTen)} đã thanh toán ${escapeHtml(payment.TenKhoan)}</p>
-                    <p class="mt-1 text-xs text-slate-500">Hóa đơn ${escapeHtml(payment.MaHoaDon)} · ${payment.SoTien !== null && payment.SoTien !== undefined && payment.SoTien !== "" && Number.isFinite(Number(payment.SoTien)) ? `${Number(payment.SoTien).toLocaleString("vi-VN")} ₫` : "—"} · ${escapeHtml(payment.PhuongThuc === "ONLINE" ? "Chuyển khoản" : "Tiền mặt")}</p>
+                    <p class="mt-1 text-xs text-slate-500">Hóa đơn ${escapeHtml(payment.MaHoaDon || "—")} · ${payment.SoTien !== null && payment.SoTien !== undefined && payment.SoTien !== "" && Number.isFinite(Number(payment.SoTien)) ? `${Number(payment.SoTien).toLocaleString("vi-VN")} ₫` : "—"} · ${escapeHtml(payment.PhuongThuc === "ONLINE" ? "Chuyển khoản (QR)" : "Tiền mặt")}</p>
                 </button>`).join("") : '<p class="text-sm text-slate-500">Chưa có khoản thanh toán thành công.</p>';
 
             list.addEventListener("click", event => {
@@ -396,23 +441,13 @@ function startHomeDashboard(root) {
     };
     const openPaymentAnnouncementDetails = payment => {
         const display = value => value === null || value === undefined || String(value).trim() === "" ? "—" : String(value);
-        const formatDate = value => {
-            if (!value) return "—";
-            const date = new Date(value);
-            return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("vi-VN");
-        };
+        const formatDate = value => window.AdminWorkflowUtils.dateTime(value);
         const amount = Number(payment.SoTien);
         const formatAmount = payment.SoTien !== null && payment.SoTien !== undefined && payment.SoTien !== ""
             && Number.isFinite(amount)
             ? `${amount.toLocaleString("vi-VN")} ₫`
             : "—";
-        const statusLabels = {
-            SUCCESS: "Thành công",
-            PENDING: "Đang chờ xử lý",
-            FAILED: "Thất bại",
-            REJECTED: "Bị từ chối"
-        };
-        const status = statusLabels[payment.TrangThai] || display(payment.TrangThai);
+        const status = window.AdminWorkflowUtils.displayLabel(payment.TrangThai);
         const fields = [
             ["Tên sinh viên", payment.HoTen],
             ["Mã số sinh viên", payment.MaSinhVien],
@@ -423,9 +458,7 @@ function startHomeDashboard(root) {
                 : "—"],
             ["Hạng mục thanh toán", payment.TenKhoan],
             ["Số tiền", formatAmount],
-            ["Phương thức thanh toán", payment.PhuongThuc === "ONLINE"
-                ? "Chuyển khoản"
-                : payment.PhuongThuc === "CASH" ? "Tiền mặt" : display(payment.PhuongThuc)],
+            ["Phương thức thanh toán", window.AdminWorkflowUtils.displayLabel(payment.PhuongThuc)],
             ["Thời điểm thanh toán", formatDate(payment.NgayThanhToan || payment.NgayTao)],
             ["Trạng thái", status],
             ["Mã giao dịch", payment.MaGiaoDich],
@@ -492,8 +525,17 @@ function startHomeDashboard(root) {
         const rule = rulesDraft.find(item => item.key === Number(input.dataset.ruleContent));
         if (rule) rule.content = input.value;
     }, { signal: controller.signal });
+    root.addEventListener("change", event => {
+        const scope = event.target.closest('[name="PhamViNhan"]');
+        if (!scope) return;
+        const form = scope.form;
+        form.elements.TenPhong.hidden = scope.value !== "PHONG";
+        form.elements.TenPhong.required = scope.value === "PHONG";
+        form.elements.MaSinhVien.hidden = scope.value !== "SINH_VIEN";
+        form.elements.MaSinhVien.required = scope.value === "SINH_VIEN";
+    }, { signal: controller.signal });
     root.addEventListener("submit", async event => {
-        const form = event.target.closest("[data-rule-create], [data-contact-form]");
+        const form = event.target.closest("[data-rule-create], [data-contact-form], [data-notice-form]");
         if (!form) return;
         event.preventDefault();
         if (form.matches("[data-rule-create]")) {
@@ -507,6 +549,40 @@ function startHomeDashboard(root) {
             });
             form.reset();
             renderRules();
+            return;
+        }
+        if (form.matches("[data-notice-form]")) {
+            if (form.dataset.submitting || !form.reportValidity()) return;
+            if (!window.confirm("Gửi thông báo này đến đối tượng đã chọn?")) return;
+            const submit = form.querySelector('[type="submit"]');
+            form.dataset.submitting = "true";
+            submit.disabled = true;
+            form.querySelector("[data-notice-status]").textContent = "Đang gửi thông báo…";
+            try {
+                await fetchJson("/api/admin/notifications", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        TieuDe: form.elements.TieuDe.value.trim(),
+                        NoiDung: form.elements.NoiDung.value.trim(),
+                        PhamViNhan: form.elements.PhamViNhan.value,
+                        TenPhong: form.elements.PhamViNhan.value === "PHONG" ? form.elements.TenPhong.value.trim() : null,
+                        MaSinhVien: form.elements.PhamViNhan.value === "SINH_VIEN" ? form.elements.MaSinhVien.value.trim() : null
+                    })
+                });
+                form.reset();
+                form.elements.TenPhong.hidden = true;
+                form.elements.TenPhong.required = false;
+                form.elements.MaSinhVien.hidden = true;
+                form.elements.MaSinhVien.required = false;
+                showStatus(form.querySelector("[data-notice-status]"), "Đã gửi thông báo.");
+                await loadManagedNotices();
+            } catch (error) {
+                showStatus(form.querySelector("[data-notice-status]"), error.message || "Không thể gửi thông báo.", true);
+            } finally {
+                delete form.dataset.submitting;
+                submit.disabled = false;
+            }
             return;
         }
         if (!editingContact || form.dataset.submitting) return;
@@ -598,10 +674,23 @@ function startHomeDashboard(root) {
             await loadContact();
             return;
         }
+        const deleteNotice = event.target.closest("[data-notice-delete]");
+        if (deleteNotice && !deleteNotice.disabled) {
+            if (!window.confirm("Ẩn thông báo này khỏi danh sách của sinh viên?")) return;
+            deleteNotice.disabled = true;
+            try {
+                await fetchJson(`/api/admin/notifications/${encodeURIComponent(deleteNotice.dataset.noticeDelete)}`, { method: "DELETE" });
+                await loadManagedNotices();
+            } catch (error) {
+                deleteNotice.disabled = false;
+                showStatus(root.querySelector("[data-notice-status]"), error.message || "Không thể ẩn thông báo.", true);
+            }
+        }
     }, { signal: controller.signal });
     loadRules();
     loadContact();
     loadPaymentAnnouncements();
+    loadManagedNotices();
     const numeric = value => {
         if (value === null || value === '' || !Number.isFinite(Number(value)) || Number(value) < 0) throw new Error('Invalid statistic');
         return Number(value);
@@ -611,10 +700,10 @@ function startHomeDashboard(root) {
         ['rooms', '/api/Phong', data => array(data).length],
         ['students', '/api/sinhvien/thongke', data => numeric(data.tongSinhVien)],
         ['contracts', '/api/HopDong', data => {
-            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
             return array(data).filter(contract => {
-                const end = new Date(String(contract.NgayKetThuc || '').split('T')[0] + 'T00:00:00');
-                const start = contract.NgayBatDau ? new Date(String(contract.NgayBatDau).split('T')[0] + 'T00:00:00') : today;
+                const end = String(contract.NgayKetThuc || '').slice(0, 10);
+                const start = contract.NgayBatDau ? String(contract.NgayBatDau).slice(0, 10) : today;
                 return start <= today && end >= today && !String(contract.TrangThaiHopDong || '').toLowerCase().includes('kết thúc');
             }).length;
         }],

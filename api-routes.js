@@ -555,6 +555,134 @@ function registerApiRoutes(app, {
         }
     });
 
+    app.get("/api/admin/notifications", async (req, res) => {
+        if (req.auth?.role !== "Quản lý") {
+            return respondRequestError(res, 403, "Chỉ Quản lý mới được xem danh sách thông báo.");
+        }
+        try {
+            const result = await getPool().request().query(`
+                SELECT MaThongBao, TieuDe, NoiDung, PhamViNhan, TenPhong,
+                       MaSinhVien, NguoiTao, NgayTao, DaXoa
+                FROM dbo.ThongBao
+                WHERE DaXoa = 0
+                ORDER BY NgayTao DESC, MaThongBao DESC
+            `);
+            return res.json(result.recordset);
+        } catch (error) {
+            return respondDatabaseError(res, "LỖI LẤY THÔNG BÁO QUẢN LÝ", error, "Không thể lấy danh sách thông báo.");
+        }
+    });
+
+    app.post("/api/admin/notifications", async (req, res) => {
+        if (req.auth?.role !== "Quản lý") {
+            return respondRequestError(res, 403, "Chỉ Quản lý mới được tạo thông báo.");
+        }
+        if (!isObjectBody(req.body)
+            || typeof req.body.TieuDe !== "string"
+            || !req.body.TieuDe.trim()
+            || req.body.TieuDe.trim().length > 200
+            || typeof req.body.NoiDung !== "string"
+            || !req.body.NoiDung.trim()
+            || req.body.NoiDung.trim().length > 2000
+            || !["TAT_CA", "PHONG", "SINH_VIEN"].includes(req.body.PhamViNhan)) {
+            return respondRequestError(res, 400, "Tiêu đề tối đa 200 ký tự, nội dung tối đa 2.000 ký tự và phạm vi nhận hợp lệ là bắt buộc.");
+        }
+        const { PhamViNhan } = req.body;
+        const TenPhong = req.body.TenPhong;
+        const MaSinhVien = req.body.MaSinhVien;
+        if ((PhamViNhan === "TAT_CA" && (TenPhong != null || MaSinhVien != null))
+            || (PhamViNhan === "PHONG" && (!isValidId(TenPhong, 50) || MaSinhVien != null))
+            || (PhamViNhan === "SINH_VIEN" && (!isValidId(MaSinhVien, 30) || TenPhong != null))) {
+            return respondRequestError(res, 400, "Đối tượng nhận không khớp với phạm vi thông báo.");
+        }
+        try {
+            const result = await getPool().request()
+                .input("TieuDe", sql.NVarChar(200), req.body.TieuDe.trim())
+                .input("NoiDung", sql.NVarChar(2000), req.body.NoiDung.trim())
+                .input("PhamViNhan", sql.NVarChar(10), PhamViNhan)
+                .input("TenPhong", sql.NVarChar(50), PhamViNhan === "PHONG" ? TenPhong.trim() : null)
+                .input("MaSinhVien", sql.NVarChar(30), PhamViNhan === "SINH_VIEN" ? MaSinhVien.trim() : null)
+                .input("NguoiTao", sql.Int, req.auth.accountId)
+                .query(`
+                    INSERT INTO dbo.ThongBao
+                        (TieuDe, NoiDung, PhamViNhan, TenPhong, MaSinhVien, NguoiTao)
+                    OUTPUT inserted.MaThongBao, inserted.TieuDe, inserted.NoiDung,
+                           inserted.PhamViNhan, inserted.TenPhong, inserted.MaSinhVien,
+                           inserted.NguoiTao, inserted.NgayTao, inserted.DaXoa
+                    VALUES
+                        (@TieuDe, @NoiDung, @PhamViNhan, @TenPhong, @MaSinhVien, @NguoiTao)
+                `);
+            return res.status(201).json({ success: true, ...result.recordset[0] });
+        } catch (error) {
+            if ([547].includes(error.number)) {
+                return respondRequestError(res, 400, "Phòng hoặc sinh viên nhận thông báo không tồn tại.");
+            }
+            return respondDatabaseError(res, "LỖI TẠO THÔNG BÁO", error, "Không thể tạo thông báo.");
+        }
+    });
+
+    app.delete("/api/admin/notifications/:id", async (req, res) => {
+        if (req.auth?.role !== "Quản lý") {
+            return respondRequestError(res, 403, "Chỉ Quản lý mới được xóa thông báo.");
+        }
+        if (!/^[1-9]\d{0,18}$/.test(req.params.id)) {
+            return respondRequestError(res, 400, "Mã thông báo không hợp lệ.");
+        }
+        try {
+            const result = await getPool().request()
+                .input("MaThongBao", sql.BigInt, req.params.id)
+                .query(`
+                    UPDATE dbo.ThongBao
+                    SET DaXoa = 1
+                    OUTPUT inserted.MaThongBao
+                    WHERE MaThongBao = @MaThongBao AND DaXoa = 0
+                `);
+            if (!result.recordset.length) return respondRequestError(res, 404, "Không tìm thấy thông báo đang hoạt động.");
+            return res.json({ success: true, message: "Đã ẩn thông báo." });
+        } catch (error) {
+            return respondDatabaseError(res, "LỖI ẨN THÔNG BÁO", error, "Không thể ẩn thông báo.");
+        }
+    });
+
+    app.get("/api/student/notifications", async (req, res) => {
+        if (req.auth?.role !== "Sinh viên" || !isValidId(req.auth.studentId, 30)) {
+            return respondRequestError(res, 403, "Chỉ Sinh viên mới được xem thông báo của mình.");
+        }
+        try {
+            const result = await getPool().request()
+                .input("MaSinhVien", sql.NVarChar(30), req.auth.studentId)
+                .query(`
+                    SELECT tb.MaThongBao, tb.TieuDe, tb.NoiDung, tb.PhamViNhan,
+                           tb.TenPhong, tb.NgayTao
+                    FROM dbo.ThongBao tb
+                    WHERE tb.DaXoa = 0
+                      AND
+                      (
+                          tb.PhamViNhan = N'TAT_CA'
+                          OR (tb.PhamViNhan = N'SINH_VIEN' AND tb.MaSinhVien = @MaSinhVien)
+                          OR
+                          (
+                              tb.PhamViNhan = N'PHONG'
+                              AND EXISTS
+                              (
+                                  SELECT 1
+                                  FROM dbo.ChiTietHopDong c
+                                  INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                                  WHERE c.MaSinhVien = @MaSinhVien
+                                    AND c.TrangThai = N'Đang ở'
+                                    AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                                    AND hd.TenPhong = tb.TenPhong
+                              )
+                          )
+                      )
+                    ORDER BY tb.NgayTao DESC, tb.MaThongBao DESC
+                `);
+            return res.json(result.recordset);
+        } catch (error) {
+            return respondDatabaseError(res, "LỖI LẤY THÔNG BÁO SINH VIÊN", error, "Không thể lấy thông báo.");
+        }
+    });
+
     app.get("/api/student/requests", async (req, res) => {
         if (req.auth?.role !== "Sinh viên") {
             return respondRequestError(res, 403, "Chỉ Sinh viên mới được xem yêu cầu của mình.");
@@ -580,7 +708,7 @@ function registerApiRoutes(app, {
             return respondRequestError(res, 403, "Chỉ Sinh viên mới được gửi yêu cầu.");
         }
         if (!isObjectBody(req.body)
-            || !["Gia hạn hợp đồng", "Báo hỏng thiết bị"].includes(req.body.Loai)
+            || !["Gia hạn hợp đồng", "Báo hỏng thiết bị", "Yêu cầu khác"].includes(req.body.Loai)
             || typeof req.body.NoiDung !== "string"
             || !req.body.NoiDung.trim()
             || req.body.NoiDung.trim().length > 1000) {
@@ -590,8 +718,8 @@ function registerApiRoutes(app, {
         if (req.body.Loai === "Gia hạn hợp đồng" && !isDateOnly(extensionEndDate)) {
             return respondRequestError(res, 400, "Ngày kết thúc đề xuất hợp lệ là bắt buộc khi yêu cầu gia hạn.");
         }
-        if (req.body.Loai === "Báo hỏng thiết bị" && extensionEndDate != null && extensionEndDate !== "") {
-            return respondRequestError(res, 400, "Yêu cầu báo hỏng không nhận ngày kết thúc đề xuất.");
+        if (req.body.Loai !== "Gia hạn hợp đồng" && extensionEndDate != null && extensionEndDate !== "") {
+            return respondRequestError(res, 400, "Yêu cầu này không nhận ngày kết thúc đề xuất.");
         }
 
         const transaction = new sql.Transaction(getPool());

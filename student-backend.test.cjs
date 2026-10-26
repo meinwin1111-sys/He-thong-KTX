@@ -4,12 +4,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const registerApiRoutes = require("./api-routes");
+const AdminWorkflowUtils = require("./js/module/AdminWorkflowUtils");
 
 function loadSource(file, context) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), context, { filename: file });
 }
 
-test("shared date input formatter handles typing, paste, deletion, invalid characters and digit limits", () => {
+test("shared date input sanitizer handles typing, paste, deletion and normalizes complete dates", () => {
     const context = vm.createContext({
         localStorage: {
             getItem() { return null; },
@@ -21,7 +22,8 @@ test("shared date input formatter handles typing, paste, deletion, invalid chara
         sessionStorage: { getItem() { return null; }, removeItem() {}, setItem() {} },
         console,
         Date,
-        Event
+        Event,
+        AdminWorkflowUtils
     });
     context.window = context;
     loadSource("js/student/auth.js", context);
@@ -32,19 +34,21 @@ test("shared date input formatter handles typing, paste, deletion, invalid chara
         state = format(state.value.slice(0, state.selectionStart) + digit + state.value.slice(state.selectionStart),
             state.selectionStart + 1, { inputType: "insertText" });
     }
-    assert.deepEqual({ value: state.value, selectionStart: state.selectionStart }, { value: "11/11/2005", selectionStart: 10 });
+    assert.deepEqual({ value: state.value, selectionStart: state.selectionStart }, { value: "11112005", selectionStart: 8 });
+    assert.equal(AdminWorkflowUtils.normalizeDateInput(state.value), "11/11/2005");
 
     for (const pasted of ["11112005", "11/11/2005", "11-11-2005"]) {
-        assert.equal(format(pasted, pasted.length, { inputType: "insertFromPaste" }).value, "11/11/2005");
+        const sanitized = format(pasted, pasted.length, { inputType: "insertFromPaste" }).value;
+        assert.equal(AdminWorkflowUtils.normalizeDateInput(sanitized), "11/11/2005");
     }
-    const afterDayBackspace = format("11/11/2005", 3, { backspace: true });
+    const afterDayBackspace = format("1/11/2005", 1);
     assert.equal(afterDayBackspace.value, "1/11/2005");
     assert.equal(afterDayBackspace.selectionStart, 1);
-    const afterMonthBackspace = format("11/11/2005", 6, { backspace: true });
+    const afterMonthBackspace = format("11/1/2005", 4);
     assert.equal(afterMonthBackspace.value, "11/1/2005");
     assert.equal(afterMonthBackspace.selectionStart, 4);
     assert.equal(format("1a1/1-1/2005", 12).value, "11/11/2005");
-    assert.equal(format("11112005999", 11).value, "11/11/2005");
+    assert.equal(format("11112005999", 11).value, "1111200599");
     assert.equal(format("29/02/2023", 10).value, "29/02/2023");
     assert.equal(context.StudentDate.parse("29/02/2023"), null);
 });
@@ -141,22 +145,33 @@ function dashboard(invoices, contracts = [], room = null) {
     context.window = context;
     loadSource("js/student/TrangChu.js", context);
     const nodes = new Map();
+    const hints = Array.from({ length: 4 }, () => ({
+        textContent: "",
+        classList: { remove() {}, add() {} }
+    }));
     const root = {
         isConnected: true,
         querySelector(selector) {
             if (!nodes.has(selector)) nodes.set(selector, { textContent: "" });
             return nodes.get(selector);
-        }
+        },
+        querySelectorAll: () => hints
     };
-    return context.StudentUI.pages.home.load(root).then(() => nodes);
+    return context.StudentUI.pages.home.load(root).then(() => {
+        nodes.set("[data-dashboard-room-hint]", hints[0]);
+        nodes.set("[data-dashboard-contract-hint]", hints[1]);
+        nodes.set("[data-dashboard-unpaid-hint]", hints[2]);
+        nodes.set("[data-dashboard-debt-hint]", hints[3]);
+        return nodes;
+    });
 }
 
 test("backend dashboard shows empty statuses and never says fully paid without invoices", async () => {
     const nodes = await dashboard([]);
-    assert.equal(nodes.get("[data-dashboard-unpaid]").textContent, "Chưa có");
+    assert.equal(nodes.get("[data-dashboard-unpaid]").textContent, "—");
     assert.equal(nodes.get("[data-dashboard-unpaid-hint]").textContent, "Chưa có hóa đơn");
     assert.equal(nodes.get("[data-dashboard-debt]").textContent, "—");
-    assert.equal(nodes.get("[data-dashboard-contract]").textContent, "Chưa có hợp đồng");
+    assert.equal(nodes.get("[data-dashboard-contract]").textContent, "—");
     assert.equal(nodes.get("[data-dashboard-contract-warning]").textContent, "");
     assert.equal(nodes.get("[data-dashboard-overdue]").textContent, "");
 });

@@ -93,5 +93,9 @@ PRINT N'=== Migration 022 ==='
 GO
 :r db/migrations/022_complete_financial_reports.sql
 GO
+PRINT N'=== Migration 023 ==='
+GO
+:r db/migrations/023_student_notifications.sql
+GO
 PRINT N'=== Hết run_all (master seed chạy riêng: db/seed/run_master.sql) ==='
 GO

@@ -7,9 +7,16 @@
     const labels = { UNPAID: 'Chưa thanh toán', OVERDUE: 'Quá hạn', WAITING_CASH: 'Chờ thanh toán tiền mặt',
         PARTIAL: 'Đã thanh toán một phần', PAID: 'Đã thanh toán' };
     const itemLabels = { UNPAID: 'Chưa thanh toán', WAITING_CASH: 'Chờ thu tiền mặt', PAID: 'Đã thanh toán' };
-    const method = value => value === 'CASH' ? 'Tiền mặt' : 'Online';
+    const method = value => value === 'CASH' ? 'Tiền mặt' : value === 'ONLINE' ? 'Chuyển khoản (QR)' : value || '—';
     const backendStudent = () => window.StudentAuth?.session()?.isBackend === true;
-    const time = value => new Date(value).toLocaleString('vi-VN');
+    const time = value => {
+        const formatted = window.AdminWorkflowUtils?.dateTime(String(value ?? ''));
+        if (formatted && formatted !== '—') return formatted;
+        const source = String(value ?? '');
+        const day = date(source.slice(0, 10));
+        const hour = /[T ](\d{2}:\d{2})/.exec(source)?.[1];
+        return day === '—' ? '—' : `${hour ? `${hour} ` : ''}${day}`;
+    };
     const badgeClass = value => value === 'PAID' ? 'st-success' : value === 'WAITING_CASH' || value === 'PARTIAL' ? 'st-warning' : 'st-danger';
     const badge = value => `<span class="st-badge ${badgeClass(value)}">${esc(labels[value] || value)}</span>`;
     const itemBadge = value => `<span class="st-badge ${badgeClass(value)}">${esc(itemLabels[value] || value)}</span>`;
@@ -159,7 +166,7 @@
             }, []);
             return '<p class="st-demo">Biên nhận DEMO / SANDBOX</p>' + fields([
                 ['Hóa đơn', payment.invoiceId], ['Số tiền', money(payment.amount)], ['Thời gian thanh toán', time(payment.paymentTime)],
-                ['Phương thức', payment.paymentMethod === 'ONLINE' ? 'Thanh toán online' : 'Tiền mặt'],
+                ['Phương thức', payment.paymentMethod === 'ONLINE' ? 'Chuyển khoản (QR)' : 'Tiền mặt'],
                 ['Mã giao dịch', payment.transactionId], ['Hạng mục', itemNames(payment.items)]
             ]) + (groups.length ? `<div class="st-pay-items">${groupedHtml(groups)}</div>` : '');
         },
@@ -350,6 +357,9 @@
             </div>
         </div>
         </div>` +
-        card('Lịch sử thanh toán', table(['Mã GD', 'Mã HĐ', 'Hạng mục', 'Số tiền', 'Phương thức', 'Thời gian', 'Trạng thái'], data.payments.filter(p => ['SUCCESS', 'Thành công'].includes(p.status)).map(p => `<tr><td>${esc(p.transactionId || p.id)}</td><td>${esc(p.invoiceId)}</td><td class="st-long">${esc(itemNames(p.items))}</td><td>${money(p.amount)}</td><td>${method(p.paymentMethod)}</td><td>${esc(time(p.paymentTime))}</td><td><span class="st-badge st-success">Thành công</span></td></tr>`).join('')));
+        card('Lịch sử thanh toán', table(['Mã GD', 'Mã HĐ', 'Hạng mục', 'Số tiền', 'Phương thức', 'Thời gian', 'Trạng thái'], data.payments.filter(p => ['SUCCESS', 'Thành công'].includes(p.status)).map(p => {
+            const items = itemNames(p.items);
+            return `<tr><td>${esc(p.transactionId || p.id)}</td><td>${esc(p.invoiceId)}</td><td class="st-long" title="${esc(items)}">${esc(items)}</td><td class="st-amount">${money(p.amount)}</td><td>${method(p.paymentMethod)}</td><td>${esc(time(p.paymentTime))}</td><td><span class="st-badge st-success">Thành công</span></td></tr>`;
+        }).join('')));
     } };
 })();

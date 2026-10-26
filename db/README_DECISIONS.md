@@ -2,6 +2,8 @@
 
 ## Quyết định schema
 
+- **Thông báo Sinh viên:** migration 023 tạo `dbo.ThongBao` với phạm vi `TAT_CA`, `PHONG`, `SINH_VIEN`; thông báo xóa mềm qua `DaXoa`. API Sinh viên xác định phạm vi phòng từ hợp đồng còn hiệu lực và thành viên `Đang ở` trong `ChiTietHopDong`, không tin `SinhVien.TenPhong` hay dữ liệu phòng từ client. Migration yêu cầu user `DNKTX` đã tồn tại trước khi ghi nhận 023; user này chỉ được `SELECT`, `INSERT`, `UPDATE` trực tiếp trên đúng bảng, không cấp `DELETE`.
+
 - **Tổng hóa đơn:** giữ nguyên `HoaDon.TongTien` computed column để không phá tương thích dump/trigger; tổng chuẩn là `vw_HoaDonTongHop.TongThuc = SUM(ChiTietHoaDon.SoTien)`. Admin GET `/api/HoaDon` hiện đọc `TongThuc AS TongTien`. Mọi endpoint Student và endpoint xem/in hóa đơn cần dùng cùng view này; không dùng `TongTienCotTinh` làm số hiển thị. Như vậy các khoản INTERNET/CLEANING/PENALTY được cộng giống nhau ở mọi vai trò.
 - **Vai trò:** chỉ có `Quản lý` (quyền quản trị KTX) và `Sinh viên`. Migration 009 đổi role legacy `Admin` thành `Quản lý`, rồi thay `CK_TaiKhoan_VaiTro` bằng constraint chỉ chấp nhận hai role này.
 - **Tài khoản quản trị:** master seed chỉ tạo `quanlyktx@gmail.com` với `VaiTro = Quản lý`. Khi chạy lại, seed xóa đúng tài khoản mặc định cũ `adminktx@gmail.com`/`Quản trị viên` nếu còn. Không seed tài khoản sinh viên.
