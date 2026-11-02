@@ -52,13 +52,19 @@ function allUnpaid(invoices) {
 function setup(code = 'TEST-A', env = environment()) {
     const context = vm.createContext({ TextEncoder, Date, console, Event, crypto: webcrypto,
         navigator: { locks: env.locks }, localStorage: env.storage,
+        AdminWorkflowUtils: {
+            maskStudentId: value => /^\d{12}$/.test(String(value ?? ''))
+                ? `${String(value).slice(0, 4)}****${String(value).slice(-4)}` : String(value ?? '—'),
+            dateTime: () => '—',
+            date: () => '01/01/2026'
+        },
         KTX_CONFIG: { allowStudentDemoAuth: true },
         StudentAuth: { session: () => ({ code, name: `Sinh viên ${code}`, email: `${code}@example.com` }) },
         dispatchEvent() {}, addEventListener() {}
     });
     context.window = context;
     const run = file => vm.runInContext(fs.readFileSync(path.join(__dirname, file), 'utf8'), context);
-    for (const file of ['../payment-demo.js', 'data.js', 'helpers.js', 'vendor/qrcode.js', 'payment-config.js']) run(file);
+    for (const file of ['../student-identity.js', '../payment-demo.js', 'data.js', 'helpers.js', 'vendor/qrcode.js', 'payment-config.js']) run(file);
     const data = context.StudentUI.repository.data;
     data.invoices = sampleInvoices();
     data.payments = [];
@@ -66,6 +72,16 @@ function setup(code = 'TEST-A', env = environment()) {
     return { context, data, env, billing: context.StudentUI.billing, store: context.KTXPaymentDemo };
 }
 function flush() { return new Promise(resolve => setImmediate(resolve)); }
+
+test('student payment method labels are limited to cash and QR transfer', () => {
+    const { context } = setup();
+    const label = context.StudentUI.helpers.paymentMethodLabel;
+    assert.equal(label('CASH'), 'Tiền mặt');
+    assert.equal(label('ONLINE'), 'Chuyển khoản QR');
+    assert.equal(label('QR_DEMO'), 'Chuyển khoản QR');
+    assert.equal(label('legacy-method'), 'Chuyển khoản QR');
+    assert.match(context.StudentUI.helpers.badge('Không ghi nhận'), /Cần xác minh/);
+});
 
 test('QR uses selected items, signed-in identity and UTF-8 content; opening does not pay', async () => {
     const { context, data, billing, env } = setup();
@@ -80,12 +96,12 @@ test('QR uses selected items, signed-in identity and UTF-8 content; opening does
     };
     assert.match(await billing.qrModal(unpaidSelection(data.invoices, 'HD-A')), /<svg/);
     assert.equal(payload.amount, 1250000);
-    assert.equal(payload.studentId, 'TEST-A');
+    assert.equal(payload.studentId, 'TE****-A');
     assert.equal(payload.items.length, 3);
     const html = await billing.qrModal(itemSelection('HĐ-B', 'HĐ-B-04'));
     assert.equal(payload.amount, 40000);
     assert.equal(payload.items[0].itemId, 'HĐ-B-04');
-    assert.match(payload.paymentContent, /^KTX TEST-A [A-Z0-9]+$/);
+    assert.match(payload.paymentContent, /^KTX[A-F0-9]{10}$/);
     assert.match(html, /Internet/);
     assert.match(html, /2026-10/);
     assert.match(html, /DEMO \/ SANDBOX/);
@@ -103,7 +119,7 @@ test('paying one item marks only that item PAID and invoice PARTIAL', async () =
     assert.equal(data.invoices[1].items.find(item => item.id === 'HĐ-B-04').status, 'PAID');
     assert.equal(data.invoices[1].items.find(item => item.id === 'HĐ-B-01').status, 'UNPAID');
     assert.equal(data.invoices[1].status, 'PARTIAL');
-    assert.equal(billing.status(data.invoices[1]), 'Đã thanh toán một phần');
+    assert.equal(billing.status(data.invoices[1]), 'Còn nợ');
     assert.equal(billing.summary().debt, before.debt - 40000);
     assert.equal(billing.summary().unpaid, before.unpaid);
 });
@@ -243,8 +259,44 @@ test('backend receipt preview requires a valid receipt and escapes API values', 
     });
     assert.match(markup, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
     assert.doesNotMatch(markup, /<script>/);
-    assert.match(markup, /QR demo/);
+    assert.match(markup, /Chuyển khoản QR/);
+    assert.match(markup, /QR-DEMO:PAY-TEST/);
     assert.throws(() => receiptMarkup({ TrangThai: 'Chờ xác nhận' }), /phiếu thu hợp lệ/);
+});
+
+test('QR display masks a CCCD and its payment content is identity-neutral', async () => {
+    const app = setup('012345678901');
+    app.data.profile.name = 'Nguyễn An';
+    app.data.room.number = 'A101';
+    const markup = await app.billing.qrModal(itemSelection('HD-A', 'HD-A-01'));
+    const payload = app.billing.qrPayloadForDisplay({
+        studentId: '012345678901',
+        amount: 100,
+        paymentContent: 'KTXABCDEF0123456789ABCD',
+        items: []
+    });
+    assert.match(markup, /0123\*\*\*\*8901/);
+    assert.doesNotMatch(markup, /012345678901/);
+    assert.equal(payload.studentId, '0123****8901');
+    assert.equal(payload.paymentContent, 'KTXABCDEF0123456789ABCD');
+    assert.doesNotMatch(markup, /QR demo/);
+});
+
+test('backend QR modal displays the exact server payment reference', async () => {
+    const app = setup();
+    const reference = 'KTXABCDEF0123456789ABCD';
+    const markup = await app.context.StudentUI.backendPayments.qrModal({
+        MaHoaDon: 'INV-1',
+        MaGiaoDich: 'PAY-1',
+        TongTien: 100,
+        NganHang: '970415',
+        SoTaiKhoan: '1234567890',
+        TenTaiKhoan: 'KTX TEST',
+        NoiDungCK: reference,
+        QrPayload: reference
+    });
+    assert.doesNotMatch(markup, /012345678901|AB1234/);
+    assert.match(markup, new RegExp(reference));
 });
 
 test('existing paid sample invoice/history retained during first initialization', () => {
@@ -318,7 +370,7 @@ test('Admin area shows shared cash queue, cancellation preserves debt, confirmat
     assert.match(host.innerHTML, /CASH-/);
     assert.match(host.innerHTML, /DEMO-/);
     assert.match(host.innerHTML, /Tiền mặt/);
-    assert.match(host.innerHTML, /Online/);
+    assert.match(host.innerHTML, /Chuyển khoản QR/);
     assert.match(host.innerHTML, /Admin test/);
     assert.match(host.innerHTML, /Hạng mục/);
 });

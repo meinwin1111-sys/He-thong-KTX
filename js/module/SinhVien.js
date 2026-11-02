@@ -17,6 +17,14 @@ let currentEditIndex = null;
 let validRooms = [];
 let roomCapacity = {};
 
+const studentIdentityValidationMessage = value => window.StudentIdentity.validateStudentIdentity(value).message;
+const studentIdentityDuplicateMessage = name =>
+    `Số CCCD/hộ chiếu đã được đăng ký cho sinh viên ${String(name || "khác").trim()}.`;
+window.AdminStudentValidation = Object.freeze({
+    studentIdentityValidationMessage,
+    studentIdentityDuplicateMessage
+});
+
 // Hàm khởi tạo để tải cấu hình phòng từ Server khi module được kích hoạt
 async function loadRoomConfig() {
     try {
@@ -118,7 +126,7 @@ async function renderSinhVienModule() {
                 <table class="min-w-[1620px] w-full text-left table-fixed">
                     <thead class="bg-slate-50 border-b border-slate-200">
                         <tr class="text-[12px] font-bold text-slate-500 uppercase tracking-wider">
-                            <th class="px-5 py-4 w-[190px] whitespace-nowrap">MSSV</th>
+                            <th class="px-5 py-4 w-[190px] whitespace-nowrap">Số CCCD</th>
                             <th class="px-5 py-4 w-[190px]">Tên sinh viên</th>
                             <th class="px-5 py-4 w-[120px] whitespace-nowrap">Ngày sinh</th>
                             <th class="px-5 py-4 w-[85px] whitespace-nowrap">Giới tính</th>
@@ -205,6 +213,7 @@ async function renderSinhVienModule() {
 function normalizeStudentFromAPI(item) {
     return {
         mssv: item.MaSinhVien || "",
+        school: item.Truong || "",
         name: item.HoTen || "",
         birthday: formatApiDateToDisplay(item.NgaySinh),
         gender: item.GioiTinh || "",
@@ -346,7 +355,7 @@ function renderTable(data) {
     if (!tableBody) return;
     const U = window.AdminWorkflowUtils;
     const columns = [
-        { label: "MSSV", width: 180, render: student => escapeStudentHtml(student.mssv || "—"), longText: true, title: student => student.mssv || "—" },
+        { label: "Số CCCD", width: 180, render: student => escapeStudentHtml(window.AdminWorkflowUtils.maskStudentId(student.mssv)), longText: true, title: student => window.AdminWorkflowUtils.maskStudentId(student.mssv) },
         { label: "Tên sinh viên", width: 220, render: student => escapeStudentHtml(student.name || "—"), longText: true, title: student => student.name || "—" },
         { label: "Ngày sinh", width: 130, render: student => escapeStudentHtml(student.birthday || "—") },
         { label: "Giới tính", width: 100, render: student => escapeStudentHtml(U?.displayLabel(student.gender) || student.gender || "—") },
@@ -486,13 +495,14 @@ window.openDetailStudentModal = async function (index) {
         // 3. Render nội dung
         detailStudentContent.innerHTML = `
                 <div class="space-y-3 text-[13px]">
-                    ${renderDetailField("Mã số sinh viên", student.MaSinhVien || s.mssv)}
+                    ${renderDetailField("Số CCCD", student.MaSinhVien || s.mssv)}
                     ${renderDetailField("Họ và tên sinh viên", student.HoTen || s.name)}
                     ${renderDetailField("Ngày sinh", formatApiDateToDisplay(student.NgaySinh))}
                     ${renderDetailField("Giới tính", window.AdminWorkflowUtils?.displayLabel(student.GioiTinh || s.gender) || student.GioiTinh || s.gender)}
                     ${renderDetailField("Số điện thoại", student.SoDienThoai || s.phone)}
                     ${renderDetailField("Email", student.Email || s.email)}
                     ${renderDetailField("Địa chỉ", student.DiaChi || s.address)}
+                    ${renderDetailField("Trường", student.Truong || s.school || "—")}
                     ${renderDetailField("Phòng", student.TenPhong || s.room)}
                     ${renderDetailField("Trạng thái sinh viên", window.AdminWorkflowUtils?.displayLabel(student.TrangThaiSinhVien || s.status) || student.TrangThaiSinhVien || s.status)}
                     <div class="pt-2 border-t border-slate-200 mt-1">
@@ -587,6 +597,7 @@ function getFormData(form) {
             .trim(),
         email: (form.querySelector('[name="email"]')?.value || "").trim(),
         address: (form.querySelector('[name="address"]')?.value || "").trim(),
+        school: (form.querySelector('[name="school"]')?.value || "").trim(),
         room: (form.querySelector('[name="room"]')?.value || "").trim(),
         status: (form.querySelector('[name="status"]')?.value || "").trim(),
         note: (form.querySelector('[name="note"]')?.value || "").trim(),
@@ -603,18 +614,20 @@ function getFormData(form) {
 function validateStudentForm(formData, mode = "add", editIndex = null) {
     const errors = {};
 
-    // Kiểm tra Mã số sinh viên (MSSV)
+    // Kiểm tra số CCCD
     if (!formData.mssv) {
-        errors.mssv = "Vui lòng nhập mã số sinh viên";
+        errors.mssv = "Vui lòng nhập Số CCCD/Hộ chiếu.";
+    } else if (mode === "add" && studentIdentityValidationMessage(formData.mssv)) {
+        errors.mssv = studentIdentityValidationMessage(formData.mssv);
     } else {
-        // Kiểm tra xem MSSV có bị trùng lặp với sinh viên khác trong trang không
         const duplicateStudent = students.find((student, index) => {
             if (mode === "edit" && index === editIndex) return false;
-            return student.mssv.toLowerCase() === formData.mssv.toLowerCase();
+            return window.StudentIdentity.validateStudentIdentity(student.mssv).value
+                === window.StudentIdentity.validateStudentIdentity(formData.mssv).value;
         });
 
         if (duplicateStudent) {
-            errors.mssv = "Mã số sinh viên đã tồn tại trong trang hiện tại";
+            errors.mssv = studentIdentityDuplicateMessage(duplicateStudent.name);
         }
     }
 
@@ -832,12 +845,13 @@ function renderStudentForm(data = "", isAdd = false) {
     const d = data || {};
 
     return `
-            ${renderInputRow("Mã số sinh viên", "text", "mssv", "SV001", d.mssv || "", true)}
+            ${renderInputRow(isAdd ? "Số CCCD/Hộ chiếu" : "Số CCCD", "text", "mssv", "12 chữ số hoặc hộ chiếu", d.mssv || "", true, isAdd ? 'maxlength="12" autocomplete="off"' : "")}
             ${renderInputRow("Họ và tên sinh viên", "text", "name", "Nguyễn Văn An", d.name || "", true)}
             ${renderInputRow("Ngày sinh (dd/mm/yyyy)", "text", "birthday", "dd/mm/yyyy", formatDateForInput(d.birthday || ""), true)}
             ${renderSelectRow("Giới tính", "gender", ["Nam", "Nữ"], d.gender || "", true)}
             ${renderInputRow("Số điện thoại", "text", "phone", "0914268735", (d.phone || "").replace(/\s/g, ""), true)}
             ${renderInputRow("Email", "email", "email", "nguyenvanan@gmail.com", d.email || "", true)}
+            ${renderInputRow("Trường", "text", "school", "Tên trường (không bắt buộc)", d.school || "", false, 'maxlength="150"')}
             ${renderInputRow("Địa chỉ", "text", "address", "Đắk Lắk", d.address && d.address !== "-" ? d.address : "", false)}
             ${renderRoomSelectRow(d.room || "", d.gender || "")}
             ${renderSelectRow("Trạng thái sinh viên", "status", ["Đang ở", "Đã rời khỏi"], isAdd ? "Đang ở" : d.status || "Đang ở", true)}
@@ -857,6 +871,7 @@ function renderInputRow(
     placeholder,
     value,
     required = false,
+    attributes = "",
 ) {
     if (name === "birthday" && window.AdminWorkflowUtils) {
         window.AdminWorkflowUtils.bindDateInputs(document.body);
@@ -864,15 +879,18 @@ function renderInputRow(
     }
     return `
             <div class="grid grid-cols-[160px_1fr] items-center gap-3">
-                <label class="text-[13px] font-semibold text-[#0f172a]">
+                <label for="student-${name}" class="text-[13px] font-semibold text-[#0f172a]">
                     ${label} ${required ? '<span class="text-red-500">*</span>' : ""}
                 </label>
                 <div>
                     <input
+                        id="student-${name}"
                         type="${type}"
                         name="${name}"
-                        placeholder="${placeholder}"
-                        value="${value}"
+                        placeholder="${escapeStudentHtml(placeholder)}"
+                        value="${escapeStudentHtml(value)}"
+                        ${required ? "required" : ""}
+                        ${attributes}
                         class="w-full h-[34px] border border-[#e2e8f0] rounded-[4px] px-3 text-[12px] outline-none focus:border-emerald-400 transition-all"
                     />
                 </div>
@@ -1093,6 +1111,7 @@ function initStudentEvents() {
                 showValidationErrors(addStudentForm, validation.errors, "addStudentErrorBox");
                 return;
             }
+            formData.mssv = window.StudentIdentity.validateStudentIdentity(formData.mssv).value;
 
             try {
                 const response = await ApiClient.fetch(`${BASE_URL}/api/sinhvien`, {
@@ -1106,6 +1125,7 @@ function initStudentEvents() {
                         SoDienThoai: formData.phone,
                         Email: formData.email,
                         DiaChi: formData.address || "",
+                        Truong: formData.school || "",
                         TenPhong: formData.room,
                         TrangThaiSinhVien: "Đang ở",
                         GhiChu: formData.note || "",
@@ -1158,6 +1178,7 @@ function initStudentEvents() {
                         soDienThoai: formData.phone,
                         email: formData.email,
                         diaChi: formData.address || "",
+                        truong: formData.school || "",
                         tenPhong: formData.room,
                         trangThaiSinhVien: formData.status,
                         ghiChu: formData.note || "",

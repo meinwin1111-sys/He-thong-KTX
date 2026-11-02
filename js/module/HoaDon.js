@@ -132,7 +132,7 @@ function renderHoaDonModule() {
 
             <div class="p-6 space-y-4">
             <div>
-                <label class="block text-xs font-bold text-slate-500 mb-1">Mã sinh viên <span class="text-red-500">*</span></label>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Số CCCD <span class="text-red-500">*</span></label>
                 <input type="text" id="add-maSV" maxlength="30" oninput="handleAutoFillRoom(); clearFieldError('add-maSV')" placeholder="Nhập mã sinh viên" class="w-full border rounded-lg px-3 py-2 uppercase">
                 <p id="err-add-maSV" class="hidden text-xs text-red-500 mt-1"></p>
                 <p id="maSV-error" class="hidden text-xs text-red-500 mt-1"></p>
@@ -716,7 +716,7 @@ async function openInvoicePaymentHistory(invoiceId) {
                         <th class="p-3">Phương thức / trạng thái</th><th class="p-3">Xác nhận / xử lý</th>
                     </tr></thead>
                     <tbody>${[...transactions.values()].map(record => `<tr class="border-b align-top" data-transaction-row="${escape(record.MaGiaoDich)}">
-                        <td class="p-3 break-words"><strong class="break-all" title="${escape(record.MaGiaoDich)}">${escape(record.MaGiaoDich)}</strong><small class="block">${escape(record.HoTen)} (${escape(record.MaSinhVien)})</small>
+                        <td class="p-3 break-words"><strong class="break-all" title="${escape(record.MaGiaoDich)}">${escape(record.MaGiaoDich)}</strong><small class="block">${escape(record.HoTen)} (${escape(window.AdminWorkflowUtils.maskStudentId(record.MaSinhVien))})</small>
                             <small class="block">${escape(record.TenPhong)} · Nội dung: ${escape(record.NoiDungCK || '—')}</small>
                             ${record.MaThamChieuNgoai ? `<small>Mã NH: ${escape(record.MaThamChieuNgoai)}</small>` : ''}</td>
                         <td class="p-3">${escape(record.items.join(', '))}</td>

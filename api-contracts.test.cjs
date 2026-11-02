@@ -207,6 +207,7 @@ test("student notifications are session-scoped and admin removal is a soft delet
     const harness = fakeApi({
         queryResult: call => {
             if (call.statement.includes("SELECT tb.MaThongBao")) return { recordset: [] };
+            if (call.statement === "SELECT MaSinhVien FROM dbo.SinhVien") return { recordset: [] };
             if (call.statement.includes("UPDATE dbo.ThongBao")) return { recordset: [{ MaThongBao: 12 }] };
             return { recordset: [] };
         }
@@ -216,7 +217,7 @@ test("student notifications are session-scoped and admin removal is a soft delet
         query: { MaSinhVien: "SV-B" }
     });
     assert.equal(denied.statusCode, 200);
-    assert.equal(harness.queries.length, 1);
+    assert.equal(harness.queries.length, 2);
     const select = harness.queries[0];
     assert.equal(select.inputs.MaSinhVien, "SV-A");
     assert.match(select.statement, /PhamViNhan = N'TAT_CA'/);
@@ -237,8 +238,30 @@ test("student notifications are session-scoped and admin removal is a soft delet
         params: { id: "12" }
     });
     assert.equal(hidden.statusCode, 200);
-    assert.match(harness.queries[1].statement, /UPDATE dbo\.ThongBao\s+SET DaXoa = 1/);
-    assert.doesNotMatch(harness.queries[1].statement, /\bDELETE\s+FROM\b/i);
+    const softDelete = harness.queries.find(query => query.statement.includes("UPDATE dbo.ThongBao"));
+    assert.match(softDelete.statement, /UPDATE dbo\.ThongBao\s+SET DaXoa = 1/);
+    assert.doesNotMatch(softDelete.statement, /\bDELETE\s+FROM\b/i);
+});
+
+test("notification text masks only known student identities and preserves business references", async () => {
+    const harness = fakeApi({
+        queryResult: call => call.statement.includes("SELECT MaThongBao")
+            ? { recordset: [{
+                MaThongBao: 8,
+                TieuDe: "CCCD 012345678901 hộ chiếu AB12CD34",
+                NoiDung: "Hóa đơn HD20261001, hợp đồng HD00042, phòng A103, giao dịch PAY-1, QR KTXABCDEF0123456789ABCD",
+                PhamViNhan: "TAT_CA",
+                MaSinhVien: null
+            }] }
+            : call.statement === "SELECT MaSinhVien FROM dbo.SinhVien"
+                ? { recordset: [{ MaSinhVien: "012345678901" }, { MaSinhVien: "AB12CD34" }] }
+                : { recordset: [] }
+    });
+    const result = await invoke(harness, "get", "/api/admin/notifications");
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.body[0].TieuDe, "CCCD 0123****8901 hộ chiếu AB****34");
+    assert.equal(result.body[0].NoiDung,
+        "Hóa đơn HD20261001, hợp đồng HD00042, phòng A103, giao dịch PAY-1, QR KTXABCDEF0123456789ABCD");
 });
 
 test("QR demo confirmation is unavailable when the feature flag is disabled", async () => {
@@ -615,6 +638,62 @@ test("room endpoints read price from the room class and protect occupied rooms o
     assert.match(occupiedUpdate.body.message, /đang có thành viên/);
 });
 
+test("Admin student creation validates CCCD/passport and reports duplicate owners only to Managers", async () => {
+    const validStudent = {
+        name: "Student", gender: "Nam", phone: "0123456789", email: "student@example.com",
+        room: "A101", requireCccd: true
+    };
+    const identityError = require("./js/student-identity").IDENTITY_ERROR;
+    for (const studentId of ["012345678901", " ab1234 "]) {
+        assert.equal(registerApiRoutes.validateStudentInput({ ...validStudent, studentId }), null);
+    }
+    for (const studentId of ["12345678901", "0123456789012", "123456", "AB12 34", "AB12-34"]) {
+        assert.equal(registerApiRoutes.validateStudentInput({ ...validStudent, studentId }), identityError);
+    }
+
+    const invalidHarness = fakeApi();
+    const invalid = await invoke(invalidHarness, "post", "/api/sinhvien", {
+        body: {
+            MaSinhVien: "12345678901", HoTen: "Student", GioiTinh: "Nam",
+            SoDienThoai: "0123456789", Email: "student@example.com", TenPhong: "A101"
+        }
+    });
+    assert.equal(invalid.statusCode, 400);
+    assert.equal(invalid.body.message, identityError);
+    assert.equal(invalidHarness.queries.length, 0);
+
+    for (const auth of [null, { role: "Sinh viên", studentId: "012345678901" }]) {
+        const deniedHarness = fakeApi();
+        const denied = await invoke(deniedHarness, "post", "/api/sinhvien", {
+            auth,
+            body: {
+                MaSinhVien: "AB1234", HoTen: "Student", GioiTinh: "Nam",
+                SoDienThoai: "0123456789", Email: "student@example.com", TenPhong: "A101"
+            }
+        });
+        assert.equal(denied.statusCode, auth ? 403 : 401);
+        assert.doesNotMatch(denied.body.message, /Nguyễn An/);
+        assert.equal(deniedHarness.queries.length, 0);
+    }
+
+    const duplicateHarness = fakeApi({
+        queryResult: call => call.statement.includes("SELECT TOP (1) HoTen")
+            ? { recordset: [{ HoTen: "Nguyễn An" }] }
+            : { recordset: [] }
+    });
+    const duplicate = await invoke(duplicateHarness, "post", "/api/sinhvien", {
+        body: {
+            MaSinhVien: " ab1234 ", HoTen: "Student", GioiTinh: "Nam",
+            SoDienThoai: "0123456789", Email: "student@example.com", TenPhong: "A101"
+        }
+    });
+    assert.equal(duplicate.statusCode, 409);
+    assert.equal(duplicate.body.message, "Số CCCD/hộ chiếu đã được đăng ký cho sinh viên Nguyễn An.");
+    assert.equal(duplicateHarness.queries[0].inputs.MaSinhVien, "AB1234");
+    assert.match(duplicateHarness.queries[0].statement, /UPPER\(LTRIM\(RTRIM\(MaSinhVien\)\)\)/);
+    assert.equal(duplicateHarness.transactions[0].state, "rolledback");
+});
+
 test("student creation and room changes assign through contract procedures, never direct room writes", async () => {
     let activeContractLookups = 0;
     const harness = fakeApi({
@@ -637,7 +716,7 @@ test("student creation and room changes assign through contract procedures, neve
     });
     const created = await invoke(harness, "post", "/api/sinhvien", {
         body: {
-            MaSinhVien: "SV001", HoTen: "Student", GioiTinh: "Nam", SoDienThoai: "0123456789",
+            MaSinhVien: "012345678901", HoTen: "Student", GioiTinh: "Nam", SoDienThoai: "0123456789",
             Email: "student@example.com", TenPhong: "A101"
         }
     });
@@ -647,9 +726,9 @@ test("student creation and room changes assign through contract procedures, neve
     assert.doesNotMatch(insertStudent.statement, /TenPhong/);
 
     const updated = await invoke(harness, "put", "/api/sinhvien/:mssv", {
-        params: { mssv: "SV001" },
+        params: { mssv: "012345678901" },
         body: {
-            mssv: "SV001", hoTen: "Student", gioiTinh: "Nam",
+            mssv: "012345678901", hoTen: "Student", gioiTinh: "Nam",
             soDienThoai: "0123456789", email: "student@example.com",
             tenPhong: "A102", trangThaiSinhVien: "Đang ở"
         }
@@ -776,7 +855,7 @@ test("duplicate signed bank webhook is acknowledged without creating another rec
         MaHoaDon: "INV2026100011",
         SoTien: 100,
         MaThamChieuNgoai: "BANK-REF-001",
-        NoiDungCK: "KTX INV2026100011"
+        NoiDungCK: "KTXABCDEF0123456789ABCD"
     };
     const harness = fakeApi({
         queryResult: () => ({
@@ -902,6 +981,10 @@ test("financial list, report, and legacy routes enforce their intended access", 
 test("non-representative room member can pay a service invoice and QR uses injected string parsing", async () => {
     const harness = fakeApi({
         queryResult: call => {
+            if (call.statement.includes("FROM dbo.GiaoDichThanhToan gd")
+                && call.statement.includes("gd.NoiDungCK")) {
+                return { recordset: [{ MaGiaoDich: "PAY-TEST", NoiDungCK: "KTXABCDEF0123456789ABCD" }] };
+            }
             if (call.statement.includes("SELECT hd.MaHoaDon, hd.TrangThaiThanhToan")) {
                 return { recordset: [{
                     MaHoaDon: "INV2026100011", TrangThaiThanhToan: "Chưa thanh toán", ConNo: 300
@@ -932,7 +1015,7 @@ test("non-representative room member can pay a service invoice and QR uses injec
     try {
         const payment = await invoke(harness, "post", "/api/payments/create", {
             auth: { role: "Sinh viên", studentId: "SV002" },
-            body: { MaHoaDon: "INV2026100011", SoTien: 100, PhuongThuc: "CASH" }
+            body: { MaHoaDon: "INV2026100011", SoTien: 100, PhuongThuc: "ONLINE" }
         });
         assert.equal(payment.statusCode, 201);
         assert.equal(harness.executions.at(-1).procedure, "dbo.sp_GhiPhieuThu");
@@ -1231,9 +1314,9 @@ test("real SQL registration, login, room-gender contracts and wrong-gender rejec
         await pool.request().input("TenPhong", sql.NVarChar(50), fixture.roomB)
             .query("UPDATE dbo.Phong SET LoaiPhong = N'Nữ' WHERE TenPhong = @TenPhong");
         const genders = ["Nam", "Nam", "Nữ", "Nữ"];
-        const suffix = fixture.tierId.slice(-8);
+        const baseStudentId = String(Date.now()).slice(-12);
         for (let index = 0; index < genders.length; index++) {
-            const studentId = `E2E${suffix}${index + 1}`;
+            const studentId = String(Number(baseStudentId) + index).padStart(12, "0").slice(-12);
             const phoneDigits = fixture.tierId.replace(/\D/g, "").slice(-7).padStart(7, "0");
             const phone = `09${[3, 5, 7, 8][index]}${phoneDigits}`;
             const email = `${studentId.toLowerCase()}@gmail.com`;
@@ -1782,13 +1865,39 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
             MaHoaDon: serviceInvoiceId,
             SoTien: firstPayment,
             MaThamChieuNgoai: `B5-${crypto.randomBytes(10).toString("hex").toUpperCase()}`,
-            NoiDungCK: `KTX ${serviceInvoiceId}`
+            NoiDungCK: paymentRequest.body.NoiDungCK
         };
+        const qrResponse = await call(
+            "GET",
+            `/api/payments/qr?MaHoaDon=${encodeURIComponent(serviceInvoiceId)}&SoTien=${firstPayment}`,
+            "student",
+            payer
+        );
+        assert.equal(qrResponse.status, 200, JSON.stringify(qrResponse.body));
+        assert.equal(qrResponse.body.MaGiaoDich, paymentRequest.body.MaGiaoDich);
+        assert.equal(qrResponse.body.NoiDungCK, paymentRequest.body.NoiDungCK);
+        assert.match(qrResponse.body.NoiDungCK, /^KTX[A-F0-9]{20}$/);
+        assert.doesNotMatch(qrResponse.body.NoiDungCK, new RegExp(payer, "i"));
+        const { createVietQrPayload } = require("./payment-qr");
+        assert.equal(qrResponse.body.QrPayload, createVietQrPayload({
+            bankBin: "970415",
+            accountNumber: "123456789012",
+            amount: firstPayment,
+            paymentContent: paymentRequest.body.NoiDungCK
+        }));
         const firstWebhook = await webhookCall(webhookPayload);
         const duplicateWebhook = await webhookCall(webhookPayload);
         assert.equal(firstWebhook.status, 200, JSON.stringify(firstWebhook.body));
         assert.equal(duplicateWebhook.status, 200, JSON.stringify(duplicateWebhook.body));
         assert.equal(duplicateWebhook.body.alreadyProcessed, true);
+        const receiptCountAfterDuplicateWebhook = await pool.request()
+            .input("MaGiaoDich", sql.NVarChar(60), paymentRequest.body.MaGiaoDich)
+            .query(`
+                SELECT COUNT_BIG(*) AS SoPhieuThu
+                FROM dbo.PhieuThu
+                WHERE MaGiaoDich = @MaGiaoDich AND TrangThai = N'Hợp lệ'
+            `);
+        assert.equal(Number(receiptCountAfterDuplicateWebhook.recordset[0].SoPhieuThu), 1);
 
         const remaining = total - firstPayment;
         const competingReceipts = await Promise.all([1, 2].map(() => call(
@@ -1837,7 +1946,7 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
             MaHoaDon: incidentInvoiceId,
             SoTien: lateWebhookAmount,
             MaThamChieuNgoai: `B5-LATE-${crypto.randomBytes(10).toString("hex").toUpperCase()}`,
-            NoiDungCK: `KTX ${incidentInvoiceId}`
+            NoiDungCK: pendingLateWebhook.body.NoiDungCK
         };
         const lateWebhook = await webhookCall(lateWebhookPayload);
         assert.equal(lateWebhook.status, 200, JSON.stringify(lateWebhook.body));
@@ -2295,11 +2404,15 @@ test("real SQL Server QR demo records one valid receipt, blocks repeats, and rec
         const qrOff = await call("GET", `/api/payments/qr?MaHoaDon=${invoiceA}`, "student", studentA);
         assert.equal(qrOff.status, 200);
         assert.equal(qrOff.body.DemoPaymentEnabled, false);
+        assert.equal(qrOff.body.MaGiaoDich, requestA.body.MaGiaoDich);
+        assert.equal(qrOff.body.NoiDungCK, requestA.body.NoiDungCK);
+        assert.match(qrOff.body.NoiDungCK, /^KTX[A-F0-9]{20}$/);
 
         process.env.ALLOW_DEMO_PAYMENT = "true";
         const qrOn = await call("GET", `/api/payments/qr?MaHoaDon=${invoiceA}`, "student", studentA);
         assert.equal(qrOn.status, 200);
         assert.equal(qrOn.body.DemoPaymentEnabled, true);
+        assert.equal(qrOn.body.NoiDungCK, requestA.body.NoiDungCK);
         const confirmedA = await call("POST", "/api/payments/demo-confirm", "student", studentA, {
             MaHoaDon: invoiceA, MaGiaoDich: requestA.body.MaGiaoDich
         });

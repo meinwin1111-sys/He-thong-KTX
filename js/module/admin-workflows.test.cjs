@@ -1,8 +1,10 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const utils = require("./AdminWorkflowUtils");
+const studentIdentity = require("../student-identity");
 const fs = require("node:fs");
 const path = require("node:path");
+const { JSDOM } = require("jsdom");
 
 test("Admin money helpers accept positive integer VND and format thousands", () => {
     assert.equal(utils.parseVnd("1.250.000"), 1250000);
@@ -19,6 +21,25 @@ test("Admin money helpers accept positive integer VND and format thousands", () 
     assert.match(table, /style="width:140px;max-width:140px"[^>]+text-right tabular-nums/);
 });
 
+test("shared student identity validation and masking cover CCCD, passport, and legacy IDs", () => {
+    assert.deepEqual(studentIdentity.validateStudentIdentity(" 012345678901 "), {
+        valid: true, value: "012345678901", type: "CCCD", message: ""
+    });
+    assert.equal(studentIdentity.validateStudentIdentity(" ab1234 ").value, "AB1234");
+    for (const invalid of ["12345678901", "0123456789012", "123456", "AB12 34", "AB12-34", "ABC12"]) {
+        assert.equal(studentIdentity.validateStudentIdentity(invalid).valid, false, invalid);
+    }
+    assert.equal(utils.maskStudentId("012345678901"), "0123****8901");
+    assert.equal(utils.maskStudentId("ab1234"), "ab****34");
+    assert.equal(utils.maskStudentId("abc"), "***");
+    const knownIds = ["012345678901", "AB12CD34"];
+    const message = "CCCD 012345678901; hộ chiếu AB12CD34; hóa đơn HD20261001; hợp đồng HD00042; phòng A103; giao dịch PAY-1; QR KTXABCDEF0123456789ABCD";
+    assert.equal(utils.maskStudentIdsInText(message, knownIds),
+        "CCCD 0123****8901; hộ chiếu AB****34; hóa đơn HD20261001; hợp đồng HD00042; phòng A103; giao dịch PAY-1; QR KTXABCDEF0123456789ABCD");
+    assert.equal(utils.maskStudentIdsInText("PAY-AB12CD34-KTX", knownIds), "PAY-AB12CD34-KTX");
+    assert.equal(utils.maskStudentIdsInText("AB12CD34"), "AB12CD34");
+});
+
 test("Admin status badges use one consistent status color mapping", () => {
     assert.match(utils.statusBadge("Đang ở"), /admin-status--success/);
     assert.match(utils.statusBadge("Chưa xếp phòng"), /admin-status--warning/);
@@ -29,7 +50,7 @@ test("Admin status badges use one consistent status color mapping", () => {
     assert.match(utils.statusBadge("Đã kết thúc"), /admin-status--neutral/);
     assert.match(utils.statusBadge("Trễ hạn"), /admin-status--danger/);
     assert.match(utils.statusBadge("Chờ xác nhận"), /admin-status--warning/);
-    assert.match(utils.statusBadge("Không ghi nhận"), /admin-status--dark/);
+    assert.match(utils.statusBadge("Cần xác minh"), /admin-status--warning/);
 });
 
 test("Shared table filters, pagination, grouping, and rendering preserve row and column counts", () => {
@@ -143,6 +164,163 @@ test("Selecting a room resolves its exact tier instead of defaulting to the firs
     assert.match(source, /form\.elements\.maHangPhong\.value = tier/);
     assert.match(source, /form\.elements\.maHangPhongDisplay\.value = tier/);
     assert.match(source, /maHangPhong: roomTier/);
+});
+
+async function setupAdminWorkflowDom() {
+    const dom = new JSDOM('<main id="main-content"></main>', {
+        runScripts: "outside-only",
+        url: "http://localhost/"
+    });
+    const { window } = dom;
+    const calls = [];
+    const contracts = [
+        {
+            MaHopDong: "HD-A", TenPhong: "A101", MaHangPhong: "HP4", SucChuaToiDa: 4,
+            TrangThaiHopDong: "Còn hiệu lực",
+            sinhVien: [{ MaSinhVien: "MEMBER-A", HoTen: "Thành viên", TrangThai: "Đang ở" }]
+        },
+        {
+            MaHopDong: "HD-B", TenPhong: "A102", MaHangPhong: "HP4", SucChuaToiDa: 4,
+            TrangThaiHopDong: "Còn hiệu lực",
+            sinhVien: [{ MaSinhVien: "OCCUPIED", HoTen: "Đang ở nơi khác", TrangThai: "Đang ở" }]
+        }
+    ];
+    const students = [
+        { MaSinhVien: "MEMBER-A", HoTen: "Thành viên", GioiTinh: "Nữ" },
+        { MaSinhVien: "OCCUPIED", HoTen: "Đang ở nơi khác", GioiTinh: "Nữ" },
+        { MaSinhVien: "FREE-STUDENT", HoTen: "Sinh viên mới", GioiTinh: "Nữ" }
+    ];
+    const rooms = [
+        { TenPhong: "A101", LoaiPhong: "Nữ", MaHangPhong: "HP4", SucChuaToiDa: 4, TrangThaiPhong: "Đang sử dụng" },
+        { TenPhong: "A102", LoaiPhong: "Nữ", MaHangPhong: "HP4", SucChuaToiDa: 4, TrangThaiPhong: "Đang sử dụng" },
+        { TenPhong: "A103", LoaiPhong: "Nữ", MaHangPhong: "HP4", SucChuaToiDa: 4, TrangThaiPhong: "Trống" }
+    ];
+    window.AdminWorkflowUtils = {
+        ...utils,
+        bindDateInputs: () => {},
+        enhanceAdminTables: () => {}
+    };
+    window.BASE_URL = "";
+    window.confirm = () => true;
+    window.showToast = () => {};
+    window.ApiClient = {
+        fetch: async (url, options = {}) => {
+            calls.push({ url, options });
+            let body = [];
+            if (url.startsWith("/api/HopDong")) body = contracts;
+            else if (url.startsWith("/api/sinhvien")) body = { data: students, totalPages: 1 };
+            else if (url === "/api/Phong") body = rooms;
+            else if (url === "/api/HangPhong") body = [];
+            return { ok: true, status: 200, json: async () => body };
+        }
+    };
+    const workflowSource = fs.readFileSync(path.join(__dirname, "AdminWorkflows.js"), "utf8");
+    window.eval(workflowSource);
+    window.renderHopDongModule();
+    await window.loadHopDong();
+    return { dom, window, calls };
+}
+
+async function waitForDom(predicate) {
+    for (let attempt = 0; attempt < 30; attempt++) {
+        if (predicate()) return;
+        await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    assert.fail("DOM workflow did not reach the expected state");
+}
+
+test("Admin contract and member-add popups render conflict warning and open the selected student's move form in DOM", async () => {
+    const { dom, window } = await setupAdminWorkflowDom();
+    try {
+        window.document.querySelector('[data-action="contract-create"]').click();
+        await waitForDom(() => window.document.querySelector('form[data-form="contract-create"]'));
+        const createForm = window.document.querySelector('form[data-form="contract-create"]');
+        const createStudent = createForm.querySelector('[name="maSinhVien"]');
+        assert.ok([...createStudent.options].some(option => option.value === "OCCUPIED"));
+        createStudent.value = "OCCUPIED";
+        createStudent.dispatchEvent(new window.Event("change", { bubbles: true }));
+        const createAlert = createForm.querySelector("[data-student-conflict]");
+        assert.match(createAlert.textContent, /đang ở phòng A102 \(hợp đồng HD-B\)/);
+        assert.equal(window.document.querySelector('button[form="admin-workflow-form"][type="submit"]').disabled, true);
+        createAlert.querySelector('[data-action="member-move"]').click();
+        await waitForDom(() => window.document.querySelector('form[data-form="member-move"]'));
+        assert.equal(window.document.querySelector('[name="maSinhVien"]').value, "OCCUPIED");
+
+        window.document.querySelector('[data-action="modal-close"]').click();
+        window.document.querySelector('[data-detail-type="contract"][data-detail-id="HD-A"]').click();
+        await waitForDom(() => window.document.querySelector('[data-action="member-add"]'));
+        window.document.querySelector('[data-action="member-add"]').click();
+        await waitForDom(() => window.document.querySelector('form[data-form="member-add"]'));
+        const addForm = window.document.querySelector('form[data-form="member-add"]');
+        const addStudent = addForm.querySelector('[name="maSinhVien"]');
+        assert.ok([...addStudent.options].some(option => option.value === "OCCUPIED"));
+        addStudent.value = "OCCUPIED";
+        addStudent.dispatchEvent(new window.Event("change", { bubbles: true }));
+        assert.match(addForm.querySelector("[data-student-conflict]").textContent,
+            /đang ở phòng A102 \(hợp đồng HD-B\)/);
+        assert.equal(window.document.querySelector('button[form="admin-workflow-form"][type="submit"]').disabled, true);
+        addForm.querySelector('[data-student-conflict] [data-action="member-move"]').click();
+        await waitForDom(() => window.document.querySelector('form[data-form="member-move"]'));
+        assert.equal(window.document.querySelector('[name="maSinhVien"]').value, "OCCUPIED");
+    } finally {
+        dom.window.close();
+    }
+});
+
+test("Member-add popup DOM submit calls the contract member endpoint", async () => {
+    const { dom, window, calls } = await setupAdminWorkflowDom();
+    try {
+        window.document.querySelector('[data-detail-type="contract"][data-detail-id="HD-A"]').click();
+        await waitForDom(() => window.document.querySelector('[data-action="member-add"]'));
+        window.document.querySelector('[data-action="member-add"]').click();
+        await waitForDom(() => window.document.querySelector('form[data-form="member-add"]'));
+        const form = window.document.querySelector('form[data-form="member-add"]');
+        form.elements.maSinhVien.value = "FREE-STUDENT";
+        form.elements.maSinhVien.dispatchEvent(new window.Event("change", { bubbles: true }));
+        window.document.querySelector('button[form="admin-workflow-form"][type="submit"]').click();
+        await waitForDom(() => calls.some(call => call.url === "/api/HopDong/HD-A/chitiet" && call.options.method === "POST"));
+        const post = calls.find(call => call.url === "/api/HopDong/HD-A/chitiet" && call.options.method === "POST");
+        assert.deepEqual(JSON.parse(post.options.body), {
+            maSinhVien: "FREE-STUDENT", kyHanThanhToanPhong: "THANG", laNguoiDaiDien: false
+        });
+    } finally {
+        dom.window.close();
+    }
+});
+
+test("Admin invoice DOM separates room and contract columns and names the payment queue", async () => {
+    const { dom, window } = await setupAdminWorkflowDom();
+    try {
+        await window.renderHoaDonModule();
+        await waitForDom(() => window.document.querySelector("[data-invoice-table] thead th"));
+        const headers = [...window.document.querySelectorAll("[data-invoice-table] thead th")]
+            .map(header => header.textContent.trim());
+        assert.ok(headers.includes("Phòng"));
+        assert.ok(headers.includes("Hợp đồng"));
+        assert.equal(headers.includes("Phòng / hợp đồng"), false);
+
+        window.renderThanhToanDemoModule();
+        assert.equal(window.document.querySelector("h1").textContent, "Giao dịch cần xử lý");
+    } finally {
+        dom.window.close();
+    }
+});
+
+test("Admin student creation validates new CCCD values and duplicate owner messages", () => {
+    const previousWindow = global.window;
+    global.window = { StudentIdentity: studentIdentity };
+    try {
+        const studentPath = path.join(__dirname, "SinhVien.js");
+        delete require.cache[require.resolve(studentPath)];
+        require(studentPath);
+        assert.equal(global.window.AdminStudentValidation.studentIdentityValidationMessage("012345678901"), "");
+        assert.equal(global.window.AdminStudentValidation.studentIdentityValidationMessage("AB 1234"),
+            studentIdentity.IDENTITY_ERROR);
+        assert.equal(global.window.AdminStudentValidation.studentIdentityDuplicateMessage("Nguyễn An"),
+            "Số CCCD/hộ chiếu đã được đăng ký cho sinh viên Nguyễn An.");
+    } finally {
+        global.window = previousWindow;
+    }
 });
 
 test("Contract room options use current members, exclude unusable/full rooms, and sort by remaining seats", () => {
@@ -266,14 +444,14 @@ test("Admin contract and move-room forms apply room gender and tier filters", ()
 
 test("Admin display labels translate persisted payment and workflow codes without changing values", () => {
     assert.equal(utils.displayLabel("CASH"), "Tiền mặt");
-    assert.equal(utils.displayLabel("ONLINE"), "Chuyển khoản (QR)");
-    assert.equal(utils.displayLabel("CHUYEN_DOI"), "Chuyển đổi dữ liệu cũ");
+    assert.equal(utils.displayLabel("ONLINE"), "Chuyển khoản QR");
+    assert.equal(utils.displayLabel("CHUYEN_DOI"), "Chuyển khoản QR");
     assert.equal(utils.displayLabel("Chưa thanh toán"), "Còn nợ");
-    assert.equal(utils.displayLabel("RECONCILIATION"), "Không ghi nhận");
-    assert.equal(utils.displayLabel("Cần đối soát"), "Không ghi nhận");
+    assert.equal(utils.displayLabel("RECONCILIATION"), "Cần xác minh");
+    assert.equal(utils.displayLabel("Cần đối soát"), "Cần xác minh");
     assert.equal(utils.displayLabel("PENDING"), "Chờ xác nhận");
     assert.equal(utils.displayLabel("VALID"), "Hợp lệ");
-    assert.equal(utils.displayLabel("OVERDUE"), "Trễ hạn");
+    assert.equal(utils.displayLabel("OVERDUE"), "Còn nợ");
     assert.equal(utils.displayLabel("CHI_SO"), "Theo chỉ số công tơ");
     assert.equal(utils.displayLabel("CO_DINH_KY"), "Cố định theo kỳ");
     assert.equal(utils.displayLabel("PHONG"), "Cả phòng");
@@ -282,6 +460,13 @@ test("Admin display labels translate persisted payment and workflow codes withou
     assert.equal(utils.displayLabel("NAM"), "Theo năm");
     assert.equal(utils.displayLabel("MALE"), "Nam");
     assert.equal(utils.displayLabel("FEMALE"), "Nữ");
+    assert.equal(utils.paymentMethodLabel("QR_DEMO"), "Chuyển khoản QR");
+    assert.equal(utils.paymentMethodLabel("unexpected"), "Chuyển khoản QR");
+    assert.equal(utils.maskStudentId("012345678901"), "0123****8901");
+    assert.equal(utils.maskStudentId("OLD-ID"), "OL****ID");
+    assert.equal(utils.maskPaymentReference("QR-DEMO:012345678901"), "QR-DEMO:012345678901");
+    assert.equal(utils.invoicePaymentLabel({ TrangThaiThanhToan: "Trễ hạn", ConNo: 20 }), "Còn nợ");
+    assert.equal(utils.invoicePaymentLabel({ TrangThaiThanhToan: "Đã thanh toán", ConNo: 0 }), "Đã thanh toán");
 });
 
 test("Financial filters default to actionable rows and allow all rows", () => {
@@ -294,7 +479,7 @@ test("Financial filters default to actionable rows and allow all rows", () => {
     assert.equal(utils.filterFinancialRows(receipts, "receipts", { status: "ALL" }).length, 3);
 });
 
-test("Invoice overdue label and filter derive from the due date and outstanding balance", () => {
+test("Invoice filters expose only debt and paid labels and omit canceled rows", () => {
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const rows = [
@@ -307,8 +492,10 @@ test("Invoice overdue label and filter derive from the due date and outstanding 
     assert.equal(utils.isOverdueInvoice(rows[1], today), false);
     assert.equal(utils.isOverdueInvoice(rows[2], today), false);
     assert.equal(utils.isOverdueInvoice(rows[3], today), false);
-    assert.deepEqual(utils.filterFinancialRows(rows, "invoices", { status: "OVERDUE" })
-        .map(row => row.MaHoaDon), ["OLD-OWED"]);
+    assert.deepEqual(utils.filterFinancialRows(rows, "invoices", { status: "Còn nợ" })
+        .map(row => row.MaHoaDon), ["OLD-OWED", "TODAY"]);
+    assert.deepEqual(utils.filterFinancialRows(rows, "invoices", { status: "ALL" })
+        .map(row => row.MaHoaDon), ["OLD-OWED", "TODAY", "PAID"]);
 });
 
 test("A zero-priced tier service cannot be enabled", () => {
@@ -410,8 +597,8 @@ test("Admin refund edits require an explanation when amount differs from suggest
 
 test("Admin invoice display handles a NULL student without rendering undefined", () => {
     assert.equal(utils.invoicePersonLabel({ MaSinhVien: null, HoTen: null }), "Theo phòng/hợp đồng");
-    assert.equal(utils.invoicePersonLabel({ MaSinhVien: "SV01", HoTen: "Nguyễn A" }), "Nguyễn A (SV01)");
-    assert.equal(utils.invoicePersonLabel({ MaSinhVien: "SV01", HoTen: "SV01" }), "SV01");
+    assert.equal(utils.invoicePersonLabel({ MaSinhVien: "SV01", HoTen: "Nguyễn A" }), "Nguyễn A (****)");
+    assert.equal(utils.invoicePersonLabel({ MaSinhVien: "SV01", HoTen: "SV01" }), "****");
 });
 
 test("Admin contract module uses the approved Chi tiết hợp đồng label and API alias", () => {

@@ -14,10 +14,11 @@ const {
     validateRegistration
 } = require("./student-auth");
 const registerApiRoutes = require("./api-routes");
+const studentIdentity = require("./js/student-identity");
 
 const now = new Date("2026-10-02T00:00:00.000Z");
 const validRegistration = {
-    MaSinhVien: "SV20261001",
+    MaSinhVien: "012345678901",
     HoTen: "Nguyễn Thị An",
     NgaySinh: "2005-08-15",
     GioiTinh: "Nữ",
@@ -79,15 +80,16 @@ function createRegistrationHarness({ students = [], accounts = [] } = {}) {
         input(name, _type, value) { this.values[name] = value; return this; }
         async query(query) {
             if (query.includes("SELECT MaSinhVien, NgaySinh, SoDienThoai")) {
-                const student = state.students.find(row => row.MaSinhVien === this.values.MaSinhVien);
+                const student = state.students.find(row =>
+                    row.MaSinhVien.trim().toUpperCase() === this.values.MaSinhVien);
                 return { recordset: student ? [student] : [] };
             }
             if (query.includes("FROM dbo.SinhVien") || query.includes("FROM dbo.TaiKhoan")) {
                 const duplicate = state.students.some(row =>
-                    row.MaSinhVien !== this.values.MaSinhVien
+                    row.MaSinhVien.trim().toUpperCase() !== this.values.MaSinhVien
                     && row.Email?.trim().toLowerCase() === this.values.Email)
                     || state.accounts.some(row =>
-                        row.MaSinhVien === this.values.MaSinhVien
+                        row.MaSinhVien?.trim().toUpperCase() === this.values.MaSinhVien
                         || row.Email?.trim().toLowerCase() === this.values.Email);
                 return { recordset: duplicate ? [{ MaSinhVien: this.values.MaSinhVien }] : [] };
             }
@@ -157,11 +159,20 @@ test("Express API keeps registration, login, and health public while protecting 
 test("registration validation accepts Vietnamese phone formats and normalizes phone", () => {
     assert.equal(validateRegistration(validRegistration, now).value.phone, "0901234567");
     assert.equal(validateRegistration({ ...validRegistration, SoDienThoai: "0901234567" }, now).error, undefined);
+    assert.equal(validateRegistration({ ...validRegistration, Truong: "" }, now).error, undefined);
+    const passport = validateRegistration({ ...validRegistration, MaSinhVien: " ab12cd " }, now);
+    assert.equal(passport.error, undefined);
+    assert.equal(passport.value.studentId, "AB12CD");
 });
 
 test("registration validates fields, date, age, and password", () => {
     for (const patch of [
         { MaSinhVien: "?" },
+        { MaSinhVien: "12345678901" },
+        { MaSinhVien: "0123456789012" },
+        { MaSinhVien: "123456" },
+        { MaSinhVien: "AB12 34" },
+        { MaSinhVien: "AB12-34" },
         { Email: "not-email" },
         { Email: "an@example.org" },
         { SoDienThoai: "123" },
@@ -173,6 +184,11 @@ test("registration validates fields, date, age, and password", () => {
         { Truong: "T".repeat(151) },
         { Lop: "L".repeat(51) }
     ]) assert.ok(validateRegistration({ ...validRegistration, ...patch }, now).error, JSON.stringify(patch));
+    for (const MaSinhVien of ["012345678901", " ab1234 ", "ABCDEF", "A1B2C3D4E5F6"]) {
+        assert.equal(validateRegistration({ ...validRegistration, MaSinhVien }, now).error, undefined);
+    }
+    assert.equal(studentIdentity.validateStudentIdentity("12345678901").valid, false);
+    assert.equal(studentIdentity.validateStudentIdentity("0123456789012").valid, false);
 });
 
 test("registration transaction immediately creates an unassigned student and linked bcrypt account", async () => {
@@ -209,6 +225,20 @@ test("registration blocks duplicate MSSV/email references with one generic error
     }
 });
 
+test("public registration does not reveal the owner of a case-insensitive duplicate passport", async () => {
+    const existing = createRegistrationHarness({
+        students: [{ MaSinhVien: "ab1234", Email: "other@gmail.com" }]
+    });
+    const response = responseRecorder();
+    await existing.handler({
+        body: { ...validRegistration, MaSinhVien: " AB1234 " }
+    }, response);
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.body.message, genericRegistrationError);
+    assert.doesNotMatch(response.body.message, /ab1234|AB1234|other|Nguyễn/);
+    assert.equal(existing.state.committed, 0);
+});
+
 test("existing student can link an account only when birthday and phone match and no account exists", async () => {
     const profile = {
         MaSinhVien: validRegistration.MaSinhVien,
@@ -221,6 +251,19 @@ test("existing student can link an account only when birthday and phone match an
     assert.equal(accepted.statusCode, 201);
     assert.equal(matching.state.students.length, 1);
     assert.equal(matching.state.accounts.length, 1);
+
+    const passportProfile = {
+        MaSinhVien: "ab1234",
+        NgaySinh: new Date(`${validRegistration.NgaySinh}T00:00:00.000Z`),
+        SoDienThoai: "0901234567"
+    };
+    const passportLink = createRegistrationHarness({ students: [passportProfile] });
+    const passportResponse = responseRecorder();
+    await passportLink.handler({
+        body: { ...validRegistration, MaSinhVien: " AB1234 " }
+    }, passportResponse);
+    assert.equal(passportResponse.statusCode, 201);
+    assert.equal(passportLink.state.accounts[0].MaSinhVien, "ab1234");
 
     for (const mismatch of [
         { ...profile, NgaySinh: new Date("2005-08-16T00:00:00.000Z") },

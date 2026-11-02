@@ -1027,9 +1027,29 @@ function registerMoneyRoutes(app, {
             if (!Number.isSafeInteger(amount) || amount <= 0 || amount > Number(invoice.ConNo)) {
                 return respondRequestError(res, 409, "Số tiền QR phải là số nguyên VND dương và không vượt công nợ.");
             }
-            const paymentContent = `KTX ${invoice.MaHoaDon}`;
+            const pending = await getPool().request()
+                .input("MaHoaDon", sql.NVarChar(20), invoice.MaHoaDon)
+                .input("MaSinhVien", sql.NVarChar(30), req.auth.studentId)
+                .input("TongTien", sql.Decimal(18, 2), amount)
+                .query(`
+                    SELECT TOP (1) gd.MaGiaoDich, gd.NoiDungCK
+                    FROM dbo.GiaoDichThanhToan gd
+                    INNER JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
+                    WHERE pt.MaHoaDon = @MaHoaDon
+                      AND gd.MaSinhVien = @MaSinhVien
+                      AND gd.TongTien = @TongTien
+                      AND gd.PhuongThuc = N'ONLINE'
+                      AND gd.TrangThai = N'PENDING'
+                      AND pt.TrangThai = N'Chờ xác nhận'
+                    ORDER BY gd.NgayTao DESC
+                `);
+            if (!pending.recordset.length || !pending.recordset[0].NoiDungCK) {
+                return respondRequestError(res, 409, "Hãy tạo yêu cầu thanh toán QR trước khi lấy mã.");
+            }
+            const { MaGiaoDich, NoiDungCK: paymentContent } = pending.recordset[0];
             return res.json({
                 MaHoaDon: invoice.MaHoaDon,
+                MaGiaoDich,
                 TongTien: amount,
                 SoKhoan: Number(invoice.SoKhoan),
                 PhuongThuc: "ONLINE",
@@ -1101,7 +1121,7 @@ function registerMoneyRoutes(app, {
             const pending = await new sql.Request(transaction)
                 .input("MaHoaDon", sql.NVarChar(20), body.MaHoaDon)
                 .query(`
-                    SELECT TOP (1) gd.MaGiaoDich, gd.TongTien, gd.PhuongThuc, gd.TrangThai,
+                    SELECT TOP (1) gd.MaGiaoDich, gd.TongTien, gd.PhuongThuc, gd.TrangThai, gd.NoiDungCK,
                            pt.MaPhieuThu
                     FROM dbo.PhieuThu pt WITH (UPDLOCK, HOLDLOCK)
                     INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = pt.MaGiaoDich
@@ -1119,6 +1139,7 @@ function registerMoneyRoutes(app, {
                     return res.status(200).json({
                         success: true, MaGiaoDich: existing.MaGiaoDich,
                         MaHoaDon: body.MaHoaDon, SoTien: amount,
+                        NoiDungCK: existing.NoiDungCK,
                         PhuongThuc: existing.PhuongThuc, TrangThai: existing.TrangThai
                     });
                 }
@@ -1126,7 +1147,9 @@ function registerMoneyRoutes(app, {
             }
 
             const transactionId = `PAY-${randomUUID().replace(/-/g, "").toUpperCase()}`;
-            const paymentContent = method === "ONLINE" ? `KTX ${body.MaHoaDon}` : null;
+            const paymentContent = method === "ONLINE"
+                ? `KTX${randomUUID().replace(/-/g, "").slice(0, 20).toUpperCase()}`
+                : null;
             await new sql.Request(transaction)
                 .input("MaGiaoDich", sql.NVarChar(60), transactionId)
                 .input("MaSinhVien", sql.NVarChar(30), req.auth.studentId)
@@ -1359,7 +1382,6 @@ function registerMoneyRoutes(app, {
             const eventMatches = Number(payment.TongTien) === req.body.SoTien
                 && Number(payment.SoTien) === req.body.SoTien
                 && payment.NoiDungCK === req.body.NoiDungCK
-                && req.body.NoiDungCK === `KTX ${req.body.MaHoaDon.trim()}`
                 && payment.TrangThaiThanhToan !== "Đã hủy";
             if (!eventMatches) {
                 const reason = "Số tiền hoặc nội dung chuyển khoản không khớp phiếu thu đang chờ.";

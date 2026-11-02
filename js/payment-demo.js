@@ -136,7 +136,7 @@
         const total = resolved.reduce((sum, row) => sum + row.amount, 0);
         const reference = crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase();
         const items = snapshot(resolved).map(item => ({ invoiceId: item.invoiceId, itemId: item.itemId, amount: item.amount }));
-        const payload = { studentId: value.studentId, amount: total, paymentContent: `KTX ${value.studentId} ${reference}`, items };
+        const payload = { studentId: value.studentId, amount: total, paymentContent: `KTX${reference}`, items };
         return { ...payload, studentName: value.studentName, room: value.room, details: snapshot(resolved),
             qrPayload: JSON.stringify(payload).length > 800
                 ? { studentId: payload.studentId, amount: payload.amount, paymentContent: payload.paymentContent } : payload };

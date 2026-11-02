@@ -7,7 +7,7 @@
     const backendStudent = () => window.StudentAuth?.session()?.isBackend;
     const formatDate = value => value ? date(String(value).slice(0, 10)) : 'Chưa cập nhật';
 
-    ui.contractDetails = () => fields([['Mã hợp đồng', data.contract.id], ['Mã sinh viên', data.profile.code], ['Sinh viên', data.profile.name], ['Số phòng', data.contract.roomNumber], ['Khu/Tòa', data.room.building], ['Ngày bắt đầu', date(data.contract.start)], ['Ngày kết thúc', date(data.contract.end)], ['Thời hạn hợp đồng', ui.helpers.contractTerm()], ['Trạng thái hợp đồng', ui.helpers.contractStatus()], ['Tiền phòng / tháng', money(data.contract.fee)]]);
+    ui.contractDetails = () => fields([['Mã hợp đồng', data.contract.id], ['Số CCCD', data.profile.code], ['Sinh viên', data.profile.name], ['Số phòng', data.contract.roomNumber], ['Khu/Tòa', data.room.building], ['Ngày bắt đầu', date(data.contract.start)], ['Ngày kết thúc', date(data.contract.end)], ['Thời hạn hợp đồng', ui.helpers.contractTerm()], ['Trạng thái hợp đồng', ui.helpers.contractStatus()], ['Tiền phòng / tháng', money(data.contract.fee)]]);
     ui.pages.contract = {
         title: 'Hợp đồng',
         render: () => backendStudent()
@@ -32,7 +32,7 @@
                 const active = contracts.find(contract => contract.TrangThaiHopDong === 'Còn hiệu lực') || contracts[0];
                 ui.contractDetails = () => active ? fields([
                     ['Mã hợp đồng', active.MaHopDong],
-                    ['Mã sinh viên', active.MaSinhVien],
+                    ['Số CCCD', active.MaSinhVien],
                     ['Sinh viên', window.StudentAuth.session().name],
                     ['Số phòng', active.TenPhong],
                     ['Khu/Tòa', active.Khu || 'Chưa cập nhật'],

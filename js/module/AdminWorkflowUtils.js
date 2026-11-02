@@ -1,4 +1,6 @@
 (function (root) {
+    const studentIdentity = root.StudentIdentity
+        || (typeof module !== "undefined" && module.exports ? require("../student-identity") : null);
     const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, character => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
     })[character]);
@@ -37,10 +39,20 @@
         return Number(amount) !== Number(suggested) && !String(reason || "").trim();
     }
 
-    function invoicePersonLabel(invoice) {
+    function invoicePersonLabel(invoice, maskId = true) {
         const name = String(invoice?.HoTen || invoice?.TenSinhVien || "").trim();
         const id = String(invoice?.MaSinhVien || "").trim();
-        return name && id ? (name === id ? name : `${name} (${id})`) : (name || id || "Theo phòng/hợp đồng");
+        const visibleId = maskId ? maskStudentId(id) : id;
+        if (name && id) return name === id ? visibleId : `${name} (${visibleId})`;
+        return name || (id ? visibleId : "Theo phòng/hợp đồng");
+    }
+
+    function maskStudentId(value) {
+        return studentIdentity.maskStudentIdentity(value);
+    }
+
+    function maskStudentIdsInText(value, knownIdentities = []) {
+        return studentIdentity.maskStudentIdentitiesInText(value, knownIdentities);
     }
 
     function parseDateParts(value) {
@@ -149,7 +161,7 @@
 
     function statusClass(value) {
         const label = displayLabel(value).trim().toLocaleLowerCase("vi");
-        if (["chờ xác nhận", "còn nợ", "chưa thanh toán", "thanh toán một phần",
+        if (["chờ xác nhận", "cần xác minh", "còn nợ", "chưa thanh toán", "thanh toán một phần",
             "chưa xếp phòng", "chờ duyệt", "chờ xử lý", "sắp hết hạn"].includes(label)) {
             return "admin-status--warning";
         }
@@ -161,13 +173,42 @@
             return "admin-status--danger";
         }
         if (["đầy"].includes(label)) return "admin-status--info";
-        if (["không ghi nhận"].includes(label)) return "admin-status--dark";
         return "admin-status--neutral";
     }
 
     function statusBadge(value, extraClass = "") {
         const label = displayLabel(value).trim() || "—";
         return `<span class="admin-status-badge ${statusClass(label)} ${escapeHtml(extraClass)}">${escapeHtml(label)}</span>`;
+    }
+
+    function paymentMethodLabel(value) {
+        const method = String(value ?? "").trim().toUpperCase();
+        if (!method) return "—";
+        return ["CASH", "TIỀN MẶT"].includes(method) ? "Tiền mặt" : "Chuyển khoản QR";
+    }
+
+    function maskPaymentReference(value) {
+        return String(value ?? "");
+    }
+
+    function invoicePaymentLabel(invoice) {
+        return String(invoice?.TrangThaiThanhToan || "").trim() === "Đã thanh toán"
+            || (invoice?.ConNo !== undefined && Number(invoice.ConNo) <= 0)
+            ? "Đã thanh toán" : "Còn nợ";
+    }
+
+    function overdueDays(invoice, today = "") {
+        if (!isOverdueInvoice(invoice, today)) return 0;
+        const dueDate = date(String(invoice?.HanThanhToan ?? "").slice(0, 10), "parse");
+        const currentDate = today || (() => {
+            const now = new Date();
+            return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        })();
+        const toDayNumber = value => {
+            const [year, month, day] = value.split("-").map(Number);
+            return Date.UTC(year, month - 1, day) / 86400000;
+        };
+        return dueDate ? Math.max(0, toDayNumber(currentDate) - toDayNumber(dueDate)) : 0;
     }
 
     function genderBadge(value) {
@@ -471,10 +512,29 @@
             <select name="maSinhVien" required class="rounded border p-2">
                 <option value="">Chọn sinh viên</option>${options}
             </select>
+            <div data-student-conflict class="md:col-span-4"></div>
             <select name="kyHanThanhToanPhong" class="rounded border p-2"><option value="THANG">Theo tháng</option><option value="NAM">Theo năm</option></select>
             <label class="flex items-center gap-2 text-sm"><input name="laNguoiDaiDien" type="checkbox"> Đại diện dịch vụ</label>
             <button type="button" data-action="remove-member-row" class="rounded bg-red-100 px-3 py-2 text-red-800">Bỏ</button>
         </div>`;
+    }
+
+    function memberAddRequest(contractId, member) {
+        const id = String(member?.maSinhVien || "").trim();
+        if (!contractId || !id || !["THANG", "NAM"].includes(member?.kyHanThanhToanPhong)) {
+            throw new Error("Vui lòng chọn sinh viên và kỳ hạn thanh toán hợp lệ.");
+        }
+        return {
+            url: `/api/HopDong/${encodeURIComponent(contractId)}/chitiet`,
+            options: {
+                method: "POST",
+                body: JSON.stringify({
+                    maSinhVien: id,
+                    kyHanThanhToanPhong: member.kyHanThanhToanPhong,
+                    laNguoiDaiDien: Boolean(member.laNguoiDaiDien)
+                })
+            }
+        };
     }
 
     function tierDraftKey(draft = {}) {
@@ -500,15 +560,16 @@
 
     const displayLabels = Object.freeze({
         CASH: "Tiền mặt",
-        ONLINE: "Chuyển khoản (QR)",
-        CHUYEN_DOI: "Chuyển đổi dữ liệu cũ",
+        ONLINE: "Chuyển khoản QR",
+        QR_DEMO: "Chuyển khoản QR",
+        CHUYEN_DOI: "Chuyển khoản QR",
         CHI_SO: "Theo chỉ số công tơ",
         CO_DINH_KY: "Cố định theo kỳ",
         PHONG: "Cả phòng",
         CA_NHAN: "Từng người",
-        RECONCILIATION: "Không ghi nhận",
+        RECONCILIATION: "Cần xác minh",
         VALID: "Hợp lệ",
-        SUCCESS: "Thành công",
+        SUCCESS: "Hợp lệ",
         PENDING: "Chờ xác nhận",
         CANCELLED: "Đã hủy",
         CANCELED: "Đã hủy",
@@ -517,8 +578,10 @@
         PAID: "Đã thanh toán",
         UNPAID: "Còn nợ",
         "CHƯA THANH TOÁN": "Còn nợ",
+        "THANH TOÁN MỘT PHẦN": "Còn nợ",
+        "QUÁ HẠN": "Còn nợ",
         PARTIAL: "Thanh toán một phần",
-        OVERDUE: "Trễ hạn",
+        OVERDUE: "Còn nợ",
         THANG: "Theo tháng",
         NAM: "Theo năm",
         PENDING_CONFIRMATION: "Chờ xác nhận",
@@ -543,7 +606,8 @@
         "ĐÃ KẾT THÚC": "Đã kết thúc",
         "CÒN HIỆU LỰC": "Còn hiệu lực",
         "CHỜ XÁC NHẬN": "Chờ xác nhận",
-        "CẦN ĐỐI SOÁT": "Không ghi nhận",
+        "CẦN ĐỐI SOÁT": "Cần xác minh",
+        "KHÔNG GHI NHẬN": "Cần xác minh",
         "ĐÃ THANH TOÁN": "Đã thanh toán",
         "HỢP LỆ": "Hợp lệ",
         "ĐÃ HỦY": "Đã hủy",
@@ -584,21 +648,23 @@
         return rows.filter(row => {
             const rowStatus = String(row.TrangThaiThanhToan || row.TrangThai || "");
             const normalizedStatus = displayLabel(rowStatus, "");
-            if (type === "invoices" && status === "OVERDUE" && !isOverdueInvoice(row)) return false;
+            if (type === "invoices" && ["Đã hủy", "Đã huỷ"].includes(normalizedStatus)) return false;
             if (filters.invoiceType && filters.invoiceType !== "ALL" && row.LoaiHoaDon !== filters.invoiceType) return false;
             const isActionRequired = type === "invoices"
-                ? ["Chưa thanh toán", "Thanh toán một phần", "Còn nợ"].includes(normalizedStatus)
+                ? invoicePaymentLabel(row) === "Còn nợ"
                 : type === "receipts"
                     ? normalizedStatus === "Chờ xác nhận"
                     : type === "payments"
-                        ? ["Không ghi nhận", "Chờ xác nhận"].includes(normalizedStatus)
+                        ? ["Cần xác minh", "Chờ xác nhận"].includes(normalizedStatus)
                         : type === "expenses"
                             ? normalizedStatus === "Chưa lập hóa đơn"
                         : ["Chờ xác nhận", "Cần xử lý"].includes(normalizedStatus);
             if (status === "ACTION_REQUIRED" && !isActionRequired) return false;
-            if (!(status === "OVERDUE" && type === "invoices")
-                && status !== "ACTION_REQUIRED" && status !== "ALL"
-                && normalizedStatus !== displayLabel(status, status)) return false;
+            if (status !== "ACTION_REQUIRED" && status !== "ALL") {
+                const expectedStatus = type === "invoices" ? displayLabel(status, status) : displayLabel(status, status);
+                const actualStatus = type === "invoices" ? invoicePaymentLabel(row) : normalizedStatus;
+                if (actualStatus !== expectedStatus) return false;
+            }
             if (method !== "ALL" && String(row.PhuongThuc || "") !== method) return false;
             const searchable = [
                 row.TenPhong, row.MaSinhVien, row.MaSinhVienNop, row.HoTen,
@@ -706,9 +772,10 @@
     const utils = Object.freeze({
         escapeHtml, parseVnd, parseVndNonNegative, formatVnd, exceedsBalance,
         refundReasonRequired, invoicePersonLabel, amountInWords, date, dateTime, tierForRoom,
-        displayLabel, statusClass, statusBadge, genderBadge, filterFinancialRows, isOverdueInvoice, serviceCanBeActive, canChangeRoomTier,
+        displayLabel, statusClass, statusBadge, genderBadge, paymentMethodLabel, maskPaymentReference, invoicePaymentLabel, overdueDays,
+        maskStudentId, maskStudentIdsInText, filterFinancialRows, isOverdueInvoice, serviceCanBeActive, canChangeRoomTier,
         roomGender, roomLabel, filterRoomsByGender, filterStudentsByRoomGender,
-        contractRoomAvailability, contractRoomSelection, contractRoomsForStudents, contractMemberRowHtml, hasTierDraftChanges, sanitizeDateInput, normalizeDateInput,
+        contractRoomAvailability, contractRoomSelection, contractRoomsForStudents, contractMemberRowHtml, memberAddRequest, hasTierDraftChanges, sanitizeDateInput, normalizeDateInput,
         validateDateInput, filterRows, paginateRows, groupContractDetails, renderTable, dateField, bindDateInputs,
         listSummary, serviceEditMode
         , enhanceAdminTables

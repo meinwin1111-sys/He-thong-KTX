@@ -556,7 +556,7 @@ function renderBaoCaoThongKeModule() {
         <table class="w-full text-left text-xs">
             <thead class="bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider">
                 <tr>
-                    <th class="p-3">MSSV</th>
+                    <th class="p-3">Số CCCD</th>
                     <th class="p-3">Họ và tên</th>
                     <th class="p-3">Phòng</th>
                     <th class="p-3 text-right">Còn lại</th>
@@ -889,7 +889,7 @@ function renderExpiringContracts(expiringContracts = []) {
     const html = pageData.length
         ? pageData.map(item => `
             <tr class="hover:bg-slate-50 transition">
-                <td class="p-3 text-xs font-medium text-slate-500">${item.MSSV || item.MaSinhVien || ""}</td>
+                <td class="p-3 text-xs font-medium text-slate-500">${window.AdminWorkflowUtils.maskStudentId(item.MSSV || item.MaSinhVien)}</td>
                 <td class="p-3 text-xs text-slate-500">${item.TenSV || item.HoTen || "Không rõ"}</td>
                 <td class="p-3 text-xs text-slate-500">${item.TenPhong || "Chưa có"}</td>
                 <td class="p-3 text-xs text-red-400 font-semibold text-right">${item.ConLai ?? item.conLai ?? 0} ngày</td>
@@ -989,7 +989,7 @@ async function loadExpiringContracts(year) {
                     if (endDate) endDate.setHours(0, 0, 0, 0);
                     const diff = endDate ? Math.ceil((endDate - today) / (1000 * 60 * 60 * 24)) : -1;
                     return {
-                        MSSV:        h.MaSinhVien || "",
+                        MSSV:        window.AdminWorkflowUtils.maskStudentId(h.MaSinhVien),
                         TenSV:       h.HoTen || "",
                         TenPhong:    h.TenPhong || "",
                         NgayKetThuc: end,
@@ -1010,7 +1010,7 @@ async function loadExpiringContracts(year) {
                     const diff = endDate ? Math.ceil((endDate - today) / (1000 * 60 * 60 * 24)) : -1;
                     const trangThai = (h.TrangThaiHopDong || "").trim();
                     return {
-                        MSSV:        h.MaSinhVien || "",
+                        MSSV:        window.AdminWorkflowUtils.maskStudentId(h.MaSinhVien),
                         TenSV:       h.HoTen || "",
                         TenPhong:    h.TenPhong || "",
                         NgayKetThuc: end,
@@ -1553,7 +1553,7 @@ function renderReportPreviewContent() {
         ? expiringContracts.map((item, index) => `
             <tr class="border-b">
                 <td class="p-2">${index + 1}</td>
-                <td class="p-2">${getVal(item, 'MSSV', 'MaSinhVien')}</td>
+                <td class="p-2">${window.AdminWorkflowUtils.maskStudentId(getVal(item, 'MSSV', 'MaSinhVien'))}</td>
                 <td class="p-2">${getVal(item, 'TenSV', 'HoTen')}</td>
                 <td class="p-2">${getVal(item, 'TenPhong')}</td>
                 <td class="p-2 text-right">${getVal(item, 'ConLai', 'conLai') ?? 0} ngày</td>
@@ -1605,7 +1605,7 @@ function renderReportPreviewContent() {
                     <thead class="bg-slate-50 text-slate-500">
                         <tr>
                             <th class="p-2 text-left">STT</th>
-                            <th class="p-2 text-left">MSSV</th>
+                            <th class="p-2 text-left">Số CCCD</th>
                             <th class="p-2 text-left">Họ tên</th>
                             <th class="p-2 text-left">Phòng</th>
                             <th class="p-2 text-right">Còn lại</th>
@@ -1741,10 +1741,10 @@ function downloadReportPreview() {
     const hdData = [
         [`HỢP ĐỒNG SẮP HẾT HẠN - NĂM ${year}`],
         [],
-        ["STT", "MSSV", "Họ và tên", "Phòng", "Số ngày còn lại"],
+        ["STT", "Số CCCD", "Họ và tên", "Phòng", "Số ngày còn lại"],
         ...expiringContracts.map((item, i) => [
             i + 1,
-            item.MSSV || item.MaSinhVien || "",
+            window.AdminWorkflowUtils.maskStudentId(item.MSSV || item.MaSinhVien),
             item.TenSV || item.HoTen || "",
             item.TenPhong || "",
             item.ConLai ?? item.conLai ?? 0,

@@ -29,7 +29,7 @@
     }));
     const tableColumns = () => [
         { label: 'Mã yêu cầu', render: row => `<strong>${escape(row.id)}</strong>` },
-        { label: 'Sinh viên', render: row => `<span>${escape(row.student || '—')} · ${escape(row.code || '—')}</span>`, longText: true, title: row => `${row.student || '—'} · ${row.code || '—'}` },
+        { label: 'Sinh viên', render: row => `<span>${escape(row.student || '—')} · ${escape(window.AdminWorkflowUtils.maskStudentId(row.code))}</span>`, longText: true, title: row => `${row.student || '—'} · ${window.AdminWorkflowUtils.maskStudentId(row.code)}` },
         { label: 'Phòng', render: row => escape(row.room || '—') },
         { label: 'Loại yêu cầu', render: row => escape(row.type || '—'), longText: true, title: row => row.type || '—' },
         { label: 'Ngày gửi', render: row => escape(dateText(row.date)) },

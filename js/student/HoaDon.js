@@ -1,13 +1,14 @@
-﻿// Student billing UI backed by the shared browser demo ledger.
+// Student billing UI backed by the shared browser demo ledger.
 (() => {
     const ui = StudentUI;
     const data = ui.repository.data;
     const store = KTXPaymentDemo;
-    const { esc, money, date, fields, card, table } = ui.helpers;
-    const labels = { UNPAID: 'Chưa thanh toán', OVERDUE: 'Trễ hạn', WAITING_CASH: 'Chờ thanh toán tiền mặt',
-        PARTIAL: 'Đã thanh toán một phần', PAID: 'Đã thanh toán' };
-    const itemLabels = { UNPAID: 'Chưa thanh toán', WAITING_CASH: 'Chờ thu tiền mặt', PAID: 'Đã thanh toán' };
-    const method = value => value === 'CASH' ? 'Tiền mặt' : value === 'ONLINE' ? 'Chuyển khoản (QR)' : value || '—';
+    const { esc, money, date, fields, card, table, maskStudentId, maskReference, paymentMethodLabel } = ui.helpers;
+    const labels = { UNPAID: 'Còn nợ', OVERDUE: 'Còn nợ', WAITING_CASH: 'Còn nợ', PARTIAL: 'Còn nợ', PAID: 'Đã thanh toán' };
+    const itemLabels = { UNPAID: 'Còn nợ', WAITING_CASH: 'Còn nợ', PAID: 'Đã thanh toán' };
+    const method = value => value === 'CASH' ? 'Tiền mặt' : value ? 'Chuyển khoản QR' : '—';
+    const invoiceStatus = invoice => window.AdminWorkflowUtils?.invoicePaymentLabel(invoice)
+        || (Number(invoice?.ConNo) > 0 ? 'Còn nợ' : 'Đã thanh toán');
     const backendStudent = () => window.StudentAuth?.session()?.isBackend === true;
     const time = value => {
         const formatted = window.AdminWorkflowUtils?.dateTime(String(value ?? ''));
@@ -17,7 +18,7 @@
         const hour = /[T ](\d{2}:\d{2})/.exec(source)?.[1];
         return day === '—' ? '—' : `${hour ? `${hour} ` : ''}${day}`;
     };
-    const badgeClass = value => value === 'PAID' ? 'st-success' : value === 'WAITING_CASH' || value === 'PARTIAL' ? 'st-warning' : 'st-danger';
+    const badgeClass = value => value === 'PAID' || value === 'Đã thanh toán' ? 'st-success' : 'st-danger';
     const badge = value => `<span class="st-badge ${badgeClass(value)}">${esc(labels[value] || value || '—')}</span>`;
     const itemBadge = value => `<span class="st-badge ${badgeClass(value)}">${esc(itemLabels[value] || value)}</span>`;
     const token = (invoiceId, itemId) => `${invoiceId}\0${itemId}`;
@@ -94,6 +95,17 @@
     function encodeQr(payload) {
         return encodeQrText(JSON.stringify(payload));
     }
+    const qrPayloadForDisplay = (payment, compact = false) => {
+        const payload = payment.qrPayload || payment;
+        const safeIdentity = maskStudentId(payload.studentId || payment.studentId);
+        const safeContent = String(payload.paymentContent || payment.paymentContent || '');
+        if (compact) return { studentId: safeIdentity, amount: payment.amount, paymentContent: safeContent };
+        return {
+            ...payload,
+            studentId: safeIdentity,
+            paymentContent: safeContent
+        };
+    };
     function paintChecks(root) {
         if (!root) return;
         pruneSelection();
@@ -128,27 +140,27 @@
         status: invoice => labels[store.status(invoice)],
         canPay: invoice => payableItems(invoice).length > 0,
         qrDetails(selection) { return store.qrDetails(identity(), selection || currentSelection()); },
+        qrPayloadForDisplay,
         async qrModal(selection) {
             const chosen = selection || currentSelection();
             const payment = await store.qrDetails(identity(), chosen);
             if (window.StudentPaymentConfig?.mode !== 'demo') throw new Error('Chưa cấu hình cổng thanh toán ngân hàng thật.');
             let svg;
-            try { svg = encodeQr(payment.qrPayload || payment); }
+            try { svg = encodeQr(qrPayloadForDisplay(payment)); }
             catch {
-                svg = encodeQr({ studentId: payment.studentId, amount: payment.amount, paymentContent: payment.paymentContent });
+                svg = encodeQr(qrPayloadForDisplay(payment, true));
             }
             return '<p class="st-demo">DEMO / SANDBOX</p>' +
                 `<div class="st-payment-amount">${money(payment.amount)}</div>` +
-                fields([['Họ tên', data.profile.name], ['Mã sinh viên', payment.studentId], ['Phòng', data.room.number],
-                    ['Nội dung thanh toán', payment.paymentContent], ['Số hạng mục', String(payment.items.length)]]) +
+                fields([['Họ tên', data.profile.name], ['Số CCCD', maskStudentId(payment.studentId)], ['Phòng', data.room.number],
+                    ['Nội dung thanh toán', maskReference(payment.paymentContent)], ['Số hạng mục', String(payment.items.length)]]) +
                 `<div class="st-pay-items">${groupedHtml(chosen)}</div>` +
-                `<figure class="st-payment-qr"><div role="img" aria-label="QR demo thanh toán ${esc(payment.paymentContent)}">${svg}</div><figcaption>DEMO / SANDBOX</figcaption></figure>` +
-                '<p class="st-notice">QR này dùng để mô phỏng quy trình thanh toán online, không thực hiện giao dịch tiền thật.</p>';
+                `<figure class="st-payment-qr"><div role="img" aria-label="QR thanh toán ${esc(maskReference(payment.paymentContent))}">${svg}</div><figcaption>DEMO / SANDBOX</figcaption></figure>` +
+                '<p class="st-notice">QR này mô phỏng chuyển khoản, không thực hiện giao dịch tiền thật.</p>';
         },
         summary() {
             const unpaid = data.invoices.filter(invoice => store.amount(invoice) > 0);
-            return { debt: unpaid.reduce((sum, invoice) => sum + store.amount(invoice), 0), unpaid: unpaid.length,
-                overdue: unpaid.filter(invoice => new Date(`${invoice.due}T23:59:59.999`) < new Date()).length };
+            return { debt: unpaid.reduce((sum, invoice) => sum + store.amount(invoice), 0), unpaid: unpaid.length };
         },
         async pay(selection, paymentMethod) {
             if (!['ONLINE', 'CASH'].includes(paymentMethod)) throw new Error('Phương thức không hợp lệ.');
@@ -166,7 +178,7 @@
             }, []);
             return '<p class="st-demo">Biên nhận DEMO / SANDBOX</p>' + fields([
                 ['Hóa đơn', payment.invoiceId], ['Số tiền', money(payment.amount)], ['Thời gian thanh toán', time(payment.paymentTime)],
-                ['Phương thức', payment.paymentMethod === 'ONLINE' ? 'Chuyển khoản (QR)' : 'Tiền mặt'],
+                ['Phương thức', method(payment.paymentMethod)],
                 ['Mã giao dịch', payment.transactionId], ['Hạng mục', itemNames(payment.items)]
             ]) + (groups.length ? `<div class="st-pay-items">${groupedHtml(groups)}</div>` : '');
         },
@@ -233,10 +245,7 @@
         },
         receiptMarkup(receipt) {
             if (!receipt || receipt.TrangThai !== 'Hợp lệ') throw new Error('Chỉ có thể in phiếu thu hợp lệ.');
-            const paymentMethod = receipt.MaThamChieu?.startsWith('QR-DEMO:')
-                ? 'QR demo'
-                : receipt.PhuongThuc === 'ONLINE' ? 'Chuyển khoản QR'
-                    : receipt.PhuongThuc === 'CASH' ? 'Tiền mặt' : receipt.PhuongThuc;
+            const paymentMethod = paymentMethodLabel(receipt.PhuongThuc);
             return `<article class="student-receipt-paper">
                 <header class="text-center"><h2>PHIẾU THU</h2><p>Mã phiếu: ${esc(receipt.MaPhieuThu || '—')}</p></header>
                 ${fields([
@@ -244,7 +253,7 @@
                     ['Ngày thu', time(receipt.NgayThu)],
                     ['Số tiền', money(Number(receipt.SoTien))],
                     ['Phương thức', paymentMethod],
-                    ['Mã tham chiếu', receipt.MaThamChieu],
+                    ['Mã tham chiếu', maskReference(receipt.MaThamChieu)],
                     ['Trạng thái', receipt.TrangThai]
                 ])}
             </article>`;
@@ -272,20 +281,19 @@
                 historyByInvoice.get(payment.MaHoaDon).push(payment);
             }
             const statusLabel = payment => {
-                if (payment.TrangThai === 'Cần đối soát') {
+                if (['Cần đối soát', 'Không ghi nhận', 'RECONCILIATION'].includes(payment.TrangThai)) {
                     return /vượt tổng|đã thanh toán đủ/i.test(payment.LyDoDoiSoat || '')
                         ? 'Hóa đơn đã thanh toán đủ, không ghi nhận thêm'
-                        : 'Không ghi nhận';
+                        : 'Cần xác minh';
                 }
                 return ({
-                SUCCESS: 'Thành công',
+                SUCCESS: 'Hợp lệ',
                 PENDING: 'Đang chờ xác minh',
                 REJECTED: 'Từ chối',
                 EXPIRED: 'Hết hạn'
                 }[payment.TrangThai] || payment.TrangThai || '—');
             };
-            const paymentMethodLabel = payment => payment.ThamChieuPhieuThu?.startsWith('QR-DEMO:')
-                ? 'QR demo' : payment.PhuongThuc === 'ONLINE' ? 'Chuyển khoản QR' : 'Tiền mặt';
+            const methodLabel = payment => paymentMethodLabel(payment.PhuongThuc);
             const confirmationSource = payment => {
                 if (payment.TrangThai === 'PENDING') {
                     return payment.PhuongThuc === 'ONLINE' ? 'Đang chờ ngân hàng' : 'Chờ Quản lý xác nhận';
@@ -303,7 +311,7 @@
                         <td>${esc(payment.TenKhoan || '—')}</td>
                         <td class="st-amount">${money(payment.SoTien)}</td>
                         <td>${esc(time(payment.NgayThanhToan || payment.NgayTao))}</td>
-                        <td>${esc(paymentMethodLabel(payment) || '—')}</td>
+                        <td>${esc(methodLabel(payment) || '—')}</td>
                         <td>${esc(statusLabel(payment) || '—')}${payment.LyDoTuChoi || payment.LyDoDoiSoat
                             ? `<small>${esc(payment.LyDoTuChoi || payment.LyDoDoiSoat)}</small>` : ''}</td>
                         <td>${esc(confirmationSource(payment) || '—')}</td>
@@ -319,7 +327,7 @@
             const invoiceCards = invoices.map(invoice => {
                 const invoiceId = invoice.MaHoaDon;
                 const amount = Number(invoice.TongTien || 0);
-                const status = invoice.TrangThaiThanhToan || '—';
+                const status = invoiceStatus(invoice);
                 const overdue = window.AdminWorkflowUtils?.isOverdueInvoice(invoice) === true;
                 const invoiceHistory = historyByInvoice.get(invoiceId) || [];
                 const pending = invoiceHistory.find(payment => payment.TrangThai === 'PENDING');
@@ -347,8 +355,7 @@
                     </div>`
                     : '';
                 return `<details class="st-invoice">
-                    <summary><span>${esc(invoiceId || '—')}</span>${badge(status === 'Đã thanh toán' ? 'PAID' : status === 'Thanh toán một phần' ? 'PARTIAL' : 'UNPAID')}
-                        ${overdue ? '<span class="st-badge st-danger">Trễ hạn</span>' : ''}
+                    <summary><span>${esc(invoiceId || '—')}</span>${badge(status)}
                         <span>${esc(period)}</span><span>${money(invoice.TongTien)}</span></summary>
                     <div class="st-invoice-items">
                         ${fields([
@@ -360,8 +367,9 @@
                             ['Tổng tiền', money(invoice.TongTien)],
                             ['Đã thanh toán', money(invoice.DaThu)],
                             ['Còn nợ', money(invoice.ConNo)],
-                            ['Trạng thái', overdue ? 'Trễ hạn' : status]
+                            ['Trạng thái', status]
                         ])}
+                        ${overdue ? `<p class="text-sm text-red-700">Trễ hạn ${window.AdminWorkflowUtils?.overdueDays(invoice) || 0} ngày</p>` : ''}
                     </div>
                     ${pending ? `<p class="st-notice" role="status">${pending.PhuongThuc === 'ONLINE'
                         ? 'Đang chờ ngân hàng xác minh đúng số tiền chuyển khoản.'
@@ -418,20 +426,20 @@
         }).join('');
         return `<p class="st-demo">DEMO / SANDBOX — không giao dịch tiền thật. Dữ liệu được lưu trên trình duyệt này và dùng chung với màn hình Admin cùng địa chỉ website.</p>
         <div class="st-invoice-page">
-        <div class="st-summary">${[['Tổng số tiền còn nợ', money(summary.debt)], ['Hóa đơn chưa thanh toán', summary.unpaid], ['Hóa đơn trễ hạn', summary.overdue]].map(([title, value]) => `<article class="st-card"><span>${title}</span><strong>${value}</strong></article>`).join('')}</div>
+        <div class="st-summary">${[['Tổng số tiền còn nợ', money(summary.debt)], ['Hóa đơn còn nợ', summary.unpaid]].map(([title, value]) => `<article class="st-card"><span>${title}</span><strong>${value}</strong></article>`).join('')}</div>
         <label class="st-check-all st-check-all-page"><input type="checkbox" data-select-all ${payable.length && totals.count === payable.length ? 'checked' : ''}> Chọn tất cả hạng mục còn nợ</label>
         <div class="st-invoice-list">${invoices}</div>
         <div class="st-pay-bar">
             <p data-pay-summary aria-live="polite">Đã chọn ${totals.count} hạng mục – Tổng: ${money(totals.amount)}</p>
             <div class="st-actions">
-                <button type="button" class="st-button st-primary" data-action="online-step" data-pay-action ${totals.count ? '' : 'disabled'}><i class="fa-solid fa-qrcode" aria-hidden="true"></i> Thanh toán online (QR)</button>
+                <button type="button" class="st-button st-primary" data-action="online-step" data-pay-action ${totals.count ? '' : 'disabled'}><i class="fa-solid fa-qrcode" aria-hidden="true"></i> Thanh toán chuyển khoản QR</button>
                 <button type="button" class="st-button" data-action="cash-step" data-pay-action ${totals.count ? '' : 'disabled'}><i class="fa-solid fa-money-bill" aria-hidden="true"></i> Thanh toán tiền mặt</button>
             </div>
         </div>
         </div>` +
         card('Lịch sử thanh toán', table(['Mã GD', 'Mã HĐ', 'Hạng mục', 'Số tiền', 'Phương thức', 'Thời gian', 'Trạng thái'], data.payments.filter(p => ['SUCCESS', 'Thành công'].includes(p.status)).map(p => {
             const items = itemNames(p.items);
-            return `<tr><td>${esc(p.transactionId || p.id)}</td><td>${esc(p.invoiceId)}</td><td class="st-long" title="${esc(items)}">${esc(items)}</td><td class="st-amount">${money(p.amount)}</td><td>${method(p.paymentMethod)}</td><td>${esc(time(p.paymentTime))}</td><td><span class="st-badge st-success">Thành công</span></td></tr>`;
+            return `<tr><td>${esc(p.transactionId || p.id)}</td><td>${esc(p.invoiceId)}</td><td class="st-long" title="${esc(items)}">${esc(items)}</td><td class="st-amount">${money(p.amount)}</td><td>${method(p.paymentMethod)}</td><td>${esc(time(p.paymentTime))}</td><td><span class="st-badge st-success">Hợp lệ</span></td></tr>`;
         }).join('')));
     } };
 })();

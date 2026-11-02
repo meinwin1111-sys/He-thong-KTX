@@ -50,8 +50,7 @@
     const money = value => value === null || value === undefined || value === "" ? "—" : U.formatVnd(Number(value));
     const display = value => U.displayLabel(value);
     const badge = value => U.statusBadge(value);
-    const invoiceStatusBadge = invoice => `${badge(invoice.TrangThaiThanhToan)}${U.isOverdueInvoice(invoice)
-        ? ` ${badge("OVERDUE")}` : ""}`;
+    const invoiceStatusBadge = invoice => badge(U.invoicePaymentLabel(invoice));
     const status = message => {
         const target = root?.querySelector("[data-admin-status]");
         if (target) target.textContent = message || "";
@@ -271,11 +270,26 @@
     }
     const activeMembers = contract =>
         (contract.sinhVien || []).filter(member => member.TrangThai === "Đang ở");
-    const memberName = member => String(member.HoTen || member.MaSinhVien || "—");
+    const memberName = member => String(member.HoTen || U.maskStudentId(member.MaSinhVien));
     const studentLabel = student => {
         const name = String(student.HoTen || "").trim();
         const id = String(student.MaSinhVien || "").trim();
-        return name && id ? (name === id ? name : `${name} · ${id}`) : (name || id || "—");
+        const visibleId = U.maskStudentId(id);
+        return name && id ? (name === id ? visibleId : `${name} · ${visibleId}`) : (name || visibleId || "—");
+    };
+    const activeStudentContract = studentId => state.contracts.find(contract =>
+        contract.TrangThaiHopDong === "Còn hiệu lực"
+        && activeMembers(contract).some(member => member.MaSinhVien === studentId)
+    ) || null;
+    const studentConflictMarkup = (studentId, excludedContractId = "") => {
+        const contract = activeStudentContract(studentId);
+        if (!contract) return "";
+        const isSameContract = contract.MaHopDong === excludedContractId;
+        const message = `Sinh viên này đang ở phòng ${contract.TenPhong || "—"} (hợp đồng ${contract.MaHopDong})`;
+        return `<div class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="alert">
+            ${esc(message)}${isSameContract ? " — sinh viên đã thuộc hợp đồng này." : ""}
+            ${button("Chuyển phòng", "member-move", `data-contract="${esc(contract.MaHopDong)}" data-student="${esc(studentId)}"`, "ml-2 bg-slate-700 text-white")}
+        </div>`;
     };
     const contractOptions = (activeOnly = true) => state.contracts
         .filter(contract => !activeOnly || contract.TrangThaiHopDong === "Còn hiệu lực")
@@ -293,17 +307,18 @@
         }));
     };
     const studentOptions = ({ availableOnly = false, roomName = "", gender = "", excludeIds = [] } = {}) => {
-        const activeIds = new Set(state.contracts.flatMap(contract => activeMembers(contract).map(member => member.MaSinhVien)));
         const excluded = new Set(excludeIds);
         const room = state.rooms.find(item => item.TenPhong === roomName);
         const selectedGender = gender || room?.LoaiPhong || "";
         return U.filterStudentsByRoomGender(state.students, { LoaiPhong: selectedGender })
-            .filter(student => (!availableOnly || !activeIds.has(student.MaSinhVien))
-                && !excluded.has(student.MaSinhVien))
+            .filter(student => !excluded.has(student.MaSinhVien))
             .map(student => {
+                const occupiedContract = activeStudentContract(student.MaSinhVien);
                 return {
                     value: student.MaSinhVien,
-                    label: `${studentLabel(student)} · ${U.displayLabel(student.GioiTinh)}${student.TenPhong ? ` · ${student.TenPhong}` : ""}`
+                    label: `${studentLabel(student)} · ${U.displayLabel(student.GioiTinh)}${occupiedContract
+                        ? ` · Đang ở phòng ${occupiedContract.TenPhong} (hợp đồng ${occupiedContract.MaHopDong})`
+                        : student.TenPhong ? ` · ${student.TenPhong}` : ""}`
                 };
             });
     };
@@ -321,7 +336,7 @@
                 ${button("⟳", "contract-refresh", 'aria-label="Làm mới" title="Làm mới"', "bg-slate-700 text-white")}
             </div>
             <form data-form="contract-filter" class="mb-1 flex flex-wrap items-end gap-2 rounded-xl border bg-white p-3">
-                <input name="contractSearch" aria-label="Tìm hợp đồng, phòng, MSSV hoặc tên" placeholder="Tìm hợp đồng, phòng, MSSV hoặc tên"
+                <input name="contractSearch" aria-label="Tìm hợp đồng, phòng, Số CCCD hoặc tên" placeholder="Tìm hợp đồng, phòng, Số CCCD hoặc tên"
                     value="${esc(state.contractSearch)}" class="h-10 min-w-56 flex-1 rounded-lg border px-3">
                 ${select("Trạng thái", "status", [{value:"ALL",label:"Tất cả"}, {value:"Còn hiệu lực",label:"Còn hiệu lực"}, {value:"Đã kết thúc",label:"Đã kết thúc"}], state.contractStatus)}
                 ${button("Xóa lọc", "contract-filter-clear", "", "bg-slate-200 text-slate-800")}
@@ -375,7 +390,7 @@
         const memberHtml = members.map(member => `<article class="rounded-lg border p-4">
             <div class="flex flex-wrap items-center justify-between gap-2"><strong>${text(member.HoTen)}</strong>${badge(member.TrangThai)}</div>
             <dl class="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                <div><dt class="text-slate-500">MSSV</dt><dd>${text(member.MaSinhVien)}</dd></div>
+                <div><dt class="text-slate-500">Số CCCD</dt><dd>${text(member.MaSinhVien)}</dd></div>
                 <div><dt class="text-slate-500">Ngày vào / ngày ra</dt><dd>${dateOnly(member.NgayVao)} / ${dateOnly(member.NgayRa)}</dd></div>
                 <div><dt class="text-slate-500">Kỳ thanh toán</dt><dd>${text(display(member.KyHanThanhToanPhong))}</dd></div>
                 <div><dt class="text-slate-500">Giá áp dụng</dt><dd>${money(member.GiaPhongApDung ?? member.GiaPhongThangApDung)}</dd></div>
@@ -408,7 +423,7 @@
             </dl>
             <div class="flex flex-wrap items-end gap-2">
                 ${select("Trạng thái sinh viên", "contractMemberStatus", [{value:"Đang ở",label:"Đang ở"},{value:"ALL",label:"Tất cả"},{value:"Đã rời",label:"Đã rời"},{value:"Đã chuyển phòng",label:"Đã chuyển phòng"}], state.contractMemberStatus)}
-                <label class="text-sm">Tìm sinh viên<input name="contractMemberSearch" value="" placeholder="Tên hoặc MSSV" class="mt-1 rounded border px-3 py-2"></label>
+                <label class="text-sm">Tìm sinh viên<input name="contractMemberSearch" value="" placeholder="Tên hoặc Số CCCD" class="mt-1 rounded border px-3 py-2"></label>
             </div>
             <h3 class="font-semibold">Sinh viên trong hợp đồng</h3>
             <div data-contract-members class="space-y-3"></div>${actions}
@@ -463,9 +478,9 @@
                 <div><dt class="text-sm text-slate-500">Người nộp</dt><dd>${text(receipt.TenNguoiNop || receipt.MaSinhVienNop)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Số tiền</dt><dd>${money(receipt.SoTien)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Thời điểm</dt><dd>${esc(formatDateTime(receipt.NgayThu))}</dd></div>
-                <div><dt class="text-sm text-slate-500">Phương thức</dt><dd>${text(display(receipt.PhuongThuc))}</dd></div>
+                <div><dt class="text-sm text-slate-500">Phương thức</dt><dd>${text(U.paymentMethodLabel(receipt.PhuongThuc))}</dd></div>
                 <div><dt class="text-sm text-slate-500">Trạng thái</dt><dd>${badge(receipt.TrangThai)}</dd></div>
-                <div><dt class="text-sm text-slate-500">Mã tham chiếu</dt><dd>${text(receipt.MaThamChieu)}</dd></div>
+                <div><dt class="text-sm text-slate-500">Mã tham chiếu</dt><dd>${text(U.maskPaymentReference(receipt.MaThamChieu))}</dd></div>
                 <div><dt class="text-sm text-slate-500">Ghi chú</dt><dd>${text(receipt.GhiChu)}</dd></div>
             </dl><div class="mt-5 flex flex-wrap gap-2">${receipt.TrangThai === "Chờ xác nhận"
                 ? `${button("Xác nhận", "receipt-confirm", `data-receipt="${esc(receipt.MaPhieuThu)}"`)} ${button("Hủy", "receipt-cancel", `data-receipt="${esc(receipt.MaPhieuThu)}"`, "bg-red-700 text-white")}` : ""}
@@ -484,7 +499,7 @@
                 <div><dt class="text-sm text-slate-500">Hóa đơn / phòng</dt><dd>${text(payment.MaHoaDon)} / ${text(payment.TenPhong)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Người nộp</dt><dd>${text(payment.HoTen || payment.MaSinhVien)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Số tiền</dt><dd>${money(payment.SoTien)}</dd></div>
-                <div><dt class="text-sm text-slate-500">Phương thức / trạng thái</dt><dd>${text(payment.ThamChieuPhieuThu?.startsWith("QR-DEMO:") ? "QR demo" : display(payment.PhuongThuc))} / ${badge(payment.TrangThai === "Cần đối soát" ? "Không ghi nhận" : payment.TrangThai)}</dd></div>
+                <div><dt class="text-sm text-slate-500">Phương thức / trạng thái</dt><dd>${text(U.paymentMethodLabel(payment.PhuongThuc))} / ${badge(payment.TrangThai === "Cần đối soát" ? "Cần xác minh" : payment.TrangThai)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Thời điểm</dt><dd>${esc(formatDateTime(payment.NgayTao))}</dd></div>
                 <div class="sm:col-span-2"><dt class="text-sm text-slate-500">Lý do</dt><dd class="whitespace-normal">${text(payment.LyDoDoiSoat || payment.LyDoTuChoi)}</dd></div>
             </dl>
@@ -598,7 +613,9 @@
             .map(selectNode => state.students.find(student => student.MaSinhVien === selectNode.value))
             .filter(Boolean);
         const gender = selectedStudents[0]?.GioiTinh || "";
-        const available = U.contractRoomsForStudents(state.rooms, state.contracts, selectedStudents);
+        const selectedHasCurrentRoom = selectedStudents.some(student => activeStudentContract(student.MaSinhVien));
+        const available = selectedHasCurrentRoom ? []
+            : U.contractRoomsForStudents(state.rooms, state.contracts, selectedStudents);
         const roomSelect = form.elements.tenPhong;
         const options = available.map(room => {
             const activeContract = U.contractRoomSelection(room.TenPhong, state.contracts).contract;
@@ -648,6 +665,7 @@
             <form id="admin-workflow-form" data-form="member-add" class="space-y-3">
                 <input type="hidden" name="contractId" value="${esc(contractId)}">
                 ${select("Sinh viên", "maSinhVien", studentOptions({ availableOnly: true, roomName: contract?.TenPhong || "" }), "", true)}
+                <div data-student-conflict></div>
                 ${select("Kỳ hạn tiền phòng", "kyHanThanhToanPhong", [{value:"THANG",label:"Theo tháng"},{value:"NAM",label:"Theo năm"}], "THANG", true)}
                 <label class="flex items-center gap-2"><input name="laNguoiDaiDien" type="checkbox"> Là người đại diện thanh toán dịch vụ</label>
             </form>`);
@@ -756,7 +774,9 @@
     }
     function financialFilterToolbar(type) {
         const rows = financialRows(type);
-        const statuses = [...new Set(rows.map(row => display(row.TrangThaiThanhToan || row.TrangThai, "")).filter(Boolean))];
+        const statuses = type === "invoices"
+            ? ["Còn nợ", "Đã thanh toán"]
+            : [...new Set(rows.map(row => display(row.TrangThaiThanhToan || row.TrangThai, "")).filter(Boolean))];
         const selected = state.financeFilters[type] || {};
         return `<form data-form="financial-filter" data-finance-type="${type}" class="mb-1 flex flex-wrap items-end gap-2 rounded-xl border bg-white p-3">
             ${type === "invoices" ? select("Loại hóa đơn", "invoiceType", [
@@ -766,13 +786,12 @@
             ${select("Trạng thái", "status", [
                 {value:"ACTION_REQUIRED",label:"Cần xử lý"},
                 {value:"ALL",label:"Tất cả"},
-                ...(type === "invoices" ? [{value:"OVERDUE",label:"Trễ hạn"}] : []),
                 ...statuses.map(value => ({value,label:value}))
             ], selected.status || "ACTION_REQUIRED")}
             ${["receipts", "payments"].includes(type) ? select("Phương thức", "method", [
-                {value:"ALL",label:"Tất cả"}, {value:"CASH",label:"Tiền mặt"}, {value:"ONLINE",label:"Chuyển khoản"}
+                {value:"ALL",label:"Tất cả"}, {value:"CASH",label:"Tiền mặt"}, {value:"ONLINE",label:"Chuyển khoản QR"}
             ], selected.method || "ALL") : ""}
-            <input name="search" value="${esc(selected.search || "")}" placeholder="Phòng hoặc mã sinh viên" aria-label="Tìm phòng hoặc mã sinh viên" class="h-10 min-w-48 flex-1 rounded-lg border px-3">
+            <input name="search" value="${esc(selected.search || "")}" placeholder="Phòng hoặc Số CCCD" aria-label="Tìm phòng hoặc Số CCCD" class="h-10 min-w-48 flex-1 rounded-lg border px-3">
             <input name="from" type="text" maxlength="10" inputmode="numeric" placeholder="Từ ngày dd/mm/yyyy" value="${esc(selected.from ? U.date(selected.from, "format") : "")}" aria-label="Từ ngày dd/mm/yyyy" class="h-10 w-40 rounded-lg border px-3">
             <input name="to" type="text" maxlength="10" inputmode="numeric" placeholder="Đến ngày dd/mm/yyyy" value="${esc(selected.to ? U.date(selected.to, "format") : "")}" aria-label="Đến ngày dd/mm/yyyy" class="h-10 w-40 rounded-lg border px-3">
             ${button("Xóa lọc", "financial-filter-clear", `data-type="${type}"`, "bg-slate-200 text-slate-800")}
@@ -855,7 +874,8 @@
         const columns = [
             { label: "Mã hóa đơn", render: invoice => text(invoice.MaHoaDon) },
             { label: "Loại", render: invoice => text(display(invoice.LoaiHoaDon)) },
-            { label: "Phòng / hợp đồng", render: invoice => `<span class="admin-truncate" title="${esc(`${invoice.TenPhong || "—"} / ${invoice.MaHopDong || "—"}`)}">${text(invoice.TenPhong)} / ${text(invoice.MaHopDong)}</span>` },
+            { label: "Phòng", render: invoice => text(invoice.TenPhong) },
+            { label: "Hợp đồng", render: invoice => text(invoice.MaHopDong) },
             { label: "Người", render: invoice => `<span class="admin-truncate" title="${esc(U.invoicePersonLabel(invoice))}">${esc(U.invoicePersonLabel(invoice))}</span>` },
             { label: "Kỳ", render: invoice => esc(invoice.KyThanhToan ? dateOnly(invoice.KyThanhToan) : dateOnly(invoice.NgayLap)) },
             { label: "Tổng", align: "right", width: 150, render: invoice => money(invoice.TongTien) },
@@ -927,7 +947,7 @@
         ], invoice.ChiTiet || []);
         const receiptTable = U.renderTable([
             { label: "Mã phiếu", render: receipt => text(receipt.MaPhieuThu) },
-            { label: "Người nộp", render: receipt => text(receipt.TenNguoiNop || receipt.MaSinhVienNop), longText: true, title: receipt => receipt.TenNguoiNop || receipt.MaSinhVienNop || "" },
+            { label: "Người nộp", render: receipt => text(receipt.TenNguoiNop || U.maskStudentId(receipt.MaSinhVienNop)), longText: true, title: receipt => receipt.TenNguoiNop || U.maskStudentId(receipt.MaSinhVienNop) },
             { label: "Số tiền", align: "right", render: receipt => money(receipt.SoTien) },
             { label: "Trạng thái", render: receipt => badge(receipt.TrangThai) }
         ], invoice.PhieuThu || []);
@@ -938,13 +958,14 @@
                     <p>Loại hóa đơn: <strong>${text(display(invoice.LoaiHoaDon))}</strong></p>
                     <p>Phòng: <strong>${esc(invoice.TenPhong || "—")}</strong></p>
                     <p>Hợp đồng: <strong>${esc(invoice.MaHopDong || "—")}</strong></p>
-                    <p>Người: <strong>${esc(U.invoicePersonLabel(invoice))}</strong></p>
+                    <p>Người: <strong>${esc(U.invoicePersonLabel(invoice, false))}</strong></p>
                     <p>Kỳ: <strong>${esc(invoice.KyThanhToan ? dateOnly(invoice.KyThanhToan) : dateOnly(invoice.NgayLap))}</strong></p>
                     <p>Hạn thanh toán: <strong>${esc(dateOnly(invoice.HanThanhToan))}</strong></p>
                     <p>Tổng: <strong>${money(invoice.TongTien)}</strong></p>
                     <p>Đã thu: <strong>${money(invoice.DaThu)}</strong></p>
                     <p>Còn nợ: <strong data-outstanding>${money(invoice.ConNo)}</strong></p>
                     <p>Trạng thái: <strong>${invoiceStatusBadge(invoice)}</strong></p>
+                    ${U.isOverdueInvoice(invoice) ? `<p class="text-xs text-red-700">Trễ hạn ${U.overdueDays(invoice)} ngày</p>` : ""}
                 </div>
                 <h4 class="font-bold">Chi tiết hóa đơn</h4>
                 <div data-no-admin-filters class="overflow-auto">${invoiceLineTable}</div>
@@ -957,7 +978,7 @@
             <form id="admin-workflow-form" data-form="receipt-create" class="mt-5 grid gap-3 border-t pt-4 md:grid-cols-3">
                 <input type="hidden" name="invoiceId" value="${esc(invoice.MaHoaDon)}">
                 ${field("Số tiền VND (một phần)", "soTien", "number", "", true, 'min="1" step="1" inputmode="numeric"')}
-                ${select("Phương thức", "phuongThuc", [{value:"CASH",label:"Tiền mặt"},{value:"ONLINE",label:"Chuyển khoản (QR)"}], "CASH", true)}
+                ${select("Phương thức", "phuongThuc", [{value:"CASH",label:"Tiền mặt"},{value:"ONLINE",label:"Chuyển khoản QR"}], "CASH", true)}
                 ${select("Người nộp", "maSinhVienNop", [
                     {value:"",label:"Chọn nếu cần ghi nhận người nộp"},
                     ...state.students.map(student => ({value:student.MaSinhVien,label:studentLabel(student)}))
@@ -980,7 +1001,7 @@
         const columns = [
             { label: "Khoản", render: expense => `<span class="admin-truncate" title="${esc(expense.NoiDung || "—")}">${text(expense.NoiDung)}</span>` },
             { label: "Phòng / hợp đồng", render: expense => `${text(expense.TenPhong)} / ${text(expense.MaHopDong)}` },
-            { label: "Sinh viên", render: expense => `<span class="admin-truncate" title="${esc(expense.HoTen || expense.MaSinhVien || "—")}">${text(expense.HoTen || expense.MaSinhVien)}</span>` },
+            { label: "Sinh viên", render: expense => `<span class="admin-truncate" title="${esc(expense.HoTen || U.maskStudentId(expense.MaSinhVien))}">${text(expense.HoTen || U.maskStudentId(expense.MaSinhVien))}</span>` },
             { label: "Ngày", render: expense => esc(dateOnly(expense.NgayPhatSinh)) },
             { label: "Số tiền", align: "right", render: expense => money(expense.SoTien) },
             { label: "Trạng thái", render: expense => badge(expense.TrangThai) },
@@ -1002,10 +1023,10 @@
         const columns = [
             { label: "Phiếu / hóa đơn", render: receipt => `${text(receipt.MaPhieuThu)} / ${text(receipt.MaHoaDon)}` },
             { label: "Phòng", render: receipt => text(receipt.TenPhong) },
-            { label: "Người nộp", render: receipt => `<span class="admin-truncate" title="${esc(receipt.TenNguoiNop || receipt.MaSinhVienNop || "—")}">${text(receipt.TenNguoiNop || receipt.MaSinhVienNop)}</span>` },
+            { label: "Người nộp", render: receipt => `<span class="admin-truncate" title="${esc(receipt.TenNguoiNop || U.maskStudentId(receipt.MaSinhVienNop))}">${text(receipt.TenNguoiNop || U.maskStudentId(receipt.MaSinhVienNop))}</span>` },
             { label: "Số tiền", align: "right", render: receipt => money(receipt.SoTien) },
             { label: "Thời điểm", render: receipt => esc(formatDateTime(receipt.NgayThu)) },
-            { label: "Phương thức", render: receipt => text(display(receipt.PhuongThuc)) },
+            { label: "Phương thức", render: receipt => text(U.paymentMethodLabel(receipt.PhuongThuc)) },
             { label: "Trạng thái", render: receipt => badge(receipt.TrangThai) },
             { label: "", render: () => `<span aria-hidden="true" class="text-lg text-slate-500">›</span>` }
         ];
@@ -1028,15 +1049,14 @@
             { label: "Hóa đơn", render: payment => payment.MaHoaDon && Number(payment.SoTien) > 0
                 ? text(payment.MaHoaDon) : `<span class="font-semibold text-slate-600">Không gắn hóa đơn</span>` },
             { label: "Phòng", render: payment => text(payment.TenPhong) },
-            { label: "Người nộp", render: payment => text(payment.HoTen || payment.MaSinhVien) },
+            { label: "Người nộp", render: payment => text(payment.HoTen || U.maskStudentId(payment.MaSinhVien)) },
             { label: "Số tiền", align: "right", render: payment =>
                 !payment.MaHoaDon || !(Number(payment.SoTien) > 0) ? "Không gắn hóa đơn" : money(payment.SoTien) },
-            { label: "Phương thức", render: payment => text(payment.ThamChieuPhieuThu?.startsWith("QR-DEMO:")
-                ? "QR demo" : display(payment.PhuongThuc)) },
+            { label: "Phương thức", render: payment => text(U.paymentMethodLabel(payment.PhuongThuc)) },
             { label: "Trạng thái", render: payment => {
                 const successful = payment.TrangThai === "SUCCESS" && payment.TrangThaiPhieuThu === "Hợp lệ";
-                return successful ? badge("Thành công")
-                    : badge(payment.TrangThai === "Cần đối soát" ? "Không ghi nhận"
+                return successful ? badge("Hợp lệ")
+                    : badge(payment.TrangThai === "Cần đối soát" ? "Cần xác minh"
                         : payment.TrangThai === "SUCCESS" ? "Đang xử lý" : payment.TrangThai);
             } },
             { label: "Lý do", render: payment => {
@@ -1060,7 +1080,7 @@
             U.filterFinancialRows(state.refunds, "refunds", state.financeFilters.refunds));
         const columns = [
             { label: "Phiếu chi", render: refund => `#${text(refund.MaPhieuChi)} · ${dateOnly(refund.NgayChi)}` },
-            { label: "Sinh viên / chi tiết", render: refund => `${text(refund.HoTen || refund.MaSinhVien)} / ${text(refund.MaChiTiet)}` },
+            { label: "Sinh viên / chi tiết", render: refund => `${text(refund.HoTen || U.maskStudentId(refund.MaSinhVien))} / ${text(refund.MaChiTiet)}` },
             { label: "Đã đóng", align: "right", render: refund => money(refund.SoTienDaDong) },
             { label: "Đã dùng", align: "right", render: refund => money(refund.SoTienDaSuDung) },
             { label: "Khấu trừ", align: "right", render: refund => money(refund.KhauTru) },
@@ -1398,7 +1418,7 @@
             { label: "Loại", render: debt => text(display(debt.LoaiHoaDon)) },
             { label: "Phòng", render: debt => text(debt.TenPhong) },
             { label: "Hợp đồng", render: debt => text(debt.MaHopDong) },
-            { label: "Người", render: debt => text(debt.HoTen || debt.MaSinhVien || "Theo phòng/hợp đồng"), longText: true, title: debt => debt.HoTen || debt.MaSinhVien || "Theo phòng/hợp đồng" },
+            { label: "Người", render: debt => text(debt.HoTen || U.maskStudentId(debt.MaSinhVien) || "Theo phòng/hợp đồng"), longText: true, title: debt => debt.HoTen || U.maskStudentId(debt.MaSinhVien) || "Theo phòng/hợp đồng" },
             { label: "Tổng hóa đơn", align: "right", render: debt => money(debt.TongHoaDon) },
             { label: "Đã thu", align: "right", render: debt => money(debt.DaThu) },
             { label: "Còn nợ", align: "right", render: debt => money(debt.TongCongNo) }
@@ -1406,7 +1426,7 @@
     }
 
     function renderThanhToanDemoModule() {
-        ensureRoot("Giao dịch thanh toán", "Dữ liệu trực tiếp từ API thanh toán. Giao dịch chưa được ghi nhận kèm lý do.");
+        ensureRoot("Giao dịch cần xử lý", "QR đang chờ, tiền mặt chờ xác nhận và giao dịch không được tiếp nhận.");
         content().innerHTML = `
             <div class="mb-4 flex gap-2">${button("⟳", "payments-refresh", 'aria-label="Làm mới" title="Làm mới"', "bg-slate-700 text-white")}${button("Danh sách phiếu thu", "payments-receipts", "", "bg-slate-700 text-white")}</div>
             ${financialFilterToolbar("payments")}
@@ -1425,7 +1445,7 @@
                 <header class="text-center"><h2 class="text-2xl font-bold">PHIẾU THU</h2><p>Mã phiếu: ${text(receipt.MaPhieuThu)}</p></header>
                 <dl class="mt-6 grid grid-cols-2 gap-3">
                     <dt>Hóa đơn</dt><dd>${text(receipt.MaHoaDon)}</dd><dt>Phòng</dt><dd>${text(receipt.TenPhong)}</dd>
-                    <dt>Người nộp</dt><dd>${esc(receipt.TenNguoiNop || receipt.MaSinhVienNop || "—")}</dd>
+                    <dt>Người nộp</dt><dd>${esc(receipt.TenNguoiNop || U.maskStudentId(receipt.MaSinhVienNop))}</dd>
                     <dt>Người thu</dt><dd>${text(receipt.TenNguoiThu)}</dd><dt>Số tiền</dt><dd>${money(amount)}</dd>
                     <dt>Bằng chữ</dt><dd class="col-span-1">${esc(U.amountInWords(amount))}</dd>
                     <dt>Ngày thu</dt><dd>${esc(formatDateTime(receipt.NgayThu))}</dd>
@@ -1445,7 +1465,7 @@
             <article class="receipt-paper w-full max-w-2xl rounded-xl bg-white p-8 shadow-xl">
                 <header class="text-center"><h2 class="text-2xl font-bold">PHIẾU CHI / HOÀN TIỀN</h2><p>Mã phiếu: ${text(refund.MaPhieuChi)}</p></header>
                 <dl class="mt-6 grid grid-cols-2 gap-3">
-                    <dt>Sinh viên</dt><dd>${esc(refund.HoTen || refund.MaSinhVien || "—")}</dd>
+                    <dt>Sinh viên</dt><dd>${esc(refund.HoTen || U.maskStudentId(refund.MaSinhVien))}</dd>
                     <dt>Mã chi tiết</dt><dd>${text(refund.MaChiTiet)}</dd><dt>Đã đóng</dt><dd>${money(refund.SoTienDaDong)}</dd>
                     <dt>Đã sử dụng</dt><dd>${money(refund.SoTienDaSuDung)}</dd><dt>Khấu trừ</dt><dd>${money(refund.KhauTru)}</dd>
                     <dt>Số tiền hoàn</dt><dd>${money(refund.SoTien)} (${esc(U.amountInWords(Number(refund.SoTien)))})</dd>
@@ -1475,7 +1495,7 @@
             <dt>Hóa đơn</dt><dd>${text(receipt.MaHoaDon)}</dd><dt>Phòng</dt><dd>${text(receipt.TenPhong)}</dd>
             <dt>Người nộp</dt><dd>${text(receipt.TenNguoiNop || receipt.MaSinhVienNop)}</dd>
             <dt>Số tiền</dt><dd>${money(receipt.SoTien)}</dd><dt>Thời điểm</dt><dd>${text(formatDateTime(receipt.NgayThu))}</dd>
-            <dt>Phương thức</dt><dd>${text(display(receipt.PhuongThuc))}</dd><dt>Trạng thái</dt><dd>${badge(receipt.TrangThai)}</dd>
+            <dt>Phương thức</dt><dd>${text(U.paymentMethodLabel(receipt.PhuongThuc))}</dd><dt>Trạng thái</dt><dd>${badge(receipt.TrangThai)}</dd>
         </dl>${button("In phiếu thu", "receipt-print", `data-receipt="${esc(receipt.MaPhieuThu)}"`)}`);
     }
     async function printLatestReceipt() {
@@ -1920,6 +1940,13 @@
 
     async function handleChange(event) {
         const form = event.target.closest("form");
+        if (form?.dataset.form === "member-add" && event.target.name === "maSinhVien") {
+            form.querySelector("[data-student-conflict]").innerHTML =
+                studentConflictMarkup(event.target.value, form.elements.contractId.value);
+            const submit = root.querySelector('button[form="admin-workflow-form"][type="submit"]');
+            if (submit) submit.disabled = Boolean(activeStudentContract(event.target.value));
+            return;
+        }
         if (event.target.name === "serviceTier") {
             state.selectedTierId = event.target.value;
             renderRoomPane();
@@ -2011,6 +2038,15 @@
             form.elements.maHangPhong.value = tier;
             form.elements.maHangPhongDisplay.value = tier;
             updateContractMode(form, selectedRoom);
+            const row = event.target.closest(".member-row");
+            if (row) row.querySelector("[data-student-conflict]").innerHTML =
+                studentConflictMarkup(event.target.value, form.elements.activeContractId.value);
+            const selectedMembers = [...form.querySelectorAll('.member-row [name="maSinhVien"]')]
+                .map(selectNode => selectNode.value)
+                .filter(Boolean);
+            const hasOccupiedStudent = selectedMembers.some(studentId => activeStudentContract(studentId));
+            const submit = root.querySelector('button[form="admin-workflow-form"][type="submit"]');
+            if (submit) submit.disabled = hasOccupiedStudent;
         }
         if (form.dataset.form === "invoice-create"
             && ["maHopDong", "loaiHoaDon"].includes(event.target.name)) await refreshInvoiceContext();
@@ -2302,14 +2338,14 @@
                     closeModal(); await loadContracts(); break;
                 }
                 case "member-add": {
-                    if (!window.confirm(`Thêm sinh viên ${values.get("maSinhVien")} vào hợp đồng ${values.get("contractId")}?`)) break;
-                    await request(`/api/HopDong/${encodeURIComponent(values.get("contractId"))}/chitiet`, {
-                        method: "POST", body: json({
-                            maSinhVien: values.get("maSinhVien"),
-                            kyHanThanhToanPhong: values.get("kyHanThanhToanPhong"),
-                            laNguoiDaiDien: form.elements.laNguoiDaiDien.checked
-                        })
-                    });
+                    const member = {
+                        maSinhVien: values.get("maSinhVien"),
+                        kyHanThanhToanPhong: values.get("kyHanThanhToanPhong"),
+                        laNguoiDaiDien: form.elements.laNguoiDaiDien.checked
+                    };
+                    const addRequest = U.memberAddRequest(values.get("contractId"), member);
+                    if (!window.confirm(`Thêm sinh viên ${member.maSinhVien} vào hợp đồng ${values.get("contractId")}?`)) break;
+                    await request(addRequest.url, addRequest.options);
                     closeModal(); await loadContracts(); break;
                 }
                 case "leave-preview": {

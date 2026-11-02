@@ -34,7 +34,7 @@ window.StudentUI = {};
             ] }
         ],
         payments: [
-            { id: 'GD001', invoiceId: 'HĐ002', date: date(-22), amount: 1635000, method: 'Online · Ngân hàng (demo)', status: 'Thành công' }
+            { id: 'GD001', invoiceId: 'HĐ002', date: date(-22), amount: 1635000, method: 'Chuyển khoản QR', status: 'Thành công' }
         ],
         requests: [
             { id: 'YC003', type: 'Gia hạn hợp đồng', date: date(-1), content: 'Xin gia hạn lưu trú thêm 6 tháng.', status: 'Chờ duyệt', reply: '' },

@@ -84,11 +84,11 @@ function renderTrangChuModule() {
                             <input name="TieuDe" maxlength="200" required placeholder="Tiêu đề (tối đa 200 ký tự)" aria-label="Tiêu đề thông báo" class="w-full rounded-lg border px-3 py-2">
                             <textarea name="NoiDung" maxlength="2000" required rows="3" placeholder="Nội dung (tối đa 2.000 ký tự)" aria-label="Nội dung thông báo" class="w-full rounded-lg border px-3 py-2"></textarea>
                             <select name="PhamViNhan" aria-label="Đối tượng nhận" class="w-full rounded-lg border px-3 py-2">
-                                <option value="TAT_CA">Tất cả sinh viên</option><option value="PHONG">Theo phòng</option><option value="SINH_VIEN">Theo mã sinh viên</option>
+                                <option value="TAT_CA">Tất cả sinh viên</option><option value="PHONG">Theo phòng</option><option value="SINH_VIEN">Theo Số CCCD</option>
                             </select>
                             <input name="TenPhong" maxlength="50" placeholder="Tên phòng" aria-label="Tên phòng nhận thông báo" hidden>
-                            <label data-notice-student-field class="hidden text-sm font-semibold">Mã sinh viên
-                                <input name="MaSinhVien" maxlength="30" placeholder="Nhập mã sinh viên" aria-label="Mã sinh viên nhận thông báo" class="mt-1 w-full rounded-lg border px-3 py-2">
+                            <label data-notice-student-field class="hidden text-sm font-semibold">Số CCCD
+                                <input name="MaSinhVien" maxlength="30" placeholder="Nhập Số CCCD" aria-label="Số CCCD nhận thông báo" class="mt-1 w-full rounded-lg border px-3 py-2">
                             </label>
                             <p data-notice-status role="status" class="text-sm"></p>
                             <button type="submit" class="w-fit rounded-lg bg-emerald-700 px-4 py-2 font-semibold text-white">Gửi thông báo</button>
@@ -393,11 +393,15 @@ function startHomeDashboard(root) {
         list.innerHTML = notices.length ? notices.map(notice => {
             const scope = notice.PhamViNhan === "PHONG"
                 ? `Phòng ${notice.TenPhong || "—"}`
-                : notice.PhamViNhan === "SINH_VIEN" ? `Sinh viên ${notice.MaSinhVien || "—"}` : "Tất cả sinh viên";
+                : notice.PhamViNhan === "SINH_VIEN" ? `Sinh viên ${window.AdminWorkflowUtils.maskStudentId(notice.MaSinhVien)}` : "Tất cả sinh viên";
             return `<li class="rounded-lg border p-3">
                 <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0"><strong>${escapeHtml(notice.TieuDe || "—")}</strong>
-                        <p class="mt-1 whitespace-pre-wrap break-words text-sm">${escapeHtml(notice.NoiDung || "—")}</p>
+                    <div class="min-w-0"><strong>${escapeHtml(window.AdminWorkflowUtils.maskStudentIdsInText(
+                        notice.TieuDe || "—", [notice.MaSinhVien]
+                    ))}</strong>
+                        <p class="mt-1 whitespace-pre-wrap break-words text-sm">${escapeHtml(window.AdminWorkflowUtils.maskStudentIdsInText(
+                            notice.NoiDung || "—", [notice.MaSinhVien]
+                        ))}</p>
                         <p class="mt-1 text-xs text-slate-500">${escapeHtml(scope)} · ${escapeHtml(window.AdminWorkflowUtils.dateTime(notice.NgayTao))}</p>
                     </div>
                     <button type="button" data-notice-delete="${escapeHtml(notice.MaThongBao)}" class="shrink-0 rounded bg-red-50 px-3 py-1 text-sm font-semibold text-red-800">Ẩn</button>
@@ -427,7 +431,7 @@ function startHomeDashboard(root) {
                     aria-label="Xem chi tiết thanh toán của ${escapeHtml(payment.HoTen)}"
                     class="block w-full cursor-pointer rounded-xl border-y border-r border-l-4 border-slate-200 border-l-emerald-400 bg-emerald-50/40 p-4 text-left transition-colors hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2">
                     <p class="font-bold text-slate-900 text-sm">${escapeHtml(payment.HoTen)} đã thanh toán ${escapeHtml(payment.TenKhoan)}</p>
-                    <p class="mt-1 text-xs text-slate-500">Hóa đơn ${escapeHtml(payment.MaHoaDon || "—")} · ${payment.SoTien !== null && payment.SoTien !== undefined && payment.SoTien !== "" && Number.isFinite(Number(payment.SoTien)) ? `${Number(payment.SoTien).toLocaleString("vi-VN")} ₫` : "—"} · ${escapeHtml(payment.PhuongThuc === "ONLINE" ? "Chuyển khoản (QR)" : "Tiền mặt")}</p>
+                    <p class="mt-1 text-xs text-slate-500">Hóa đơn ${escapeHtml(payment.MaHoaDon || "—")} · ${payment.SoTien !== null && payment.SoTien !== undefined && payment.SoTien !== "" && Number.isFinite(Number(payment.SoTien)) ? `${Number(payment.SoTien).toLocaleString("vi-VN")} ₫` : "—"} · ${escapeHtml(payment.PhuongThuc === "ONLINE" ? "Chuyển khoản QR" : "Tiền mặt")}</p>
                 </button>`).join("") : '<p class="text-sm text-slate-500">Chưa có khoản thanh toán thành công.</p>';
 
             list.addEventListener("click", event => {
@@ -451,7 +455,7 @@ function startHomeDashboard(root) {
         const status = window.AdminWorkflowUtils.displayLabel(payment.TrangThai);
         const fields = [
             ["Tên sinh viên", payment.HoTen],
-            ["Mã số sinh viên", payment.MaSinhVien],
+            ["Số CCCD", window.AdminWorkflowUtils.maskStudentId(payment.MaSinhVien)],
             ["Mã hóa đơn", payment.MaHoaDon],
             ["Phòng", payment.TenPhong],
             ["Tháng/năm hóa đơn", payment.ThangHoaDon && payment.NamHoaDon
@@ -459,11 +463,11 @@ function startHomeDashboard(root) {
                 : "—"],
             ["Hạng mục thanh toán", payment.TenKhoan],
             ["Số tiền", formatAmount],
-            ["Phương thức thanh toán", window.AdminWorkflowUtils.displayLabel(payment.PhuongThuc)],
+            ["Phương thức thanh toán", window.AdminWorkflowUtils.paymentMethodLabel(payment.PhuongThuc)],
             ["Thời điểm thanh toán", formatDate(payment.NgayThanhToan || payment.NgayTao)],
             ["Trạng thái", status],
             ["Mã giao dịch", payment.MaGiaoDich],
-            ["Mã tham chiếu", payment.MaThamChieuNgoai],
+            ["Mã tham chiếu", window.AdminWorkflowUtils.maskPaymentReference(payment.MaThamChieuNgoai)],
             ["Người xác nhận", payment.TenNguoiXacNhan || payment.XacNhanBoi]
         ];
         const invoiceId = display(payment.MaHoaDon);

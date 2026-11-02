@@ -178,9 +178,7 @@
                     <td>${esc(receipt.MaPhieuThu ?? '—')}</td>
                     <td>${money(receipt.SoTien)}</td>
                     <td>${esc(date(receipt.NgayThu))}</td>
-                    <td>${esc(receipt.MaThamChieu?.startsWith('QR-DEMO:')
-                        ? 'QR demo' : receipt.PhuongThuc === 'ONLINE' ? 'Chuyển khoản QR'
-                            : receipt.PhuongThuc === 'CASH' ? 'Tiền mặt' : receipt.PhuongThuc || '—')}</td>
+                    <td>${esc(ui.helpers.paymentMethodLabel(receipt.PhuongThuc))}</td>
                     <td>${esc(receipt.TrangThai || '—')}</td>
                     <td>${receipt.TrangThai === 'Hợp lệ'
                         ? `<button type="button" class="st-button" data-action="backend-receipt-print"
@@ -275,6 +273,9 @@
                 || Math.round(Number(payment.TongTien) * 100) !== Math.round(amount * 100)) {
                 throw new Error('Số tiền hóa đơn đã thay đổi. Đóng cửa sổ và tải lại hóa đơn trước khi chuyển khoản.');
             }
+            if (payment.MaGiaoDich !== request.MaGiaoDich || payment.NoiDungCK !== request.NoiDungCK) {
+                throw new Error('Mã nội dung QR không khớp với yêu cầu thanh toán vừa tạo.');
+            }
             const confirmButton = payment.DemoPaymentEnabled === true
                 ? `<button type="button" class="st-button st-primary" data-action="backend-payment-demo-confirm"
                         data-id="${esc(invoiceId)}" data-transaction-id="${esc(request.MaGiaoDich)}">Xác nhận đã chuyển khoản (demo)</button>`
@@ -299,7 +300,7 @@
                 body: JSON.stringify({ MaHoaDon: invoiceId, MaGiaoDich: transactionId })
             });
             const result = await response.json();
-            if (!response.ok) throw new Error(result.message || 'Không thể xác nhận thanh toán QR demo.');
+            if (!response.ok) throw new Error(result.message || 'Không thể xác nhận thanh toán.');
             dialog.close();
             render();
             modal('Thanh toán thành công',

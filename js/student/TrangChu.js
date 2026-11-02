@@ -2,7 +2,7 @@
 (() => {
     const ui = StudentUI;
     const data = ui.repository.data;
-    const { esc, money, date } = ui.helpers;
+    const { esc, money, date, maskStudentIdsInText } = ui.helpers;
     const backendStudent = () => window.StudentAuth?.session()?.isBackend;
     const statusTone = value => {
         const text = String(value || '').toLowerCase();
@@ -34,7 +34,6 @@
             ${stat(3, 'Công nợ', '—', '', 'invoices', 'fa-wallet', 'data-dashboard-debt', 'data-dashboard-debt-hint')}
         </div>
         <p data-dashboard-contract-warning class="st-notice" role="status" hidden></p>
-        <p data-dashboard-overdue class="st-notice sh-overdue" role="status" hidden></p>
         <div class="sh-columns">
             <section class="sh-panel sh-payment-panel"><div class="sh-panel-title"><h2><i class="fa-solid fa-bell" aria-hidden="true"></i> Thông báo</h2></div>
                 <ul class="sh-announcements" data-student-notices><li class="st-muted">Đang tải thông tin…</li></ul>
@@ -106,13 +105,13 @@
             ...payments.filter(payment => payment.TrangThai === 'SUCCESS').map(payment => ({
                 kind: 'Thanh toán',
                 title: `Đã thanh toán ${payment.TenKhoan || 'khoản phí'}`,
-                detail: `Hóa đơn ${payment.MaHoaDon || '—'} · ${money(Number(payment.SoTien || 0))} · ${payment.PhuongThuc === 'ONLINE' ? 'Chuyển khoản (QR)' : 'Tiền mặt'}`,
+                detail: `Hóa đơn ${payment.MaHoaDon || '—'} · ${money(Number(payment.SoTien || 0))} · ${payment.PhuongThuc === 'ONLINE' ? 'Chuyển khoản QR' : 'Tiền mặt'}`,
                 createdAt: payment.NgayThanhToan || payment.NgayTao
             })),
             ...notices.map(notice => ({
                 kind: 'Thông báo từ Quản lý',
-                title: notice.TieuDe || '—',
-                detail: notice.NoiDung || '—',
+                title: maskStudentIdsInText(notice.TieuDe || '—', [data.profile.code]),
+                detail: maskStudentIdsInText(notice.NoiDung || '—', [data.profile.code]),
                 createdAt: notice.NgayTao
             }))
         ].sort((left, right) => (Date.parse(right.createdAt || '') || 0) - (Date.parse(left.createdAt || '') || 0));
@@ -205,7 +204,6 @@
                 const debt = unpaidInvoices.reduce((sum, invoice) => sum + Number(invoice.ConNo || 0), 0);
                 const now = new Date();
                 const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-                const overdueInvoices = unpaidInvoices.filter(invoice => invoice.HanThanhToan && String(invoice.HanThanhToan).slice(0, 10) < todayIso).length;
                 const endDate = currentContract?.NgayKetThuc ? String(currentContract.NgayKetThuc).slice(0, 10) : '';
                 const daysRemaining = endDate
                     ? Math.ceil((Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${todayIso}T00:00:00Z`)) / 86400000)
@@ -223,9 +221,7 @@
                 const hintValues = [
                     hasRoom ? room.TrangThaiPhong || 'Đang ở' : '',
                     daysRemaining == null ? '' : daysRemaining < 0 ? 'Đã hết hạn' : `Còn ${daysRemaining} ngày`,
-                    overdueInvoices
-                    ? `${overdueInvoices} hóa đơn trễ hạn`
-                    : unpaidInvoices.length ? 'Chờ thanh toán'
+                    unpaidInvoices.length ? 'Còn nợ'
                         : allInvoicesPaid ? 'Đã thanh toán đủ' : invoices.length ? 'Không có công nợ' : 'Chưa có hóa đơn',
                     invoices.length ? debt > 0 ? 'Cần thanh toán' : 'Không có công nợ' : ''
                 ];
@@ -248,7 +244,6 @@
                 set('[data-dashboard-contract-warning]', daysRemaining != null && daysRemaining <= 30
                     ? `Hợp đồng lưu trú ${daysRemaining < 0 ? 'đã hết hạn' : `sắp hết hạn ngày ${date(endDate)} (${daysRemaining} ngày)`}.`
                     : '');
-                set('[data-dashboard-overdue]', overdueInvoices ? `Bạn có ${overdueInvoices} hóa đơn trễ hạn thanh toán.` : '');
             } catch (error) {
                 if (root.isConnected) set('[data-dashboard-error]', error.message || 'Không thể tải thông tin lưu trú và hóa đơn.');
             }

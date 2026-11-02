@@ -9,6 +9,12 @@
             ? `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(amount)}\u00a0đ`
             : '—';
     };
+    const maskStudentId = value => window.StudentIdentity.maskStudentIdentity(value);
+    const maskStudentIdsInText = (value, knownIdentities = []) =>
+        window.StudentIdentity.maskStudentIdentitiesInText(value, knownIdentities);
+    const maskReference = value => String(value ?? '');
+    const paymentMethodLabel = value => ['CASH', 'TIỀN MẶT'].includes(String(value ?? '').trim().toUpperCase())
+        ? 'Tiền mặt' : String(value ?? '').trim() ? 'Chuyển khoản QR' : '—';
     const date = value => {
         const input = String(value ?? '').trim();
         if (!input) return '—';
@@ -24,12 +30,13 @@
         : Number(invoice.room) + Number(invoice.electricity) + Number(invoice.water);
     const badge = status => {
         const raw = String(status ?? '').trim() || '—';
-        const value = raw === 'Cần đối soát' ? 'Không ghi nhận' : raw;
+        const value = ['Cần đối soát', 'Không ghi nhận', 'RECONCILIATION'].includes(raw)
+            ? 'Cần xác minh' : raw;
         const tone = ['Đã duyệt', 'Đã thanh toán', 'Đang hiệu lực', 'Đã xử lý', 'Hoàn tất'].includes(value)
             ? 'st-success'
             : ['Từ chối', 'Đã hủy', 'Đã huỷ'].includes(value)
                 ? 'st-neutral'
-                : ['Chờ xác nhận', 'Không ghi nhận', 'Còn nợ', 'Chờ duyệt', 'Chờ xử lý', 'Trễ hạn'].includes(value)
+                : ['Chờ xác nhận', 'Cần xác minh', 'Còn nợ', 'Chờ duyệt', 'Chờ xử lý', 'Trễ hạn'].includes(value)
                     ? 'st-warning'
                     : 'st-neutral';
         return `<span class="st-badge ${tone}">${esc(value)}</span>`;
@@ -49,7 +56,7 @@
     const contractStatus = () => remaining() < 0 ? 'Hợp đồng đã hết hạn' : remaining() <= 30 ? 'Sắp hết hạn' : 'Đang hiệu lực';
     const contractTerm = () => `${calendarDay(data.contract.end) - calendarDay(data.contract.start) + 1} ngày (tính cả ngày bắt đầu và kết thúc)`;
     const contractWarning = () => remaining() <= 30 ? `<p class="st-notice ${remaining() < 0 ? 'st-contract-expired' : ''}" role="status">${remaining() < 0 ? 'Hợp đồng đã hết hạn' : `Hợp đồng lưu trú của bạn sắp hết hạn vào ngày ${esc(date(data.contract.end))}. Còn ${remaining()} ngày.`} <a href="#requests">Gửi yêu cầu gia hạn tại Yêu cầu &amp; Hỗ trợ</a>.</p>` : '';
-    ui.helpers = { esc, money, date, total, badge, fields, card, table, requestTable, contractWarning, contractStatus, contractTerm, remaining };
+    ui.helpers = { esc, money, date, total, badge, fields, card, table, requestTable, contractWarning, contractStatus, contractTerm, remaining, maskStudentId, maskStudentIdsInText, maskReference, paymentMethodLabel };
     ui.routeFromHash = (hash, pages = ui.pages) => {
         const route = String(hash || '').replace(/^#/, '');
         return Object.hasOwn(pages, route) ? route : 'home';

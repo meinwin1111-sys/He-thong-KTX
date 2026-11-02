@@ -96,6 +96,7 @@ test("Student route selection defaults fresh sessions to home and preserves expl
         Date
     });
     context.window = context;
+    loadSource("js/student-identity.js", context);
     loadSource("js/student/helpers.js", context);
     const pages = { home: {}, invoices: {}, requests: {} };
     assert.equal(context.StudentUI.routeFromHash("", pages), "home");
@@ -115,6 +116,7 @@ test("backend billing does not initialize the browser demo payment ledger", () =
         Date
     });
     context.window = context;
+    loadSource("js/student-identity.js", context);
     loadSource("js/student/data.js", context);
     loadSource("js/student/helpers.js", context);
     loadSource("js/student/HoaDon.js", context);
@@ -173,7 +175,7 @@ test("backend dashboard shows empty statuses and never says fully paid without i
     assert.equal(nodes.get("[data-dashboard-debt]").textContent, "—");
     assert.equal(nodes.get("[data-dashboard-contract]").textContent, "—");
     assert.equal(nodes.get("[data-dashboard-contract-warning]").textContent, "");
-    assert.equal(nodes.get("[data-dashboard-overdue]").textContent, "");
+    assert.equal(nodes.has("[data-dashboard-overdue]"), false);
 });
 
 test("backend dashboard says fully paid only when real invoice statuses are paid", async () => {
@@ -210,6 +212,12 @@ function routeHarness() {
                 if (statement.includes("SELECT hd.MaHoaDon, total.TongThuc")) {
                     return { recordset: [{
                         MaHoaDon: inputs.MaHoaDon, TongThuc: 1200, ConNo: 1200, SoKhoan: 1
+                    }] };
+                }
+                if (statement.includes("SELECT TOP (1) gd.MaGiaoDich, gd.NoiDungCK")) {
+                    return { recordset: [{
+                        MaGiaoDich: `PAY-${studentId}`,
+                        NoiDungCK: `KTX${String(studentId).replace(/[^A-Z0-9]/gi, "").toUpperCase().padEnd(20, "0").slice(0, 20)}`
                     }] };
                 }
                 if (statement.includes("dbo.vw_HoaDonTongHop")) {
@@ -291,11 +299,11 @@ test("student-scoped APIs bind each session to its own records; missing auth is 
                 auth: { role: "Sinh viên", studentId },
                 query: { MaHoaDon: `HD-${studentId}` }
             }, res);
-            assert.equal(res.statusCode, 200);
+            assert.equal(res.statusCode, 200, JSON.stringify(res.body));
             assert.equal(res.body.MaHoaDon, `HD-${studentId}`);
             const query = queries.at(-1);
             assert.equal(query.inputs.MaSinhVien, studentId);
-            assert.match(query.statement, /ChiTietHopDong/);
+            assert.match(queries.find(entry => entry.statement.includes("ChiTietHopDong")).statement, /ChiTietHopDong/);
         }
         const unauthenticated = response();
         await routes.get("get /api/payments/qr")({ query: { MaHoaDon: "HD-SV-A" } }, unauthenticated);

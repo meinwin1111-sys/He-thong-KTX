@@ -1,6 +1,7 @@
 const { randomUUID } = require("node:crypto");
 const { createRegistrationHandler } = require("./student-auth");
 const registerMoneyRoutes = require("./money-routes");
+const studentIdentity = require("./js/student-identity");
 const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
 
 function isDateOnly(value) {
@@ -12,6 +13,22 @@ function isDateOnly(value) {
 
 function stringValue(value) {
     return typeof value === "string" ? value.trim() : "";
+}
+
+function maskStudentIdForLog(value) {
+    return studentIdentity.maskStudentIdentity(value);
+}
+
+function maskStudentIdsInLog(value, studentIds = []) {
+    return studentIdentity.maskStudentIdentitiesInText(value, studentIds);
+}
+
+function maskNoticeTexts(notices, studentIds) {
+    return notices.map(notice => ({
+        ...notice,
+        TieuDe: maskStudentIdsInLog(notice.TieuDe, studentIds),
+        NoiDung: maskStudentIdsInLog(notice.NoiDung, studentIds)
+    }));
 }
 
 function isObjectBody(body) {
@@ -50,9 +67,13 @@ function isRoomCapacity(value) {
 }
 
 function validateStudentInput({
-    studentId, name, gender, phone, email, birthday, address, note, room, status
+    studentId, name, gender, phone, email, birthday, address, note, room, status, school,
+    requireCccd = false
 }) {
-    if (!isValidId(studentId, 30)) return "Mã sinh viên là bắt buộc và tối đa 30 ký tự.";
+    if (requireCccd) {
+        const identity = studentIdentity.validateStudentIdentity(studentId);
+        if (!identity.valid) return identity.message;
+    } else if (!isValidId(studentId, 30)) return "Số CCCD/Hộ chiếu là bắt buộc.";
     if (typeof name !== "string" || !name.trim() || name.trim().length > 100) {
         return "Họ tên là bắt buộc và tối đa 100 ký tự.";
     }
@@ -64,6 +85,7 @@ function validateStudentInput({
     }
     if (!isOptionalText(address, 255)) return "Địa chỉ phải là chuỗi tối đa 255 ký tự.";
     if (!isOptionalText(note, 255)) return "Ghi chú phải là chuỗi tối đa 255 ký tự.";
+    if (school !== undefined && !isOptionalText(school, 150)) return "Trường phải là chuỗi tối đa 150 ký tự.";
     if (status !== undefined && !normalizeStudentStatus(status)) return "Trạng thái sinh viên không hợp lệ.";
     if ((status === undefined || normalizeStudentStatus(status) === "Đang ở") && !isValidId(room, 50)) {
         return "Sinh viên đang ở phải có tên phòng hợp lệ, tối đa 50 ký tự.";
@@ -564,14 +586,18 @@ function registerApiRoutes(app, {
             return respondRequestError(res, 403, "Chỉ Quản lý mới được xem danh sách thông báo.");
         }
         try {
-            const result = await getPool().request().query(`
-                SELECT MaThongBao, TieuDe, NoiDung, PhamViNhan, TenPhong,
-                       MaSinhVien, NguoiTao, NgayTao, DaXoa
-                FROM dbo.ThongBao
-                WHERE DaXoa = 0
-                ORDER BY NgayTao DESC, MaThongBao DESC
-            `);
-            return res.json(result.recordset);
+            const [result, identityResult] = await Promise.all([
+                getPool().request().query(`
+                    SELECT MaThongBao, TieuDe, NoiDung, PhamViNhan, TenPhong,
+                           MaSinhVien, NguoiTao, NgayTao, DaXoa
+                    FROM dbo.ThongBao
+                    WHERE DaXoa = 0
+                    ORDER BY NgayTao DESC, MaThongBao DESC
+                `),
+                getPool().request().query("SELECT MaSinhVien FROM dbo.SinhVien")
+            ]);
+            const knownIds = identityResult.recordset.map(row => row.MaSinhVien);
+            return res.json(maskNoticeTexts(result.recordset, knownIds));
         } catch (error) {
             return respondDatabaseError(res, "LỖI LẤY THÔNG BÁO QUẢN LÝ", error, "Không thể lấy danh sách thông báo.");
         }
@@ -653,9 +679,10 @@ function registerApiRoutes(app, {
             return respondRequestError(res, 403, "Chỉ Sinh viên mới được xem thông báo của mình.");
         }
         try {
-            const result = await getPool().request()
-                .input("MaSinhVien", sql.NVarChar(30), req.auth.studentId)
-                .query(`
+            const [result, identityResult] = await Promise.all([
+                getPool().request()
+                    .input("MaSinhVien", sql.NVarChar(30), req.auth.studentId)
+                    .query(`
                     SELECT tb.MaThongBao, tb.TieuDe, tb.NoiDung, tb.PhamViNhan,
                            tb.TenPhong, tb.NgayTao
                     FROM dbo.ThongBao tb
@@ -680,8 +707,11 @@ function registerApiRoutes(app, {
                           )
                       )
                     ORDER BY tb.NgayTao DESC, tb.MaThongBao DESC
-                `);
-            return res.json(result.recordset);
+                    `),
+                getPool().request().query("SELECT MaSinhVien FROM dbo.SinhVien")
+            ]);
+            const knownIds = identityResult.recordset.map(row => row.MaSinhVien);
+            return res.json(maskNoticeTexts(result.recordset, knownIds));
         } catch (error) {
             return respondDatabaseError(res, "LỖI LẤY THÔNG BÁO SINH VIÊN", error, "Không thể lấy thông báo.");
         }
@@ -1394,7 +1424,7 @@ function registerApiRoutes(app, {
                   AND (@TrangThai IS NULL OR TrangThaiSinhVien = @TrangThai);
 
                 SELECT MaSinhVien, HoTen, NgaySinh, GioiTinh, SoDienThoai, Email,
-                       DiaChi, TrangThaiSinhVien, TenPhong, GhiChu
+                       DiaChi, TrangThaiSinhVien, TenPhong, Truong, GhiChu
                 FROM dbo.SinhVien
                 WHERE (@Keyword = N'' OR MaSinhVien LIKE N'%' + @Keyword + N'%' OR HoTen LIKE N'%' + @Keyword + N'%')
                   AND (@TrangThai IS NULL OR TrangThaiSinhVien = @TrangThai)
@@ -1411,7 +1441,7 @@ function registerApiRoutes(app, {
     });
 
     app.get("/api/sinhvien/chitiet/:mssv", async (req, res) => {
-        if (!isValidId(req.params.mssv, 30)) return respondRequestError(res, 400, "Mã sinh viên không hợp lệ.");
+        if (!isValidId(req.params.mssv, 30)) return respondRequestError(res, 400, "Số CCCD/Hộ chiếu trên URL không hợp lệ.");
         try {
             const result = await getPool().request()
                 .input("MaSinhVien", sql.NVarChar(30), req.params.mssv)
@@ -1443,7 +1473,7 @@ function registerApiRoutes(app, {
     });
 
     app.get("/api/SinhVienById/:mssv", async (req, res) => {
-        if (!isValidId(req.params.mssv, 30)) return respondRequestError(res, 400, "Mã sinh viên không hợp lệ.");
+        if (!isValidId(req.params.mssv, 30)) return respondRequestError(res, 400, "Số CCCD/Hộ chiếu trên URL không hợp lệ.");
         try {
             const result = await getPool().request()
                 .input("MaSinhVien", sql.NVarChar(30), req.params.mssv)
@@ -1459,9 +1489,14 @@ function registerApiRoutes(app, {
     });
 
     app.post("/api/sinhvien", async (req, res) => {
+        if (req.auth?.role !== "Quản lý") {
+            return respondRequestError(res, req.auth ? 403 : 401,
+                req.auth ? "Chỉ Quản lý mới được tạo sinh viên." : "Vui lòng đăng nhập.");
+        }
         if (!isObjectBody(req.body)) return respondRequestError(res, 400, "Request body phải là một đối tượng JSON.");
         const body = req.body;
-        const studentId = stringValue(body.MaSinhVien);
+        const identity = studentIdentity.validateStudentIdentity(body.MaSinhVien);
+        const studentId = identity.value;
         const name = stringValue(body.HoTen);
         const gender = stringValue(body.GioiTinh);
         const phone = body.SoDienThoai;
@@ -1470,8 +1505,9 @@ function registerApiRoutes(app, {
         const birthday = body.NgaySinh;
         const address = stringValue(body.DiaChi);
         const note = stringValue(body.GhiChu);
+        const school = body.Truong;
         const validationMessage = validateStudentInput({
-            studentId: body.MaSinhVien,
+            studentId,
             name: body.HoTen,
             gender,
             phone,
@@ -1479,7 +1515,9 @@ function registerApiRoutes(app, {
             birthday,
             address: body.DiaChi,
             note: body.GhiChu,
-            room
+            room,
+            school,
+            requireCccd: true
         });
         if (validationMessage) return respondRequestError(res, 400, validationMessage);
         if (body.TrangThaiSinhVien !== undefined && body.TrangThaiSinhVien !== "Đang ở") {
@@ -1500,6 +1538,18 @@ function registerApiRoutes(app, {
         const transaction = new sql.Transaction(getPool());
         try {
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const duplicate = await new sql.Request(transaction)
+                .input("MaSinhVien", sql.NVarChar(30), studentId)
+                .query(`
+                    SELECT TOP (1) HoTen
+                    FROM dbo.SinhVien WITH (UPDLOCK, HOLDLOCK)
+                    WHERE UPPER(LTRIM(RTRIM(MaSinhVien))) = @MaSinhVien
+                `);
+            if (duplicate.recordset.length) {
+                await transaction.rollback();
+                return respondRequestError(res, 409,
+                    `Số CCCD/hộ chiếu đã được đăng ký cho sinh viên ${duplicate.recordset[0].HoTen || "khác"}.`);
+            }
             const roomRow = await new sql.Request(transaction)
                 .input("TenPhong", sql.NVarChar(50), room)
                 .query(`
@@ -1520,14 +1570,15 @@ function registerApiRoutes(app, {
                 .input("SoDienThoai", sql.Char(10), phone)
                 .input("Email", sql.NVarChar(100), email)
                 .input("DiaChi", sql.NVarChar(255), address || null)
+                .input("Truong", sql.NVarChar(150), school || null)
                 .input("GhiChu", sql.NVarChar(255), note || null)
                 .query(`
                     INSERT INTO dbo.SinhVien
                         (MaSinhVien, HoTen, NgaySinh, GioiTinh, SoDienThoai, Email, DiaChi,
-                         TrangThaiSinhVien, GhiChu)
+                         TrangThaiSinhVien, Truong, GhiChu)
                     VALUES
                         (@MaSinhVien, @HoTen, @NgaySinh, @GioiTinh, @SoDienThoai, @Email, @DiaChi,
-                         NULL, @GhiChu)
+                         NULL, @Truong, @GhiChu)
                 `);
 
             const activeContract = await new sql.Request(transaction)
@@ -1585,7 +1636,7 @@ function registerApiRoutes(app, {
     });
 
     app.put("/api/sinhvien/:mssv", async (req, res) => {
-        if (!isValidId(req.params.mssv, 30)) return respondRequestError(res, 400, "Mã sinh viên trên URL không hợp lệ.");
+        if (!isValidId(req.params.mssv, 30)) return respondRequestError(res, 400, "Số CCCD/Hộ chiếu trên URL không hợp lệ.");
         if (!isObjectBody(req.body)) return respondRequestError(res, 400, "Request body phải là một đối tượng JSON.");
         const body = req.body;
         const studentId = stringValue(bodyValue(body, "mssv", "MaSinhVien"));
@@ -1596,6 +1647,7 @@ function registerApiRoutes(app, {
         const emailValue = bodyValue(body, "email", "Email");
         const email = stringValue(emailValue).toLowerCase();
         const address = stringValue(bodyValue(body, "diaChi", "DiaChi"));
+        const school = bodyValue(body, "truong", "Truong");
         const room = stringValue(bodyValue(body, "tenPhong", "room", "TenPhong"));
         const status = normalizeStudentStatus(bodyValue(body, "trangThaiSinhVien", "status", "TrangThaiSinhVien"));
         const note = stringValue(bodyValue(body, "ghiChu", "note", "GhiChu"));
@@ -1608,6 +1660,7 @@ function registerApiRoutes(app, {
             birthday,
             address: bodyValue(body, "diaChi", "DiaChi"),
             note: bodyValue(body, "ghiChu", "note", "GhiChu"),
+            school,
             room,
             status
         });
@@ -1666,12 +1719,13 @@ function registerApiRoutes(app, {
                 .input("SoDienThoai", sql.Char(10), phone)
                 .input("Email", sql.NVarChar(100), email)
                 .input("DiaChi", sql.NVarChar(255), address || null)
+                .input("Truong", sql.NVarChar(150), school || null)
                 .input("GhiChu", sql.NVarChar(255), note || null)
                 .query(`
                     UPDATE dbo.SinhVien
                     SET MaSinhVien = @MaSinhVien, HoTen = @HoTen, NgaySinh = @NgaySinh,
                         GioiTinh = @GioiTinh, SoDienThoai = @SoDienThoai, Email = @Email,
-                        DiaChi = @DiaChi, GhiChu = @GhiChu
+                        DiaChi = @DiaChi, Truong = @Truong, GhiChu = @GhiChu
                     WHERE MaSinhVien = @MaSinhVienCu
                 `);
             if (!profile.rowsAffected[0]) {
@@ -1682,8 +1736,8 @@ function registerApiRoutes(app, {
                 actorId: req.auth?.accountId,
                 action: "Cập nhật hồ sơ sinh viên",
                 entity: "SinhVien",
-                entityId: studentId,
-                detail: `Cập nhật hồ sơ và trạng thái lưu trú cho ${studentId}.`
+                entityId: maskStudentIdForLog(studentId),
+                detail: maskStudentIdsInLog(`Cập nhật hồ sơ và trạng thái lưu trú cho ${studentId}.`, [studentId])
             });
 
             if (status === "Đang ở") {
@@ -2054,7 +2108,10 @@ function registerApiRoutes(app, {
             await new sql.Request(transaction)
                 .input("HanhDong", sql.NVarChar(50), "Đổi đại diện")
                 .input("MaHopDong", sql.NVarChar(20), req.params.id)
-                .input("ChiTiet", sql.NVarChar(500), `Đặt sinh viên ${target.recordset[0].MaSinhVien} làm đại diện thanh toán dịch vụ.`)
+                .input("ChiTiet", sql.NVarChar(500), maskStudentIdsInLog(
+                    `Đặt sinh viên ${target.recordset[0].MaSinhVien} làm đại diện thanh toán dịch vụ.`,
+                    [target.recordset[0].MaSinhVien]
+                ))
                 .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
                 .execute("dbo.sp_GhiNhatKyHopDong");
             await transaction.commit();
@@ -2358,4 +2415,4 @@ function registerApiRoutes(app, {
     };
 }
 
-module.exports = registerApiRoutes;
+module.exports = Object.assign(registerApiRoutes, { validateStudentInput });

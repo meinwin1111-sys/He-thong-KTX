@@ -139,7 +139,7 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
 <!-- MSSV -->
 <div>
     <label class="font-semibold text-slate-900">
-    Mã sinh viên <span class="text-red-500">*</span>
+    Số CCCD <span class="text-red-500">*</span>
 </label>
 
 
@@ -147,7 +147,7 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
     <input id="mssvInput"
     oninput="handleMSSVInput()"
     class="w-full border rounded-lg px-4 py-2 mt-2"
-    placeholder="Nhập MSSV">
+    placeholder="Nhập Số CCCD">
 </div>
 
 
@@ -250,7 +250,7 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
 
 
     <div>
-        <label class="text-sm font-semibold text-slate-900">Mã sinh viên</label>
+        <label class="text-sm font-semibold text-slate-900">Số CCCD</label>
         <input id="extendMSSV" disabled class="w-full border rounded-lg px-4 py-2 bg-slate-50">
     </div>
 
@@ -435,7 +435,7 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
                 <tr>
                     <th class="px-6 py-3 text-left">MÃ LS</th>
                     <th class="px-6 py-3 text-left">MÃ HD</th>
-                    <th class="px-6 py-3 text-left">MSSV</th>
+                    <th class="px-6 py-3 text-left">Số CCCD</th>
                     <th class="px-6 py-3 text-left">TÊN SV</th>
                     <th class="px-6 py-3 text-left">PHÒNG</th>
                     <th class="px-6 py-3 text-left">NGÀY BD</th>
@@ -728,7 +728,7 @@ function renderHeader(type) {
         head.innerHTML = `
         <tr>
             <th class="px-6 py-3 text-left">MÃ HD</th>
-            <th class="px-6 py-3 text-left">MSSV</th>
+            <th class="px-6 py-3 text-left">Số CCCD</th>
             <th class="px-6 py-3 text-left">HỌ TÊN SV</th>
             <th class="px-6 py-3 text-left">TÊN PHÒNG</th>
             <th class="px-6 py-3 text-left">NGÀY BẮT ĐẦU</th>
@@ -746,7 +746,7 @@ function renderHeader(type) {
         head.innerHTML = `
         <tr>
             <th class="px-6 py-3 text-left">MÃ HD</th>
-            <th class="px-6 py-3 text-left">MSSV</th>
+            <th class="px-6 py-3 text-left">Số CCCD</th>
             <th class="px-6 py-3 text-left">HỌ TÊN SV</th>
             <th class="px-6 py-3 text-left">TÊN PHÒNG</th>
             <th class="px-6 py-3 text-left">NGÀY BẮT ĐẦU</th>
@@ -792,7 +792,7 @@ function renderTableWarning() {
 
 
             <td class="px-6 py-4 font-semibold whitespace-nowrap">${h.MaHD}</td>
-            <td class="px-6 py-4 whitespace-nowrap">${h.MSSV}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${window.AdminWorkflowUtils.maskStudentId(h.MSSV)}</td>
             <td class="px-6 py-4 truncate" title="${h.TenSV}">${h.TenSV}</td>
             <td class="px-6 py-4 whitespace-nowrap">${h.TenPhong}</td>
             <td class="px-6 py-4 whitespace-nowrap">${formatDate(h.NgayBatDau)}</td>
@@ -873,7 +873,7 @@ function renderHopDongTable() {
             <td class="px-6 py-4 font-semibold whitespace-nowrap">${h.MaHD}</td>
 
 
-            <td class="px-6 py-4 whitespace-nowrap">${h.MSSV}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${window.AdminWorkflowUtils.maskStudentId(h.MSSV)}</td>
 
 
             <td class="px-6 py-4 truncate" title="${h.TenSV}">
@@ -1430,7 +1430,7 @@ function renderHistoryTable() {
 
             <td class="px-6 py-4 font-semibold whitespace-nowrap">${h.MaLS}</td>
             <td class="px-6 py-4 whitespace-nowrap">${h.MaHopDong}</td>
-            <td class="px-6 py-4 whitespace-nowrap">${h.MaSinhVien}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${window.AdminWorkflowUtils.maskStudentId(h.MaSinhVien)}</td>
             <td class="px-6 py-4">${h.HoTen}</td>
             <td class="px-6 py-4 whitespace-nowrap">${h.TenPhong}</td>
             <td class="px-6 py-4 whitespace-nowrap">${formatDate(h.NgayBatDau)}</td>

@@ -187,7 +187,7 @@ async function showRoomDetail(roomName) {
 
                     return `
                     <tr class="hover:bg-slate-50 border-b border-slate-200 last:border-0">
-                        <td class="p-3 pl-4 text-slate-500 text-sm">${sv.MaSinhVien || sv.MSSV}</td>
+                        <td class="p-3 pl-4 text-slate-500 text-sm">${window.AdminWorkflowUtils.maskStudentId(sv.MaSinhVien || sv.MSSV)}</td>
                         <td class="p-3 text-slate-900 text-sm font-semibold">${sv.HoTen || sv.TenSV}</td>
                         <td class="p-3 text-slate-500 text-sm">${sv.SoDienThoai || 'N/A'}</td>
                         <td class="p-3 pl-4">
@@ -830,7 +830,7 @@ const PhongHTML = `
                     <table class="w-full text-[11px]">
                         <thead class="bg-slate-50 sticky top-0">
                             <tr class="text-left text-slate-500">
-                                <th class="p-3 pl-4">MSSV</th>
+                                <th class="p-3 pl-4">Số CCCD</th>
                                 <th class="p-3">Họ tên</th>
                                 <th class="p-3">SDT</th>
                                 <th class="p-3">Hợp đồng</th>
