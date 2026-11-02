@@ -8270,5 +8270,7 @@ END;
 GO
 -- END INLINE: db/migrations/024_invoice_reminder_reference.sql
 GO
-PRINT N'KTX_Group3 schema, migrations 001-024, master data, and DNKTX permissions are ready.'
+:r db/migrations/025_contract_gender_errors.sql
+GO
+PRINT N'KTX_Group3 schema, migrations 001-025, master data, and DNKTX permissions are ready.'
 GO

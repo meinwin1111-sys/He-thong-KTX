@@ -193,6 +193,31 @@ test("Contract room selection routes active rooms to member-add and new rooms to
     ]);
 });
 
+test("Room labels preserve nonstandard gender values and gender filters match exactly", () => {
+    const rooms = [
+        { TenPhong: "A103", LoaiPhong: "Nữ", SoSinhVienHienTai: 0, SucChuaToiDa: 4 },
+        { TenPhong: "A101", LoaiPhong: "Nam", SoSinhVienHienTai: 2, SucChuaToiDa: 4 },
+        { TenPhong: "X1", LoaiPhong: "Khác", SucChuaToiDa: 3 }
+    ];
+    assert.equal(utils.roomLabel(rooms[0]), "A103 · Nữ · 0/4");
+    assert.equal(utils.roomLabel(rooms[1]), "A101 · Nam · 2/4");
+    assert.equal(utils.roomLabel(rooms[2]), "X1 · Khác · 0/3");
+    assert.equal(utils.roomGender({ TenPhong: "X2", LoaiPhong: null }), "Chưa xác định");
+    assert.deepEqual(utils.filterRoomsByGender(rooms, "Nữ").map(room => room.TenPhong), ["A103"]);
+    assert.deepEqual(utils.filterStudentsByRoomGender([
+        { MaSinhVien: "SV1", GioiTinh: "Nữ" }, { MaSinhVien: "SV2", GioiTinh: "Nam" }
+    ], rooms[0]).map(student => student.MaSinhVien), ["SV1"]);
+});
+
+test("Admin contract and move-room forms apply room gender and tier filters", () => {
+    const source = fs.readFileSync(path.join(__dirname, "AdminWorkflows.js"), "utf8");
+    assert.match(source, /updateCreateRoomOptions\(form\)/);
+    assert.match(source, /updateCreateStudentOptions\(form, event\.target\.value\)/);
+    assert.match(source, /gender: student\?\.GioiTinh \|\| currentRoom\?\.LoaiPhong/);
+    assert.match(source, /tier: contract\?\.MaHangPhong \|\| currentRoom\?\.MaHangPhong/);
+    assert.match(source, /Không có phòng \$\{esc\(gender\)\} còn chỗ/);
+});
+
 test("Admin display labels translate persisted payment and workflow codes without changing values", () => {
     assert.equal(utils.displayLabel("CASH"), "Tiền mặt");
     assert.equal(utils.displayLabel("ONLINE"), "Chuyển khoản (QR)");

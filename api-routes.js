@@ -136,7 +136,11 @@ const CONTRACT_PROCEDURE_ERRORS = Object.freeze({
     51451: [409, "Số thành viên đang ở vượt sức chứa phòng."],
     51454: [409, "Phòng đã có hợp đồng hiệu lực; hãy thêm thành viên vào hợp đồng hiện có."],
     51456: [409, "Không thể đổi phòng trực tiếp; hãy dùng nghiệp vụ chuyển phòng."],
-    51457: [409, "Không thể đổi hạng snapshot của hợp đồng đã tạo."]
+    51457: [409, "Không thể đổi hạng snapshot của hợp đồng đã tạo."],
+    51458: [404, "Không tìm thấy sinh viên."],
+    51459: [409, "Giới tính sinh viên không phù hợp với phòng."],
+    51460: [409, "Sinh viên đang ở tại phòng hoặc hợp đồng khác."],
+    51461: [409, "Phòng đã đủ sức chứa."]
 });
 
 function getSqlErrorNumber(error) {

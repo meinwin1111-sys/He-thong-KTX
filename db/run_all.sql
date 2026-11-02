@@ -101,5 +101,9 @@ PRINT N'=== Migration 024 ==='
 GO
 :r db/migrations/024_invoice_reminder_reference.sql
 GO
+PRINT N'=== Migration 025 ==='
+GO
+:r db/migrations/025_contract_gender_errors.sql
+GO
 PRINT N'=== Hết run_all (master seed chạy riêng: db/seed/run_master.sql) ==='
 GO

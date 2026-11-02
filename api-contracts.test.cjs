@@ -4,6 +4,9 @@ const crypto = require("node:crypto");
 const express = require("express");
 const sql = require("mssql");
 const registerApiRoutes = require("./api-routes");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const { createLoginHandler, createRegistrationHandler } = require("./student-auth");
 
 function fakeApi({ queryResult, executeError, executeResult } = {}) {
     const routes = new Map();
@@ -449,14 +452,18 @@ test("missing versus inactive contract/member procedure errors are probed from t
     }
 });
 
-test("capacity, gender, existing-room and ended-contract conflicts are surfaced as clear HTTP conflicts", async () => {
-    for (const [number, route, method, params, body, expectedMessage] of [
-        [51434, "/api/HopDong/:id/chitiet", "post", { id: "HD1" },
-            { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, /đủ sức chứa/],
-        [51435, "/api/HopDong/:id/chitiet", "post", { id: "HD1" },
-            { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, /sai giới tính|hợp đồng hiệu lực/],
+test("contract membership failures use distinct SQL error mappings", async () => {
+    for (const [number, route, method, params, body, expectedStatus, expectedMessage] of [
+        [51461, "/api/HopDong/:id/chitiet", "post", { id: "HD1" },
+            { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, 409, /^Phòng đã đủ sức chứa\.$/],
+        [51459, "/api/HopDong/:id/chitiet", "post", { id: "HD1" },
+            { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, 409, /^Giới tính sinh viên không phù hợp với phòng\.$/],
+        [51460, "/api/HopDong/:id/chitiet", "post", { id: "HD1" },
+            { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, 409, /^Sinh viên đang ở tại phòng hoặc hợp đồng khác\.$/],
+        [51458, "/api/HopDong/:id/chitiet", "post", { id: "HD1" },
+            { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, 404, /^Không tìm thấy sinh viên\.$/],
         [51432, "/api/HopDong/:id/chitiet", "post", { id: "HD1" },
-            { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, /không còn hiệu lực/]
+            { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, 409, /không còn hiệu lực/]
     ]) {
         const harness = fakeApi({
             queryResult: call => call.statement.includes("SELECT 1 AS TonTai")
@@ -465,7 +472,7 @@ test("capacity, gender, existing-room and ended-contract conflicts are surfaced 
             executeError: () => Object.assign(new Error("procedure error"), { number })
         });
         const result = await invoke(harness, method, route, { params, body });
-        assert.equal(result.statusCode, 409, String(number));
+        assert.equal(result.statusCode, expectedStatus, String(number));
         assert.match(result.body.message, expectedMessage);
     }
     const invalid = await invoke(fakeApi(), "post", "/api/HopDong/:id/chitiet", {
@@ -1180,6 +1187,337 @@ test("real SQL Server concurrency: two HTTP membership requests compete for one 
                         .query("DELETE FROM dbo.HangPhong WHERE MaHangPhong = @MaHangPhong");
                     await new sql.Request(cleanup)
                         .input("ManagerId", sql.Int, fixture.managerId)
+                        .query("DELETE FROM dbo.TaiKhoan WHERE MaTaiKhoan = @ManagerId");
+                }
+                await cleanup.commit();
+            } catch (error) {
+                await cleanup.rollback();
+                throw error;
+            }
+            await pool.close();
+        }
+    }
+});
+
+test("real SQL registration, login, room-gender contracts and wrong-gender rejection work end to end", {
+    skip: process.env.DB_NAME !== "KTX_Group3_test"
+        ? "Only runs when DB_NAME is explicitly set to KTX_Group3_test."
+        : false
+}, async t => {
+    require("dotenv").config({ path: require("node:path").join(__dirname, ".env") });
+    assert.equal(process.env.DB_NAME, "KTX_Group3_test");
+    if (!process.env.DB_SERVER || !process.env.DB_USER || !process.env.DB_PASSWORD) {
+        throw new Error("Thiếu cấu hình kết nối SQL Server; không thể chạy kiểm thử đăng ký thật.");
+    }
+    const pool = await new sql.ConnectionPool({
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        server: process.env.DB_SERVER,
+        port: Number(process.env.DB_PORT) || undefined,
+        database: process.env.DB_NAME,
+        options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true, useUTC: true }
+    }).connect();
+    let server;
+    let fixture;
+    const contractIds = [];
+    const registrationInputs = [];
+    try {
+        const identity = await pool.request().query("SELECT DB_NAME() AS DatabaseName");
+        assert.equal(identity.recordset[0].DatabaseName, "KTX_Group3_test");
+        fixture = await createSqlIntegrationFixture(pool, sql, {
+            roomMemberCount: 0,
+            createOtherRoomStudent: false
+        });
+        await pool.request().input("TenPhong", sql.NVarChar(50), fixture.roomB)
+            .query("UPDATE dbo.Phong SET LoaiPhong = N'Nữ' WHERE TenPhong = @TenPhong");
+        const genders = ["Nam", "Nam", "Nữ", "Nữ"];
+        const suffix = fixture.tierId.slice(-8);
+        for (let index = 0; index < genders.length; index++) {
+            const studentId = `E2E${suffix}${index + 1}`;
+            const phoneDigits = fixture.tierId.replace(/\D/g, "").slice(-7).padStart(7, "0");
+            const phone = `09${[3, 5, 7, 8][index]}${phoneDigits}`;
+            const email = `${studentId.toLowerCase()}@gmail.com`;
+            registrationInputs.push({ studentId, phone, email, gender: genders[index] });
+        }
+
+        const app = express();
+        app.use(express.json());
+        app.use((req, _res, next) => {
+            req.auth = { accountId: fixture.managerId, role: "Quản lý" };
+            next();
+        });
+        app.post("/api/student/register", createRegistrationHandler({
+            getPool: () => pool, sql, bcrypt,
+            logDatabaseError: (operation, error) => console.error(operation, error.number || error.code)
+        }));
+        app.post("/api/login", createLoginHandler({
+            getPool: () => pool, sql, bcrypt, jwt,
+            getSecret: () => "e2e-test-only-signing-secret",
+            getExpiresIn: () => "15m",
+            logDatabaseError: (operation, error) => console.error(operation, error.number || error.code)
+        }));
+        registerApiRoutes(app, {
+            getPool: () => pool, sql, bcrypt,
+            mapPaymentStatusToDatabase: value => value,
+            mapPaymentMethodToDatabase: value => value,
+            rollback: async transaction => transaction.rollback()
+        });
+        await new Promise((resolve, reject) => {
+            server = app.listen(0, "127.0.0.1", resolve);
+            server.once("error", reject);
+        });
+        const baseUrl = `http://127.0.0.1:${server.address().port}`;
+        for (let index = 0; index < registrationInputs.length; index++) {
+            const student = registrationInputs[index];
+            const response = await fetch(`${baseUrl}/api/student/register`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    MaSinhVien: student.studentId,
+                    HoTen: `E2E ${student.studentId}`,
+                    NgaySinh: "2005-01-01",
+                    GioiTinh: student.gender,
+                    SoDienThoai: student.phone,
+                    Email: student.email,
+                    DiaChi: "Ký túc xá E2E",
+                    Truong: "Trường E2E",
+                    Lop: "E2E01",
+                    MatKhau: "e2e-valid-password"
+                })
+            });
+            const result = await response.json();
+            assert.equal(response.status, 201, JSON.stringify(result));
+        }
+
+        const firstStudent = registrationInputs[0];
+        const loginResponse = await fetch(`${baseUrl}/api/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ Email: firstStudent.email, MatKhau: "e2e-valid-password" })
+        });
+        const login = await loginResponse.json();
+        assert.equal(loginResponse.status, 200, JSON.stringify(login));
+        assert.equal(jwt.verify(login.token, "e2e-test-only-signing-secret").studentId, firstStudent.studentId);
+
+        const startDate = new Date().toISOString().slice(0, 10);
+        const endDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const createContract = async (room, students) => {
+            const response = await fetch(`${baseUrl}/api/HopDong`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    tenPhong: room, maHangPhong: fixture.tierId,
+                    ngayBatDau: startDate, ngayKetThuc: endDate,
+                    sinhVien: students.map(student => ({
+                        maSinhVien: student.studentId, kyHanThanhToanPhong: "THANG"
+                    }))
+                })
+            });
+            return { status: response.status, body: await response.json() };
+        };
+        const wrongGender = await createContract(fixture.roomA, [registrationInputs[2]]);
+        assert.equal(wrongGender.status, 409);
+        assert.equal(wrongGender.body.message, "Giới tính sinh viên không phù hợp với phòng.");
+        const maleContract = await createContract(fixture.roomA, registrationInputs.slice(0, 2));
+        assert.equal(maleContract.status, 201, JSON.stringify(maleContract.body));
+        contractIds.push(maleContract.body.MaHopDong);
+        const femaleContract = await createContract(fixture.roomB, registrationInputs.slice(2));
+        assert.equal(femaleContract.status, 201, JSON.stringify(femaleContract.body));
+        contractIds.push(femaleContract.body.MaHopDong);
+        t.diagnostic(`Registered 4 students through HTTP (2 Nam, 2 Nữ); login token scoped to ${firstStudent.studentId}; two matching-gender room contracts created; wrong-gender HTTP response=${wrongGender.status}/${wrongGender.body.message}.`);
+    } finally {
+        if (server) await new Promise(resolve => server.close(resolve));
+        if (pool.connected) {
+            const cleanup = new sql.Transaction(pool);
+            await cleanup.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            try {
+                for (const contractId of contractIds) {
+                    await new sql.Request(cleanup).input("MaHopDong", sql.NVarChar(20), contractId)
+                        .query("DELETE FROM dbo.ChiTietHopDong WHERE MaHopDong = @MaHopDong");
+                    await new sql.Request(cleanup).input("MaHopDong", sql.NVarChar(20), contractId)
+                        .query("DELETE FROM dbo.HopDong WHERE MaHopDong = @MaHopDong");
+                    await new sql.Request(cleanup).input("MaDoiTuong", sql.NVarChar(60), contractId)
+                        .query("DELETE FROM dbo.NhatKyHeThong WHERE MaDoiTuong = @MaDoiTuong");
+                }
+                if (fixture) {
+                    await new sql.Request(cleanup).input("ManagerId", sql.Int, fixture.managerId)
+                        .query("DELETE FROM dbo.NhatKyHeThong WHERE MaTaiKhoan = @ManagerId");
+                    for (const student of registrationInputs) {
+                        await new sql.Request(cleanup).input("MaSinhVien", sql.NVarChar(30), student.studentId)
+                            .query("DELETE FROM dbo.TaiKhoan WHERE MaSinhVien = @MaSinhVien");
+                        await new sql.Request(cleanup).input("MaSinhVien", sql.NVarChar(30), student.studentId)
+                            .query("DELETE FROM dbo.SinhVien WHERE MaSinhVien = @MaSinhVien");
+                    }
+                    for (const roomName of [fixture.roomA, fixture.roomB]) {
+                        await new sql.Request(cleanup).input("TenPhong", sql.NVarChar(50), roomName)
+                            .query("DELETE FROM dbo.Phong WHERE TenPhong = @TenPhong");
+                    }
+                    await new sql.Request(cleanup)
+                        .input("MaHangPhong", sql.NVarChar(20), fixture.tierId)
+                        .input("MaDichVu", sql.NVarChar(20), fixture.serviceId)
+                        .query("DELETE FROM dbo.HangPhong_DichVu WHERE MaHangPhong = @MaHangPhong AND MaDichVu = @MaDichVu");
+                    await new sql.Request(cleanup).input("MaDichVu", sql.NVarChar(20), fixture.serviceId)
+                        .query("DELETE FROM dbo.DichVu WHERE MaDichVu = @MaDichVu");
+                    await new sql.Request(cleanup).input("MaHangPhong", sql.NVarChar(20), fixture.tierId)
+                        .query("DELETE FROM dbo.HangPhong WHERE MaHangPhong = @MaHangPhong");
+                    await new sql.Request(cleanup).input("ManagerId", sql.Int, fixture.managerId)
+                        .query("DELETE FROM dbo.TaiKhoan WHERE MaTaiKhoan = @ManagerId");
+                }
+                await cleanup.commit();
+            } catch (error) {
+                await cleanup.rollback();
+                throw error;
+            }
+            await pool.close();
+        }
+    }
+});
+
+test("real SQL Server contract APIs distinguish missing, wrong-gender, occupied, and full-room cases", {
+    skip: process.env.DB_NAME !== "KTX_Group3_test"
+        ? "Only runs when DB_NAME is explicitly set to KTX_Group3_test."
+        : false
+}, async t => {
+    require("dotenv").config({ path: require("node:path").join(__dirname, ".env") });
+    assert.equal(process.env.DB_NAME, "KTX_Group3_test");
+    if (!process.env.DB_SERVER || !process.env.DB_USER || !process.env.DB_PASSWORD) {
+        throw new Error("Thiếu cấu hình kết nối SQL Server; không thể chạy kiểm thử giới tính phòng thật.");
+    }
+    const pool = await new sql.ConnectionPool({
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        server: process.env.DB_SERVER,
+        port: Number(process.env.DB_PORT) || undefined,
+        database: process.env.DB_NAME,
+        options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true, useUTC: true }
+    }).connect();
+    let server;
+    let fixture;
+    let roomC;
+    const studentIds = [];
+    let contractId;
+    try {
+        const identity = await pool.request().query("SELECT DB_NAME() AS DatabaseName");
+        assert.equal(identity.recordset[0].DatabaseName, "KTX_Group3_test");
+        fixture = await createSqlIntegrationFixture(pool, sql, {
+            roomMemberCount: 4,
+            createOtherRoomStudent: false
+        });
+        studentIds.push(...fixture.studentIds);
+        const femaleStudent = `${fixture.studentIds[0]}F`;
+        const overflowStudent = `${fixture.studentIds[0]}O`;
+        studentIds.push(femaleStudent, overflowStudent);
+        roomC = `${fixture.roomA}-C`;
+        await pool.request().input("TenPhong", sql.NVarChar(50), fixture.roomB)
+            .query("UPDATE dbo.Phong SET LoaiPhong = N'Nữ' WHERE TenPhong = @TenPhong");
+        await pool.request().input("TenPhong", sql.NVarChar(50), roomC)
+            .input("MaHangPhong", sql.NVarChar(20), fixture.tierId)
+            .query(`
+                INSERT INTO dbo.Phong
+                    (TenPhong, Khu, LoaiPhong, SucChuaToiDa, MaHangPhong,
+                     SoSinhVienHienTai, TrangThaiPhong, GhiChu)
+                VALUES (@TenPhong, N'C', N'Nam', 4, @MaHangPhong, 0, N'Trống', N'B5 gender E2E fixture')
+            `);
+        await pool.request()
+            .input("FemaleId", sql.NVarChar(30), femaleStudent)
+            .input("OverflowId", sql.NVarChar(30), overflowStudent)
+            .query(`
+                INSERT INTO dbo.SinhVien (MaSinhVien, HoTen, GioiTinh, TrangThaiSinhVien)
+                VALUES (@FemaleId, @FemaleId, N'Nữ', NULL), (@OverflowId, @OverflowId, N'Nam', NULL)
+            `);
+
+        const app = express();
+        app.use(express.json());
+        app.use((req, _res, next) => {
+            req.auth = { accountId: fixture.managerId, role: "Quản lý" };
+            next();
+        });
+        registerApiRoutes(app, {
+            getPool: () => pool, sql, bcrypt: require("bcryptjs"),
+            mapPaymentStatusToDatabase: value => value,
+            mapPaymentMethodToDatabase: value => value,
+            rollback: async transaction => transaction.rollback()
+        });
+        await new Promise((resolve, reject) => {
+            server = app.listen(0, "127.0.0.1", resolve);
+            server.once("error", reject);
+        });
+        const baseUrl = `http://127.0.0.1:${server.address().port}`;
+        const startDate = new Date().toISOString().slice(0, 10);
+        const endDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const createContract = async (room, students) => {
+            const response = await fetch(`${baseUrl}/api/HopDong`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    tenPhong: room, maHangPhong: fixture.tierId,
+                    ngayBatDau: startDate, ngayKetThuc: endDate,
+                    sinhVien: students.map(maSinhVien => ({
+                        maSinhVien, kyHanThanhToanPhong: "THANG"
+                    }))
+                })
+            });
+            return { status: response.status, body: await response.json() };
+        };
+        const missing = await createContract(fixture.roomA, ["NO_SUCH_STUDENT"]);
+        assert.equal(missing.status, 404);
+        assert.equal(missing.body.message, "Không tìm thấy sinh viên.");
+        const wrongGender = await createContract(fixture.roomA, [femaleStudent]);
+        assert.equal(wrongGender.status, 409);
+        assert.equal(wrongGender.body.message, "Giới tính sinh viên không phù hợp với phòng.");
+
+        const created = await createContract(fixture.roomA, fixture.studentIds);
+        assert.equal(created.status, 201, JSON.stringify(created.body));
+        contractId = created.body.MaHopDong;
+        const full = await fetch(`${baseUrl}/api/HopDong/${encodeURIComponent(contractId)}/chitiet`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ maSinhVien: overflowStudent, kyHanThanhToanPhong: "THANG" })
+        });
+        const fullBody = await full.json();
+        assert.equal(full.status, 409);
+        assert.equal(fullBody.message, "Phòng đã đủ sức chứa.");
+
+        const occupiedElsewhere = await createContract(roomC, [fixture.studentIds[0]]);
+        assert.equal(occupiedElsewhere.status, 409);
+        assert.equal(occupiedElsewhere.body.message, "Sinh viên đang ở tại phòng hoặc hợp đồng khác.");
+        t.diagnostic(`SQL-backed HTTP results: missing=${missing.status}/${missing.body.message}; wrong-gender=${wrongGender.status}/${wrongGender.body.message}; full=${full.status}/${fullBody.message}; occupied=${occupiedElsewhere.status}/${occupiedElsewhere.body.message}`);
+    } finally {
+        if (server) await new Promise(resolve => server.close(resolve));
+        if (pool.connected) {
+            const cleanup = new sql.Transaction(pool);
+            await cleanup.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            try {
+                if (contractId) {
+                    await new sql.Request(cleanup).input("MaHopDong", sql.NVarChar(20), contractId)
+                        .query("DELETE FROM dbo.ChiTietHopDong WHERE MaHopDong = @MaHopDong");
+                    await new sql.Request(cleanup).input("MaHopDong", sql.NVarChar(20), contractId)
+                        .query("DELETE FROM dbo.HopDong WHERE MaHopDong = @MaHopDong");
+                    await new sql.Request(cleanup).input("MaDoiTuong", sql.NVarChar(60), contractId)
+                        .query("DELETE FROM dbo.NhatKyHeThong WHERE MaDoiTuong = @MaDoiTuong");
+                }
+                if (fixture) {
+                    await new sql.Request(cleanup).input("ManagerId", sql.Int, fixture.managerId)
+                        .query("DELETE FROM dbo.NhatKyHeThong WHERE MaTaiKhoan = @ManagerId");
+                }
+                for (const studentId of studentIds) {
+                    await new sql.Request(cleanup).input("MaSinhVien", sql.NVarChar(30), studentId)
+                        .query("DELETE FROM dbo.SinhVien WHERE MaSinhVien = @MaSinhVien");
+                }
+                if (fixture) {
+                    for (const roomName of [fixture.roomA, fixture.roomB, roomC].filter(Boolean)) {
+                        await new sql.Request(cleanup).input("TenPhong", sql.NVarChar(50), roomName)
+                            .query("DELETE FROM dbo.Phong WHERE TenPhong = @TenPhong");
+                    }
+                    await new sql.Request(cleanup)
+                        .input("MaHangPhong", sql.NVarChar(20), fixture.tierId)
+                        .input("MaDichVu", sql.NVarChar(20), fixture.serviceId)
+                        .query("DELETE FROM dbo.HangPhong_DichVu WHERE MaHangPhong = @MaHangPhong AND MaDichVu = @MaDichVu");
+                    await new sql.Request(cleanup).input("MaDichVu", sql.NVarChar(20), fixture.serviceId)
+                        .query("DELETE FROM dbo.DichVu WHERE MaDichVu = @MaDichVu");
+                    await new sql.Request(cleanup).input("MaHangPhong", sql.NVarChar(20), fixture.tierId)
+                        .query("DELETE FROM dbo.HangPhong WHERE MaHangPhong = @MaHangPhong");
+                    await new sql.Request(cleanup).input("ManagerId", sql.Int, fixture.managerId)
                         .query("DELETE FROM dbo.TaiKhoan WHERE MaTaiKhoan = @ManagerId");
                 }
                 await cleanup.commit();

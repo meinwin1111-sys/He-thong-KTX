@@ -83,6 +83,7 @@ BEGIN TRY
         SET @Student = N'T014' + @Suffix + RIGHT(N'00' + CONVERT(nvarchar(2), @i), 2);
         SET @Email = 't014.' + CONVERT(varchar(8), @Suffix) + '.' + CONVERT(varchar(2), @i) + '@example.invalid';
         SET @StudentGender = CASE WHEN @i = @Capacity + 2 THEN @OppositeGender ELSE @Gender END;
+        PRINT N'[014 verify] student=' + @Student + N'; gender=' + COALESCE(@StudentGender, N'<NULL>');
         INSERT INTO @Students (RowNum, MaSinhVien, GioiTinh)
         VALUES (@i, @Student, @StudentGender);
 
@@ -118,6 +119,8 @@ BEGIN TRY
         @SinhVienJson = @MemberJson,
         @GhiChu = N'Kiểm thử migration 014',
         @MaHopDong = @Contract;
+    SELECT MaHopDong, TenPhong, MaHangPhong, TrangThaiHopDong
+    FROM dbo.HopDong WHERE MaHopDong = @Contract;
 
     IF (SELECT COUNT(*) FROM dbo.ChiTietHopDong WHERE MaHopDong = @Contract AND TrangThai = N'Đang ở') <> @Capacity
         THROW 51703, N'Không tạo đủ thành viên đúng sức chứa phòng.', 1;
@@ -128,7 +131,7 @@ BEGIN TRY
         THROW 51704, N'Không từ chối thành viên vượt sức chứa.', 1;
     END TRY
     BEGIN CATCH
-        IF ERROR_NUMBER() <> 51434 THROW;
+        IF ERROR_NUMBER() <> 51461 THROW;
     END CATCH;
 
     SELECT @WrongGenderStudent = MaSinhVien FROM @Students WHERE RowNum = @Capacity + 2;
@@ -137,7 +140,7 @@ BEGIN TRY
         THROW 51705, N'Không từ chối sinh viên sai giới tính phòng.', 1;
     END TRY
     BEGIN CATCH
-        IF ERROR_NUMBER() <> 51435 THROW;
+        IF ERROR_NUMBER() <> 51459 THROW;
     END CATCH;
 
     SELECT @Student = MaSinhVien FROM @Students WHERE RowNum = 1;
@@ -154,7 +157,7 @@ BEGIN TRY
         THROW 51706, N'Không từ chối sinh viên đã thuộc hợp đồng hiệu lực khác.', 1;
     END TRY
     BEGIN CATCH
-        IF ERROR_NUMBER() <> 51428 THROW;
+        IF ERROR_NUMBER() <> 51460 THROW;
     END CATCH;
 
     SELECT @DetailId = MaChiTiet

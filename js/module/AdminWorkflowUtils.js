@@ -371,6 +371,29 @@
         return rooms.find(room => room.TenPhong === roomName)?.MaHangPhong || "";
     }
 
+    function roomGender(room) {
+        return String(room?.LoaiPhong ?? "").trim() || "Chưa xác định";
+    }
+
+    function roomLabel(room, occupants = room?.SoSinhVienHienTai) {
+        const current = Number.isFinite(Number(occupants)) ? Number(occupants) : 0;
+        const capacity = Number.isFinite(Number(room?.SucChuaToiDa))
+            ? Number(room.SucChuaToiDa) : "—";
+        return `${String(room?.TenPhong || "—")} · ${roomGender(room)} · ${current}/${capacity}`;
+    }
+
+    function filterRoomsByGender(rooms, gender) {
+        const expected = String(gender ?? "").trim();
+        return (rooms || []).filter(room => !expected || String(room?.LoaiPhong ?? "").trim() === expected);
+    }
+
+    function filterStudentsByRoomGender(students, room) {
+        const expected = String(room?.LoaiPhong ?? "").trim();
+        return (students || []).filter(student =>
+            !expected || String(student?.GioiTinh ?? "").trim() === expected
+        );
+    }
+
     function serviceCanBeActive(price) {
         const amount = parseVndNonNegative(price);
         return amount !== null && amount > 0;
@@ -652,6 +675,7 @@
         escapeHtml, parseVnd, parseVndNonNegative, formatVnd, exceedsBalance,
         refundReasonRequired, invoicePersonLabel, amountInWords, date, dateTime, tierForRoom,
         displayLabel, statusClass, statusBadge, filterFinancialRows, isOverdueInvoice, serviceCanBeActive, canChangeRoomTier,
+        roomGender, roomLabel, filterRoomsByGender, filterStudentsByRoomGender,
         contractRoomAvailability, contractRoomSelection, hasTierDraftChanges, sanitizeDateInput, normalizeDateInput,
         validateDateInput, filterRows, paginateRows, groupContractDetails, renderTable, dateField, bindDateInputs,
         listSummary, serviceEditMode

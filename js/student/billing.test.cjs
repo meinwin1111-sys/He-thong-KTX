@@ -219,6 +219,34 @@ test('invalid amount, missing invoice and failed persistence never mark invoice 
     assert.equal(store.read('TEST-A').invoices[0].paid, false);
 });
 
+test('backend payment amount accepts partial VND and rejects invalid or over-balance amounts', () => {
+    const { context } = setup();
+    const parseAmount = context.StudentUI.backendPayments.parseAmount;
+    assert.equal(parseAmount('300', 1000), 300);
+    assert.equal(parseAmount('1000', 1000), 1000);
+    for (const value of ['0', '-1', '1.5', '1e3', '', '1001']) {
+        assert.throws(() => parseAmount(value, 1000), /không vượt số còn nợ/);
+    }
+});
+
+test('backend receipt preview requires a valid receipt and escapes API values', () => {
+    const { context } = setup();
+    const receiptMarkup = context.StudentUI.backendPayments.receiptMarkup;
+    const markup = receiptMarkup({
+        MaPhieuThu: 12,
+        MaHoaDon: '<script>alert(1)</script>',
+        NgayThu: '2026-10-30T10:15:00.000Z',
+        SoTien: 300,
+        PhuongThuc: 'ONLINE',
+        MaThamChieu: 'QR-DEMO:PAY-TEST',
+        TrangThai: 'Hợp lệ'
+    });
+    assert.match(markup, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.doesNotMatch(markup, /<script>/);
+    assert.match(markup, /QR demo/);
+    assert.throws(() => receiptMarkup({ TrangThai: 'Chờ xác nhận' }), /phiếu thu hợp lệ/);
+});
+
 test('existing paid sample invoice/history retained during first initialization', () => {
     const { store } = setup();
     const old = { profile: { code: 'LEGACY', name: 'Legacy Student' }, room: { number: 'B01' },

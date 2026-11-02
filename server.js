@@ -87,6 +87,7 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use("/js", express.static(path.join(__dirname, "js"), { dotfiles: "deny", index: false }));
+app.use("/files", express.static(path.join(__dirname, "files"), { dotfiles: "deny", index: false }));
 const registrationRateLimiter = createIpRateLimiter({
     windowMs: 60 * 60 * 1000,
     max: 5,
