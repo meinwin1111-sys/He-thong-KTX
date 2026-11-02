@@ -49,18 +49,9 @@
     };
     const money = value => value === null || value === undefined || value === "" ? "—" : U.formatVnd(Number(value));
     const display = value => U.displayLabel(value);
-    const badge = value => {
-        const label = display(value);
-        const normalized = label.toLowerCase();
-        const tone = ["chờ xác nhận", "cần đối soát", "còn nợ", "chưa thanh toán", "thanh toán một phần"].includes(normalized)
-            ? "bg-amber-100 text-amber-900"
-            : ["hợp lệ", "đã thanh toán", "thành công", "còn hiệu lực", "đang ở"].includes(normalized)
-                ? "bg-emerald-100 text-emerald-800"
-                : ["đã hủy", "đã kết thúc", "đã rời"].includes(normalized)
-                    ? "bg-slate-100 text-slate-600"
-                    : "bg-slate-100 text-slate-700";
-        return `<span class="admin-status-badge inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${tone}">${esc(label)}</span>`;
-    };
+    const badge = value => U.statusBadge(value);
+    const invoiceStatusBadge = invoice => `${badge(invoice.TrangThaiThanhToan)}${U.isOverdueInvoice(invoice)
+        ? ` ${badge("OVERDUE")}` : ""}`;
     const status = message => {
         const target = root?.querySelector("[data-admin-status]");
         if (target) target.textContent = message || "";
@@ -303,6 +294,11 @@
                 };
             });
     };
+    const roomOccupancy = roomName => state.contracts
+        .filter(contract => contract.TenPhong === roomName && contract.TrangThaiHopDong === "Còn hiệu lực")
+        .reduce((count, contract) => count + activeMembers(contract).length, 0);
+    const availableRoomSpaces = room => Math.max(0,
+        Number(room.SucChuaToiDa || 0) - roomOccupancy(room.TenPhong));
 
     function renderHopDongModule() {
         ensureRoot("Quản lý hợp đồng theo phòng", "Hợp đồng, thành viên, đại diện thanh toán dịch vụ và gợi ý hoàn tiền.");
@@ -311,15 +307,15 @@
                 ${button("Tạo hợp đồng", "contract-create")}
                 ${button("⟳", "contract-refresh", 'aria-label="Làm mới" title="Làm mới"', "bg-slate-700 text-white")}
             </div>
-            <form data-form="contract-filter" class="mb-3 flex flex-wrap items-end gap-2 rounded-xl border bg-white p-3">
+            <form data-form="contract-filter" class="mb-1 flex flex-wrap items-end gap-2 rounded-xl border bg-white p-3">
                 <input name="contractSearch" aria-label="Tìm hợp đồng, phòng, MSSV hoặc tên" placeholder="Tìm hợp đồng, phòng, MSSV hoặc tên"
                     value="${esc(state.contractSearch)}" class="h-10 min-w-56 flex-1 rounded-lg border px-3">
                 ${select("Trạng thái", "status", [{value:"ALL",label:"Tất cả"}, {value:"Còn hiệu lực",label:"Còn hiệu lực"}, {value:"Đã kết thúc",label:"Đã kết thúc"}], state.contractStatus)}
                 ${button("Xóa lọc", "contract-filter-clear", "", "bg-slate-200 text-slate-800")}
             </form>
+            <p data-contract-count class="admin-list-summary text-sm text-slate-600"></p>
             <div data-no-admin-filters data-contract-list class="overflow-x-auto rounded-xl border bg-white"></div>
-            <footer class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2">
-                <span data-contract-count class="text-sm text-slate-600"></span>
+            <footer class="mt-2 flex flex-wrap items-center justify-end gap-2 rounded-lg bg-white px-3 py-2">
                 <div data-contract-pages class="flex items-center gap-2 whitespace-nowrap"></div>
             </footer>`;
         loadContracts().catch(apiError);
@@ -351,8 +347,8 @@
         const count = root.querySelector("[data-contract-count]");
         if (count) {
             const endedCount = state.contracts.filter(contract => contract.TrangThaiHopDong !== "Còn hiệu lực").length;
-            count.textContent = `${U.listSummary("hợp đồng", state.contracts,
-                contract => contract.TrangThaiHopDong === "Còn hiệu lực", "đang hiệu lực")}, đã kết thúc ${endedCount} · ${page.total} phù hợp`;
+            const activeCount = state.contracts.filter(contract => contract.TrangThaiHopDong === "Còn hiệu lực").length;
+            count.textContent = `Tổng: ${state.contracts.length} hợp đồng · ${activeCount} đang hiệu lực · ${endedCount} đã kết thúc · ${page.total} phù hợp`;
         }
         const pages = root.querySelector("[data-contract-pages]");
         if (pages) pages.innerHTML = `${button("Trước", "contract-page", `data-page="${page.page - 1}" ${page.page <= 1 ? "disabled" : ""}`, "bg-slate-100 text-slate-800")}<span>${page.page}/${page.pageCount}</span>${button("Sau", "contract-page", `data-page="${page.page + 1}" ${page.page >= page.pageCount ? "disabled" : ""}`, "bg-slate-100 text-slate-800")}`;
@@ -474,10 +470,10 @@
                 <div><dt class="text-sm text-slate-500">Hóa đơn / phòng</dt><dd>${text(payment.MaHoaDon)} / ${text(payment.TenPhong)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Người nộp</dt><dd>${text(payment.HoTen || payment.MaSinhVien)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Số tiền</dt><dd>${money(payment.SoTien)}</dd></div>
-                <div><dt class="text-sm text-slate-500">Phương thức / trạng thái</dt><dd>${text(display(payment.PhuongThuc))} / ${badge(payment.TrangThai)}</dd></div>
+                <div><dt class="text-sm text-slate-500">Phương thức / trạng thái</dt><dd>${text(payment.ThamChieuPhieuThu?.startsWith("QR-DEMO:") ? "QR demo" : display(payment.PhuongThuc))} / ${badge(payment.TrangThai === "Cần đối soát" ? "Không ghi nhận" : payment.TrangThai)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Thời điểm</dt><dd>${esc(formatDateTime(payment.NgayTao))}</dd></div>
                 <div class="sm:col-span-2"><dt class="text-sm text-slate-500">Lý do</dt><dd class="whitespace-normal">${text(payment.LyDoDoiSoat || payment.LyDoTuChoi)}</dd></div>
-            </dl>${payment.TrangThai === "Cần đối soát" ? `<p class="mt-4 rounded-lg bg-amber-50 p-3">Giao dịch đang chờ đối soát; hiện chưa có chức năng xử lý trên giao diện.</p>` : ""}
+            </dl>
             <div class="mt-5 flex flex-wrap gap-2">${pendingCash ? `${button("Xác nhận", "payment-confirm", `data-transaction="${esc(payment.MaGiaoDich)}"`)} ${button("Từ chối", "payment-reject", `data-transaction="${esc(payment.MaGiaoDich)}"`, "bg-red-700 text-white")}` : ""}
                 ${successful ? `${button("Xem phiếu thu", "receipt-detail", `data-receipt="${esc(payment.MaPhieuThu)}"`)} ${button("In", "receipt-print", `data-receipt="${esc(payment.MaPhieuThu)}"`, "bg-slate-700 text-white")}` : ""}</div>`);
             return;
@@ -497,26 +493,73 @@
     }
     async function openCreateContract() {
         await Promise.all([loadContracts(), loadRoomsAndTiers(), loadStudents()]);
-        const options = state.rooms.filter(room => room.TrangThaiPhong !== "Bảo trì" && room.TrangThaiPhong !== "Ngưng sử dụng"
-            && Number(room.SoSinhVienHienTai || 0) < Number(room.SucChuaToiDa || 0))
-            .map(room => ({ value: room.TenPhong, label: `${room.TenPhong} · ${room.MaHangPhong}` }));
+        const options = U.contractRoomAvailability(state.rooms, state.contracts).map(room => ({
+                value: room.TenPhong,
+                label: `${room.TenPhong} · ${room.currentOccupants}/${Number(room.SucChuaToiDa || 0)}${room.activeContract ? ` · ${room.activeContract.MaHopDong}` : ""}`
+            }));
         const modal = modalShell("Tạo hợp đồng và thêm thành viên", `
             <form id="admin-workflow-form" data-form="contract-create" class="space-y-3">
                 ${select("Phòng", "tenPhong", options, "", true)}
-                <label class="block text-sm font-semibold text-slate-700">Hạng phòng
-                    <input name="maHangPhongDisplay" type="text" readonly placeholder="Tự điền theo phòng"
-                        class="mt-1 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 font-normal">
-                    <input name="maHangPhong" type="hidden" value="">
-                </label>
-                ${field("Ngày bắt đầu", "ngayBatDau", "date", today(), true)}
-                ${field("Ngày kết thúc", "ngayKetThuc", "date", "", true)}
-                <label class="block text-sm font-semibold">Ghi chú<textarea name="ghiChu" maxlength="255" class="mt-1 w-full rounded-lg border p-2"></textarea></label>
+                <input type="hidden" name="activeContractId" value="">
+                <div data-create-contract-fields class="space-y-3">
+                    <label class="block text-sm font-semibold text-slate-700">Hạng phòng
+                        <input name="maHangPhongDisplay" type="text" readonly placeholder="Tự điền theo phòng"
+                            class="mt-1 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 font-normal">
+                        <input name="maHangPhong" type="hidden" value="">
+                    </label>
+                    ${field("Ngày bắt đầu", "ngayBatDau", "date", today(), true)}
+                    ${field("Ngày kết thúc", "ngayKetThuc", "date", "", true)}
+                    <label class="block text-sm font-semibold">Ghi chú<textarea name="ghiChu" maxlength="255" class="mt-1 w-full rounded-lg border p-2"></textarea></label>
+                </div>
                 <div class="flex items-center justify-between"><h4 class="font-bold">Sinh viên</h4>
-                    <button type="button" data-action="add-member-row" class="rounded bg-slate-700 px-3 py-2 text-white">Thêm dòng SV</button></div>
+                    <button type="button" data-action="add-member-row" disabled class="rounded bg-slate-700 px-3 py-2 text-white disabled:opacity-50">Thêm dòng SV</button></div>
+                <p data-contract-capacity class="text-sm text-slate-600" role="status">Chọn phòng để xem số chỗ còn trống.</p>
                 <div data-new-members class="space-y-2"></div>
-            </form>`);
+            </form>`, "Tạo hợp đồng");
         if (!modal) return;
         modal.querySelector("[data-new-members]").innerHTML = memberFormRow();
+    }
+    function updateContractMode(form, roomName) {
+        const selection = U.contractRoomSelection(roomName, state.contracts);
+        const contract = selection.contract;
+        const isAdding = Boolean(contract);
+        form.dataset.activeContract = contract?.MaHopDong || "";
+        form.dataset.availableSeats = String(availableRoomSpaces(
+            state.rooms.find(item => item.TenPhong === roomName) || {}
+        ));
+        form.elements.activeContractId.value = contract?.MaHopDong || "";
+        const createFields = form.querySelector("[data-create-contract-fields]");
+        createFields.hidden = isAdding;
+        createFields.querySelectorAll("input, textarea, select").forEach(input => {
+            input.disabled = isAdding;
+        });
+        if (isAdding) {
+            const rows = form.querySelectorAll(".member-row");
+            rows.forEach((row, index) => { if (index > 0) row.remove(); });
+        }
+        const addRowButton = form.querySelector('[data-action="add-member-row"]');
+        if (addRowButton) addRowButton.hidden = isAdding;
+        const title = root.querySelector("#admin-modal-title");
+        if (title) title.textContent = isAdding
+            ? `Thêm thành viên vào hợp đồng ${contract.MaHopDong}`
+            : "Tạo hợp đồng và thêm thành viên";
+        const submitButton = root.querySelector('button[form="admin-workflow-form"][type="submit"]');
+        if (submitButton) submitButton.textContent = isAdding ? "Thêm sinh viên" : "Tạo hợp đồng";
+        const removeButtons = form.querySelectorAll('[data-action="remove-member-row"]');
+        removeButtons.forEach(button => { button.hidden = isAdding; });
+        updateContractCapacity(form, roomName);
+    }
+    function updateContractCapacity(form, roomName) {
+        const room = state.rooms.find(item => item.TenPhong === roomName);
+        const remaining = room ? availableRoomSpaces(room) : 0;
+        const currentRows = form.querySelectorAll(".member-row").length;
+        form.dataset.availableSeats = String(remaining);
+        const activeContractId = form.dataset.activeContract;
+        form.querySelector("[data-contract-capacity]").textContent = room
+            ? `${activeContractId ? `Thêm thành viên vào hợp đồng ${activeContractId} · ` : ""}Đang ở ${roomOccupancy(room.TenPhong)}/${Number(room.SucChuaToiDa || 0)} người · Còn ${remaining} chỗ trống · Đã thêm ${currentRows} dòng`
+            : "Chọn phòng để xem số chỗ còn trống.";
+        const addButton = form.querySelector('[data-action="add-member-row"]');
+        if (addButton) addButton.disabled = !room || Boolean(activeContractId) || currentRows >= remaining;
     }
     function memberFormRow(member = {}) {
         return `<div class="member-row grid gap-2 rounded-lg border p-3 md:grid-cols-[1fr_130px_1fr_auto]">
@@ -621,8 +664,9 @@
         const labels = { invoices: "hóa đơn", expenses: "chi phí phát sinh", receipts: "phiếu thu", payments: "giao dịch", refunds: "phiếu chi" };
         const allRows = financialRows(type);
         const pending = U.filterFinancialRows(allRows, type, { status: "ACTION_REQUIRED" }).length;
-        if (target) target.innerHTML = `<span class="mr-auto">Tổng: ${allRows.length} ${labels[type] || "bản ghi"} · ${rows.length} phù hợp · ${pending} cần xử lý</span>
-            <button type="button" data-action="financial-page" data-type="${type}" data-page="${result.page - 1}" ${result.page <= 1 ? "disabled" : ""} class="rounded bg-slate-100 px-2 py-1">Trước</button>
+        const summary = root?.querySelector(`[data-financial-summary="${type}"]`);
+        if (summary) summary.textContent = `Tổng: ${allRows.length} ${labels[type] || "bản ghi"} · ${rows.length} phù hợp · ${pending} cần xử lý`;
+        if (target) target.innerHTML = `<button type="button" data-action="financial-page" data-type="${type}" data-page="${result.page - 1}" ${result.page <= 1 ? "disabled" : ""} class="rounded bg-slate-100 px-2 py-1">Trước</button>
             <span class="px-1">${result.page}/${result.pageCount}</span>
             <button type="button" data-action="financial-page" data-type="${type}" data-page="${result.page + 1}" ${result.page >= result.pageCount ? "disabled" : ""} class="rounded bg-slate-100 px-2 py-1">Sau</button>`;
         return result.rows;
@@ -644,7 +688,7 @@
         const rows = financialRows(type);
         const statuses = [...new Set(rows.map(row => display(row.TrangThaiThanhToan || row.TrangThai, "")).filter(Boolean))];
         const selected = state.financeFilters[type] || {};
-        return `<form data-form="financial-filter" data-finance-type="${type}" class="mb-3 flex flex-wrap items-end gap-2 rounded-xl border bg-white p-3">
+        return `<form data-form="financial-filter" data-finance-type="${type}" class="mb-1 flex flex-wrap items-end gap-2 rounded-xl border bg-white p-3">
             ${type === "invoices" ? select("Loại hóa đơn", "invoiceType", [
                 {value:"ALL",label:"Tất cả"}, {value:"TIEN_PHONG",label:"Tiền phòng"},
                 {value:"DICH_VU_PHONG",label:"Dịch vụ phòng"}, {value:"PHAT_SINH",label:"Phát sinh"}
@@ -652,6 +696,7 @@
             ${select("Trạng thái", "status", [
                 {value:"ACTION_REQUIRED",label:"Cần xử lý"},
                 {value:"ALL",label:"Tất cả"},
+                ...(type === "invoices" ? [{value:"OVERDUE",label:"Trễ hạn"}] : []),
                 ...statuses.map(value => ({value,label:value}))
             ], selected.status || "ACTION_REQUIRED")}
             ${["receipts", "payments"].includes(type) ? select("Phương thức", "method", [
@@ -706,6 +751,7 @@
         if (state.activeInvoiceTab === "invoices") {
             pane.innerHTML = `
                 ${financialFilterToolbar("invoices")}
+                <p data-financial-summary="invoices" class="admin-list-summary text-sm text-slate-600"></p>
                 <div data-no-admin-filters data-invoice-table class="overflow-x-auto rounded-xl border bg-white"></div>
                 <footer data-financial-pages="invoices" class="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-slate-600"></footer>`;
             loadInvoices().catch(apiError);
@@ -713,19 +759,20 @@
             pane.innerHTML = `
                 <div class="mb-3">${button("+ Thêm chi phí phát sinh", "expense-create-open")}</div>
                 ${financialFilterToolbar("expenses")}
+                <p data-financial-summary="expenses" class="admin-list-summary text-sm text-slate-600"></p>
                 <div data-no-admin-filters data-expense-table class="overflow-x-auto rounded-xl border bg-white"></div>
                 <footer data-financial-pages="expenses" class="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-slate-600"></footer>`;
             loadExpenses().catch(apiError);
         } else if (state.activeInvoiceTab === "receipts") {
-            pane.innerHTML = `${financialFilterToolbar("receipts")}<div data-no-admin-filters data-receipt-table class="overflow-x-auto rounded-xl border bg-white"></div>
+            pane.innerHTML = `${financialFilterToolbar("receipts")}<p data-financial-summary="receipts" class="admin-list-summary text-sm text-slate-600"></p><div data-no-admin-filters data-receipt-table class="overflow-x-auto rounded-xl border bg-white"></div>
                 <footer data-financial-pages="receipts" class="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-slate-600"></footer>`;
             loadReceipts().catch(apiError);
         } else if (state.activeInvoiceTab === "payments") {
-            pane.innerHTML = `${financialFilterToolbar("payments")}<div data-no-admin-filters data-payment-table class="overflow-x-auto rounded-xl border bg-white"></div>
+            pane.innerHTML = `${financialFilterToolbar("payments")}<p data-financial-summary="payments" class="admin-list-summary text-sm text-slate-600"></p><div data-no-admin-filters data-payment-table class="overflow-x-auto rounded-xl border bg-white"></div>
                 <footer data-financial-pages="payments" class="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-slate-600"></footer>`;
             loadPayments().catch(apiError);
         } else {
-            pane.innerHTML = `${financialFilterToolbar("refunds")}<div data-no-admin-filters data-refund-table class="overflow-x-auto rounded-xl border bg-white"></div>
+            pane.innerHTML = `${financialFilterToolbar("refunds")}<p data-financial-summary="refunds" class="admin-list-summary text-sm text-slate-600"></p><div data-no-admin-filters data-refund-table class="overflow-x-auto rounded-xl border bg-white"></div>
                 <footer data-financial-pages="refunds" class="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-slate-600"></footer>`;
             loadRefunds().catch(apiError);
         }
@@ -741,10 +788,10 @@
             { label: "Phòng / hợp đồng", render: invoice => `<span class="admin-truncate" title="${esc(`${invoice.TenPhong || "—"} / ${invoice.MaHopDong || "—"}`)}">${text(invoice.TenPhong)} / ${text(invoice.MaHopDong)}</span>` },
             { label: "Người", render: invoice => `<span class="admin-truncate" title="${esc(U.invoicePersonLabel(invoice))}">${esc(U.invoicePersonLabel(invoice))}</span>` },
             { label: "Kỳ", render: invoice => esc(invoice.KyThanhToan ? dateOnly(invoice.KyThanhToan) : dateOnly(invoice.NgayLap)) },
-            { label: "Tổng", align: "right", render: invoice => money(invoice.TongTien) },
-            { label: "Đã thu", align: "right", render: invoice => money(invoice.DaThu) },
-            { label: "Còn nợ", align: "right", render: invoice => money(invoice.ConNo) },
-            { label: "Trạng thái", render: invoice => badge(invoice.TrangThaiThanhToan) },
+            { label: "Tổng", align: "right", width: 150, render: invoice => money(invoice.TongTien) },
+            { label: "Đã thu", align: "right", width: 150, render: invoice => money(invoice.DaThu) },
+            { label: "Còn nợ", align: "right", width: 150, render: invoice => money(invoice.ConNo) },
+            { label: "Trạng thái", render: invoice => invoiceStatusBadge(invoice) },
             { label: "", render: () => `<span aria-hidden="true" class="text-lg text-slate-500">›</span>` }
         ];
         table.innerHTML = U.renderTable(columns, rows, "Không có dữ liệu phù hợp", invoice =>
@@ -823,10 +870,11 @@
                     <p>Hợp đồng: <strong>${esc(invoice.MaHopDong || "—")}</strong></p>
                     <p>Người: <strong>${esc(U.invoicePersonLabel(invoice))}</strong></p>
                     <p>Kỳ: <strong>${esc(invoice.KyThanhToan ? dateOnly(invoice.KyThanhToan) : dateOnly(invoice.NgayLap))}</strong></p>
+                    <p>Hạn thanh toán: <strong>${esc(dateOnly(invoice.HanThanhToan))}</strong></p>
                     <p>Tổng: <strong>${money(invoice.TongTien)}</strong></p>
                     <p>Đã thu: <strong>${money(invoice.DaThu)}</strong></p>
                     <p>Còn nợ: <strong data-outstanding>${money(invoice.ConNo)}</strong></p>
-                    <p>Trạng thái: <strong>${badge(invoice.TrangThaiThanhToan)}</strong></p>
+                    <p>Trạng thái: <strong>${invoiceStatusBadge(invoice)}</strong></p>
                 </div>
                 <h4 class="font-bold">Chi tiết hóa đơn</h4>
                 <div data-no-admin-filters class="overflow-auto">${invoiceLineTable}</div>
@@ -835,6 +883,7 @@
                 ${button("In phiếu thu gần nhất", "receipt-print-latest", "", "bg-slate-700 text-white")}
             </article>
             ${invoice.TrangThaiThanhToan !== "Đã hủy" ? `<div class="mt-4">${button("Hủy hóa đơn", "invoice-cancel", `data-invoice="${esc(invoice.MaHoaDon)}"`, "bg-red-700 text-white")}</div>` : ""}
+            ${U.isOverdueInvoice(invoice) ? `<div class="mt-3">${button("Gửi nhắc nợ", "invoice-remind", `data-invoice="${esc(invoice.MaHoaDon)}"`, "bg-amber-700 text-white")}</div>` : ""}
             <form id="admin-workflow-form" data-form="receipt-create" class="mt-5 grid gap-3 border-t pt-4 md:grid-cols-3">
                 <input type="hidden" name="invoiceId" value="${esc(invoice.MaHoaDon)}">
                 ${field("Số tiền VND (một phần)", "soTien", "number", "", true, 'min="1" step="1" inputmode="numeric"')}
@@ -912,11 +961,13 @@
             { label: "Người nộp", render: payment => text(payment.HoTen || payment.MaSinhVien) },
             { label: "Số tiền", align: "right", render: payment =>
                 !payment.MaHoaDon || !(Number(payment.SoTien) > 0) ? "Không gắn hóa đơn" : money(payment.SoTien) },
-            { label: "Phương thức", render: payment => text(display(payment.PhuongThuc)) },
+            { label: "Phương thức", render: payment => text(payment.ThamChieuPhieuThu?.startsWith("QR-DEMO:")
+                ? "QR demo" : display(payment.PhuongThuc)) },
             { label: "Trạng thái", render: payment => {
                 const successful = payment.TrangThai === "SUCCESS" && payment.TrangThaiPhieuThu === "Hợp lệ";
                 return successful ? badge("Thành công")
-                    : badge(payment.TrangThai === "SUCCESS" ? "Đang xử lý" : payment.TrangThai);
+                    : badge(payment.TrangThai === "Cần đối soát" ? "Không ghi nhận"
+                        : payment.TrangThai === "SUCCESS" ? "Đang xử lý" : payment.TrangThai);
             } },
             { label: "Lý do", render: payment => {
                 const reason = payment.LyDoDoiSoat || payment.LyDoTuChoi || "";
@@ -989,7 +1040,7 @@
                 MaDichVu: service.MaDichVu, DonGia: Number(service.DonGia || 0),
                 CachTinh: service.CachTinh || "CO_DINH_KY",
                 DoiTuongThanhToan: service.DoiTuongThanhToan || "PHONG",
-                HoatDong: service.HoatDong !== false
+                HoatDong: Boolean(Number(service.HoatDong))
             }))
         };
     }
@@ -1013,7 +1064,7 @@
         if (!form || form.dataset.form !== "tier-update") return;
         state.tierDraft = readTierDraft(form);
         const dirty = U.hasTierDraftChanges(state.tierDraft, state.tierOriginal || {});
-        form.querySelector("[data-tier-save]")?.toggleAttribute("hidden", !dirty);
+        form.querySelector("[data-tier-save]")?.toggleAttribute("hidden", !dirty || state.tierServicesEditing);
         form.querySelector("[data-tier-cancel]")?.toggleAttribute("hidden", !dirty);
         const summary = form.querySelector("[data-tier-summary]");
         if (summary) summary.textContent = tierSummary(state.tierDraft);
@@ -1022,7 +1073,7 @@
         const fixed = [];
         const meters = [];
         const unpriced = [];
-        for (const service of draft.dichVu) {
+        for (const service of draft.dichVu.filter(item => item.HoatDong)) {
             const definition = state.services?.find(item => item.MaDichVu === service.MaDichVu);
             const name = definition?.TenDichVu || service.TenDichVu || service.MaDichVu;
             if (!(Number(service.DonGia) > 0)) unpriced.push(name);
@@ -1033,14 +1084,12 @@
     }
     function tierServiceViewRow(service) {
         const definition = state.services?.find(item => item.MaDichVu === service.MaDichVu);
-        const warning = !(Number(service.DonGia) > 0) || service.HoatDong === false;
-        return `<div data-tier-service-row class="grid items-center gap-2 border-t py-3 text-sm lg:grid-cols-[minmax(150px,1.3fr)_minmax(120px,.8fr)_minmax(150px,1fr)_minmax(130px,1fr)_minmax(120px,.9fr)_110px]">
+        const warning = !(Number(service.DonGia) > 0) || !Boolean(Number(service.HoatDong));
+        return `<div data-tier-service-row class="grid items-center gap-2 border-t py-3 text-sm md:grid-cols-[minmax(120px,1.2fr)_minmax(100px,.8fr)_minmax(135px,1fr)_minmax(120px,1fr)]">
             <div>${text(definition?.TenDichVu || service.TenDichVu || service.MaDichVu)}${warning ? '<span class="mt-1 block w-fit rounded bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900">Chưa có đơn giá</span>' : ""}</div>
             <span>${money(service.DonGia)}</span>
             <span>${text(display(service.CachTinh))}</span>
             <span>${text(display(service.DoiTuongThanhToan))}</span>
-            <span>${badge(warning ? "Ngừng áp dụng" : "Đang áp dụng")}</span>
-            <span>—</span>
             <input type="hidden" name="serviceId" value="${esc(service.MaDichVu)}">
             <input type="hidden" name="servicePrice" value="${esc(service.DonGia)}">
             <input type="hidden" name="serviceMethod" value="${esc(service.CachTinh)}">
@@ -1098,16 +1147,16 @@
                 && String(room.TenPhong || "").toLocaleLowerCase("vi").includes(String(filters.search || "").toLocaleLowerCase("vi")));
             const page = U.paginateRows(rooms, filters.page, 20);
             state.roomFilters.page = page.page;
-            pane.innerHTML = `<form data-form="room-filter" class="mb-3 flex flex-wrap items-end gap-2 rounded-xl border bg-white p-3">
+            pane.innerHTML = `<form data-form="room-filter" class="mb-1 flex flex-wrap items-end gap-2 rounded-xl border bg-white p-3">
                 ${select("Trạng thái", "status", [{value:"ALL",label:"Tất cả"}, ...roomStatuses().map(value => ({value,label:value}))], filters.status)}
                 ${select("Khu", "khu", [{value:"ALL",label:"Tất cả"}, ...[...new Set(state.rooms.map(room => room.Khu).filter(Boolean))].map(value => ({value,label:value}))], filters.khu)}
                 ${select("Hạng", "tier", [{value:"ALL",label:"Tất cả"}, ...state.tiers.map(tier => ({value:tier.MaHangPhong,label:tier.MaHangPhong}))], filters.tier)}
                 ${field("Tìm tên phòng", "search", "text", filters.search)}
                 ${button("Xóa lọc", "room-filter-clear", "", "bg-slate-200 text-slate-800")}
             </form>
+            <p class="admin-list-summary text-sm text-slate-600">Tổng: ${state.rooms.length} phòng · ${rooms.length} phù hợp</p>
             <div data-no-admin-filters data-room-list class="overflow-x-auto rounded-xl border bg-white"></div>
-            <footer class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2">
-                <span class="text-sm text-slate-600">Tổng: ${state.rooms.length} phòng · ${rooms.length} phù hợp</span>
+            <footer class="mt-2 flex flex-wrap items-center justify-end gap-2 rounded-lg bg-white px-3 py-2">
                 <span class="flex items-center gap-2 whitespace-nowrap">${button("Trước", "room-page", `data-page="${page.page - 1}" ${page.page <= 1 ? "disabled" : ""}`, "bg-slate-100 text-slate-800")}
                     <span>${page.page}/${page.pageCount}</span>${button("Sau", "room-page", `data-page="${page.page + 1}" ${page.page >= page.pageCount ? "disabled" : ""}`, "bg-slate-100 text-slate-800")}</span>
             </footer>`;
@@ -1116,7 +1165,7 @@
                 { label: "Khu / loại", render: room => `${text(room.Khu)} · ${text(display(room.LoaiPhong))}` },
                 { label: "Hạng", render: room => text(room.MaHangPhong) },
                 { label: "Sĩ số", render: room => `${Number(room.SoSinhVienHienTai || 0)}/${Number(room.SucChuaToiDa || 0)} người` },
-                { label: "Giá hạng/tháng", align: "right", render: room => money(room.GiaPhong) },
+                { label: "Giá hạng/tháng", align: "right", width: 160, render: room => money(room.GiaPhong) },
                 { label: "Trạng thái", render: room => badge(room.TrangThaiPhong) },
                 { label: "", render: () => `<span aria-hidden="true" class="text-lg text-slate-500">›</span>` }
             ];
@@ -1161,15 +1210,21 @@
                         <h3 class="font-semibold">Giá & dịch vụ của hạng</h3>
                         <div class="flex flex-wrap gap-2">
                             ${state.tierServicesEditing ? button("+ Thêm dịch vụ", "tier-service-add", `data-tier="${esc(tier.MaHangPhong)}"`) : ""}
-                            ${button(state.tierServicesEditing ? "Xem dịch vụ" : "Chỉnh sửa dịch vụ", "tier-services-toggle", `data-tier="${esc(tier.MaHangPhong)}"`, "bg-slate-700 text-white")}
+                            ${button(state.tierServicesEditing ? "Lưu dịch vụ" : "Chỉnh sửa dịch vụ", "tier-services-toggle", `data-tier="${esc(tier.MaHangPhong)}"`, "bg-slate-700 text-white")}
                         </div></div>
                         <p data-tier-summary class="text-sm text-slate-700">${esc(tierSummary(draft))}</p>
-                        <div class="overflow-x-auto"><div class="min-w-[900px]">
-                            <div class="grid grid-cols-[minmax(150px,1.3fr)_minmax(120px,.8fr)_minmax(150px,1fr)_minmax(130px,1fr)_minmax(120px,.9fr)_110px] gap-2 border-b pb-2 text-xs font-bold text-slate-600">
-                                <span>Dịch vụ</span><span>Đơn giá (đ)</span><span>Cách tính</span><span>Người thanh toán</span><span>Hoạt động</span><span>Gỡ</span>
-                            </div><div data-tier-services>${draft.dichVu.map(service => state.tierServicesEditing
-                                ? tierServiceRow(service, service.MaDichVu) : tierServiceViewRow(service)).join("") || `<p data-no-services class="p-3 text-slate-500">Chưa cấu hình dịch vụ.</p>`}</div>
-                        </div></div>
+                        <div class="min-w-0">
+                            <div class="grid gap-2 border-b pb-2 text-xs font-bold text-slate-600 ${state.tierServicesEditing
+                                ? "lg:grid-cols-[minmax(130px,1.2fr)_minmax(100px,.8fr)_minmax(130px,1fr)_minmax(130px,1fr)_minmax(130px,1fr)_100px]"
+                                : "md:grid-cols-[minmax(120px,1.2fr)_minmax(100px,.8fr)_minmax(135px,1fr)_minmax(120px,1fr)]"}">
+                                <span>Dịch vụ</span><span>Đơn giá (đ)</span><span>Cách tính</span><span>Người thanh toán</span>
+                                ${state.tierServicesEditing ? "<span>Hoạt động</span><span>Thao tác</span>" : ""}
+                            </div><div data-tier-services>${draft.dichVu.filter(service =>
+                                state.tierServicesEditing || service.HoatDong === true || service.HoatDong === 1)
+                                .map(service => state.tierServicesEditing
+                                    ? tierServiceRow(service, service.MaDichVu) : tierServiceViewRow(service)).join("")
+                                || `<p data-no-services class="p-3 text-slate-500">Chưa có dịch vụ đang áp dụng.</p>`}</div>
+                        </div>
                         <button type="button" data-action="service-catalog-manage" class="text-sm text-emerald-800 underline">Quản lý danh mục dịch vụ</button>
                     </section>
                     <section><div class="flex items-center justify-between gap-2"><div><h3 class="font-semibold">Áp dụng cho</h3><p>${rooms.length} phòng · ${activeContracts.length} hợp đồng còn hiệu lực</p></div>
@@ -1208,7 +1263,7 @@
             </select>
             <div class="flex flex-col items-start gap-2">
                 <label class="flex items-center gap-2 text-sm">
-                    <input name="serviceActive" type="checkbox" ${canActivate && service.HoatDong !== false ? "checked" : ""}
+                    <input name="serviceActive" type="checkbox" ${canActivate && Boolean(Number(service.HoatDong)) ? "checked" : ""}
                         ${canActivate ? "" : "disabled"}> Hoạt động
                 </label>
                 <span data-price-disabled-hint class="text-xs text-amber-800 ${canActivate ? "hidden" : ""}">Nhập đơn giá trước khi bật</span>
@@ -1277,7 +1332,7 @@
     }
 
     function renderThanhToanDemoModule() {
-        ensureRoot("Giao dịch thanh toán", "Dữ liệu trực tiếp từ API thanh toán. Giao dịch cần đối soát được làm nổi bật.");
+        ensureRoot("Giao dịch thanh toán", "Dữ liệu trực tiếp từ API thanh toán. Giao dịch chưa được ghi nhận kèm lý do.");
         content().innerHTML = `
             <div class="mb-4 flex gap-2">${button("⟳", "payments-refresh", 'aria-label="Làm mới" title="Làm mới"', "bg-slate-700 text-white")}${button("Danh sách phiếu thu", "payments-receipts", "", "bg-slate-700 text-white")}</div>
             ${financialFilterToolbar("payments")}
@@ -1407,8 +1462,22 @@
                     state.tierServicesEditing = false;
                     renderRoomPane();
                     break;
-                case "add-member-row": root.querySelector("[data-new-members]").insertAdjacentHTML("beforeend", memberFormRow()); break;
-                case "remove-member-row": actionButton.closest(".member-row")?.remove(); break;
+                case "add-member-row": {
+                    const form = root.querySelector('form[data-form="contract-create"]');
+                    const rows = form?.querySelectorAll(".member-row").length || 0;
+                    const remaining = Number(form?.dataset.availableSeats || 0);
+                    if (!form || !form.elements.tenPhong.value) throw new Error("Chọn phòng trước khi thêm sinh viên.");
+                    if (rows >= remaining) throw new Error("Số sinh viên không được vượt số chỗ còn trống của phòng.");
+                    root.querySelector("[data-new-members]").insertAdjacentHTML("beforeend", memberFormRow());
+                    updateContractCapacity(form, form.elements.tenPhong.value);
+                    break;
+                }
+                case "remove-member-row": {
+                    const form = actionButton.closest('form[data-form="contract-create"]');
+                    actionButton.closest(".member-row")?.remove();
+                    if (form) updateContractCapacity(form, form.elements.tenPhong.value);
+                    break;
+                }
                 case "contract-create": await openCreateContract(); break;
                 case "contract-refresh": await loadContracts(); break;
                 case "member-add": await openAddMember(actionButton.dataset.contract); break;
@@ -1476,6 +1545,13 @@
                     await request(`/api/HoaDon/${encodeURIComponent(actionButton.dataset.invoice)}/huy`, { method: "PUT", body: "{}" });
                     await loadInvoices();
                     break;
+                case "invoice-remind": {
+                    const invoiceId = actionButton.dataset.invoice;
+                    if (!window.confirm(`Gửi thông báo nhắc nợ hóa đơn ${invoiceId} đến đúng sinh viên theo loại hóa đơn?`)) break;
+                    const result = await request(`/api/HoaDon/${encodeURIComponent(invoiceId)}/nhac-no`, { method: "POST", body: "{}" });
+                    status(`Đã gửi nhắc nợ cho ${Number(result.SoSinhVienNhan) || 0} sinh viên.`);
+                    break;
+                }
                 case "expense-edit": await openExpenseEdit(actionButton.dataset.expense); break;
                 case "expense-cancel":
                     if (!window.confirm("Hủy khoản phát sinh chưa lập hóa đơn?")) break;
@@ -1539,8 +1615,12 @@
                 case "tier-services-toggle": {
                     const form = root.querySelector('form[data-form="tier-update"]');
                     if (!form || form.dataset.tier !== actionButton.dataset.tier) throw new Error("Chọn hạng phòng trước khi sửa dịch vụ.");
+                    if (state.tierServicesEditing) {
+                        form.requestSubmit();
+                        break;
+                    }
                     state.tierDraft = readTierDraft(form);
-                    state.tierServicesEditing = !state.tierServicesEditing;
+                    state.tierServicesEditing = true;
                     renderRoomPane();
                     break;
                 }
@@ -1711,13 +1791,17 @@
     function serviceCatalogMarkup() {
         const services = state.services || [];
         const editMode = U.serviceEditMode(state.serviceCatalogEditing);
+        const visibleServices = editMode.canEditRows
+            ? services
+            : services.filter(service => Boolean(Number(service.HoatDong)));
+        const summaryServices = editMode.canEditRows ? services : visibleServices;
         const columns = [
             { label: "Dịch vụ", render: service => `<strong>${text(service.TenDichVu)}</strong>${service.CanhBao ? '<span class="mt-1 block w-fit rounded bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900">Chưa có đơn giá</span>' : ""}` },
             { label: "Đơn vị", render: service => text(service.DonVi) },
-            { label: "Đơn giá", align: "right", render: service => (service.hangPhong || []).map(rate => `${text(rate.MaHangPhong)}: ${money(rate.DonGia)}`).join(" · ") || "—" },
+            { label: "Đơn giá", align: "right", width: 220, render: service => (service.hangPhong || []).map(rate => `${text(rate.MaHangPhong)}: ${money(rate.DonGia)}`).join(" · ") || "—" },
             { label: "Cách tính", render: service => [...new Set((service.hangPhong || []).map(rate => display(rate.CachTinh)))].join(" · ") || "—" },
             { label: "Đối tượng thanh toán", render: service => [...new Set((service.hangPhong || []).map(rate => display(rate.DoiTuongThanhToan)))].join(" · ") || "—" },
-            { label: "Trạng thái", render: service => badge(service.HoatDong && !service.CanhBao ? "Đang áp dụng" : "Ngừng") },
+            ...(editMode.canEditRows ? [{ label: "Trạng thái", render: service => badge(Boolean(Number(service.HoatDong)) ? "Đang áp dụng" : "Ngừng") }] : []),
             { label: "", render: service => editMode.canEditRows
                 ? button("Sửa", "service-edit", `data-service="${esc(service.MaDichVu)}"`, "bg-slate-700 text-white") : "" }
         ];
@@ -1726,10 +1810,11 @@
                 ${editMode.canAdd ? button("+ Thêm dịch vụ", "service-create-open") : ""}
                 ${button(editMode.toggleLabel, "service-catalog-edit-mode", "", "bg-slate-700 text-white")}
             </div>
-            <div data-no-admin-filters class="overflow-x-auto rounded-xl border bg-white">${U.renderTable(columns, services, "Không có dịch vụ phù hợp", service =>
+            <p class="mb-2 text-sm text-slate-600">${esc(U.listSummary("dịch vụ", summaryServices,
+                service => Boolean(Number(service.HoatDong)), "đang áp dụng"))}.</p>
+            <div data-no-admin-filters class="overflow-x-auto rounded-xl border bg-white">${U.renderTable(columns, visibleServices, "Không có dịch vụ phù hợp", service =>
                 `data-catalog-service="${esc(`${service.MaDichVu} ${service.TenDichVu}`.toLocaleLowerCase("vi"))}"`)}</div>
-            <p class="mt-2 text-sm text-slate-600">${esc(U.listSummary("dịch vụ", services,
-                service => service.HoatDong && !service.CanhBao, "đang áp dụng"))}.</p>`;
+            `;
     }
     async function openServiceEdit(serviceId) {
         if (!state.services) await loadServices();
@@ -1826,6 +1911,7 @@
             const tier = U.tierForRoom(state.rooms, event.target.value);
             form.elements.maHangPhong.value = tier;
             form.elements.maHangPhongDisplay.value = tier;
+            updateContractMode(form, event.target.value);
         }
         if (form.dataset.form === "invoice-create"
             && ["maHopDong", "loaiHoaDon"].includes(event.target.name)) await refreshInvoiceContext();
@@ -2084,8 +2170,28 @@
                         laNguoiDaiDien: row.querySelector('[name="laNguoiDaiDien"]').checked
                     })).filter(member => member.maSinhVien);
                     if (!members.length) throw new Error("Thêm ít nhất một sinh viên vào hợp đồng.");
+                    const room = state.rooms.find(item => item.TenPhong === values.get("tenPhong"));
+                    if (!room || members.length > availableRoomSpaces(room)) {
+                        throw new Error("Số sinh viên không được vượt số chỗ còn trống của phòng.");
+                    }
                     if (new Set(members.map(member => member.maSinhVien)).size !== members.length) throw new Error("Không được nhập trùng mã sinh viên.");
                     if (members.filter(member => member.laNguoiDaiDien).length > 1) throw new Error("Mỗi hợp đồng chỉ có một đại diện.");
+                    const selection = U.contractRoomSelection(room.TenPhong, state.contracts);
+                    if (selection.mode === "invalid") {
+                        throw new Error("Phòng có nhiều hợp đồng hiệu lực; không thể chọn an toàn để thêm thành viên.");
+                    }
+                    const activeContract = selection.contract;
+                    if (activeContract) {
+                        if (members.length !== 1) throw new Error("Thêm từng sinh viên vào hợp đồng đang hiệu lực.");
+                        if (activeContract.MaHopDong !== values.get("activeContractId")) {
+                            throw new Error("Hợp đồng của phòng đã thay đổi. Đóng biểu mẫu và tải lại danh sách.");
+                        }
+                        if (!window.confirm(`Thêm sinh viên ${members[0].maSinhVien} vào hợp đồng ${activeContract.MaHopDong}?`)) break;
+                        await request(`/api/HopDong/${encodeURIComponent(activeContract.MaHopDong)}/chitiet`, {
+                            method: "POST", body: json(members[0])
+                        });
+                        closeModal(); await loadContracts(); break;
+                    }
                     const roomTier = U.tierForRoom(state.rooms, String(values.get("tenPhong") || ""));
                     if (!roomTier || values.get("maHangPhong") !== roomTier) throw new Error("Vui lòng chọn phòng hợp lệ để tự điền hạng phòng.");
                     if (!window.confirm(`Tạo hợp đồng cho phòng ${values.get("tenPhong")} với ${members.length} sinh viên?`)) break;
@@ -2285,6 +2391,7 @@
                     await Promise.all([loadRoomsAndTiers(), loadServices()]);
                     state.tierDraft = null;
                     state.tierOriginal = null;
+                    state.tierServicesEditing = false;
                     renderRoomPane();
                     window.showToast?.("Đã lưu thay đổi hạng phòng và dịch vụ.", "success");
                     break;

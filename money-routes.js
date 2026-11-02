@@ -265,6 +265,115 @@ function registerMoneyRoutes(app, {
         }
     });
 
+    app.post("/api/HoaDon/:id/nhac-no", async (req, res) => {
+        if (!routeManager(req, res, respondRequestError)) return;
+        if (!isValidId(req.params.id, 20)) {
+            return respondRequestError(res, 400, "Mã hóa đơn không hợp lệ.");
+        }
+
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const invoiceResult = await new sql.Request(transaction)
+                .input("MaHoaDon", sql.NVarChar(20), req.params.id)
+                .query(`
+                    SELECT hd.MaHoaDon, hd.LoaiHoaDon, hd.MaChiTiet, hd.MaHopDong,
+                           hd.HanThanhToan,
+                           CASE WHEN hd.HanThanhToan < CONVERT(date, SYSDATETIME()) THEN 1 ELSE 0 END AS IsOverdue,
+                           v.ConNo,
+                           CONVERT(nvarchar(10), hd.HanThanhToan, 103) AS HanHienThi
+                    FROM dbo.HoaDon hd WITH (UPDLOCK, HOLDLOCK)
+                    INNER JOIN dbo.vw_HoaDonTongHop v ON v.MaHoaDon = hd.MaHoaDon
+                    WHERE hd.MaHoaDon = @MaHoaDon
+                `);
+            const invoice = invoiceResult.recordset[0];
+            if (!invoice) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy hóa đơn.");
+            }
+            if (!invoice.HanThanhToan || !invoice.IsOverdue) {
+                await transaction.rollback();
+                return respondRequestError(res, 409, "Chỉ gửi nhắc nợ cho hóa đơn đã quá hạn.");
+            }
+            if (Number(invoice.ConNo) <= 0) {
+                await transaction.rollback();
+                return respondRequestError(res, 409, "Hóa đơn đã được thanh toán đủ.");
+            }
+            if (!["TIEN_PHONG", "DICH_VU_PHONG", "PHAT_SINH"].includes(invoice.LoaiHoaDon)) {
+                await transaction.rollback();
+                return respondRequestError(res, 409, "Loại hóa đơn này chưa hỗ trợ gửi nhắc nợ.");
+            }
+
+            const recentReminder = await new sql.Request(transaction)
+                .input("MaHoaDon", sql.NVarChar(20), invoice.MaHoaDon)
+                .query(`
+                    SELECT TOP (1) MaThongBao
+                    FROM dbo.ThongBao WITH (UPDLOCK, HOLDLOCK)
+                    WHERE MaHoaDon = @MaHoaDon
+                      AND NgayTao >= DATEADD(hour, -24, SYSDATETIME())
+                `);
+            if (recentReminder.recordset.length) {
+                await transaction.rollback();
+                return respondRequestError(res, 409, "Hóa đơn này đã được nhắc nợ trong 24 giờ qua.");
+            }
+
+            let recipients;
+            if (invoice.LoaiHoaDon === "TIEN_PHONG") {
+                recipients = await new sql.Request(transaction)
+                    .input("MaChiTiet", sql.Int, invoice.MaChiTiet)
+                    .query(`
+                        SELECT DISTINCT MaSinhVien
+                        FROM dbo.ChiTietHopDong
+                        WHERE MaChiTiet = @MaChiTiet
+                    `);
+            } else {
+                recipients = await new sql.Request(transaction)
+                    .input("MaHopDong", sql.NVarChar(20), invoice.MaHopDong)
+                    .query(`
+                        SELECT DISTINCT c.MaSinhVien
+                        FROM dbo.ChiTietHopDong c
+                        INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                        WHERE c.MaHopDong = @MaHopDong
+                          AND c.TrangThai = N'Đang ở'
+                          AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                    `);
+            }
+            if (!recipients.recordset.length) {
+                await transaction.rollback();
+                return respondRequestError(res, 409, "Không có sinh viên phù hợp để nhận nhắc nợ.");
+            }
+
+            const amountText = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 })
+                .format(Number(invoice.ConNo));
+            const title = `Nhắc nợ hóa đơn ${invoice.MaHoaDon}`;
+            const content = `Hóa đơn ${invoice.MaHoaDon} còn nợ ${amountText} đ, hạn thanh toán ${invoice.HanHienThi || "—"}. Vui lòng liên hệ Ban quản lý KTX để được hỗ trợ.`;
+            for (const recipient of recipients.recordset) {
+                await new sql.Request(transaction)
+                    .input("TieuDe", sql.NVarChar(200), title)
+                    .input("NoiDung", sql.NVarChar(2000), content)
+                    .input("MaSinhVien", sql.NVarChar(30), recipient.MaSinhVien)
+                    .input("NguoiTao", sql.Int, req.auth.accountId)
+                    .input("MaHoaDon", sql.NVarChar(20), invoice.MaHoaDon)
+                    .query(`
+                        INSERT INTO dbo.ThongBao
+                            (TieuDe, NoiDung, PhamViNhan, MaSinhVien, NguoiTao, MaHoaDon)
+                        VALUES
+                            (@TieuDe, @NoiDung, N'SINH_VIEN', @MaSinhVien, @NguoiTao, @MaHoaDon)
+                    `);
+            }
+            await transaction.commit();
+            return res.status(201).json({
+                success: true,
+                MaHoaDon: invoice.MaHoaDon,
+                SoSinhVienNhan: recipients.recordset.length
+            });
+        } catch (error) {
+            await rollback(transaction, "GỬI NHẮC NỢ");
+            return respondDatabaseError(res, "LỖI GỬI NHẮC NỢ",
+                error, "Không thể gửi nhắc nợ.");
+        }
+    });
+
     app.post("/api/HoaDon/xuat-ky", async (req, res) => {
         if (!routeManager(req, res, respondRequestError)) return;
         const body = req.body;
@@ -856,6 +965,7 @@ function registerMoneyRoutes(app, {
                 SELECT gd.MaGiaoDich, gd.MaSinhVien, payer.HoTen,
                        hd.MaHoaDon, hd.TenPhong, hd.LoaiHoaDon, hd.KyThanhToan,
                        pt.MaPhieuThu, pt.SoTien, pt.NgayThu, pt.PhuongThuc, pt.TrangThai AS TrangThaiPhieuThu,
+                       pt.MaThamChieu AS ThamChieuPhieuThu, pt.GhiChu AS GhiChuPhieuThu,
                        gd.NoiDungCK, gd.NgayTao, gd.NgayThanhToan,
                        CASE WHEN gd.TrangThai = N'RECONCILIATION' THEN N'Cần đối soát'
                             ELSE gd.TrangThai END AS TrangThai,
@@ -926,6 +1036,7 @@ function registerMoneyRoutes(app, {
                 NganHang: bank.bankBin,
                 SoTaiKhoan: bank.accountNumber,
                 TenTaiKhoan: bank.accountName,
+                DemoPaymentEnabled: process.env.ALLOW_DEMO_PAYMENT === "true",
                 NoiDungCK: paymentContent,
                 QrPayload: createVietQrPayload({
                     bankBin: bank.bankBin, accountNumber: bank.accountNumber,
@@ -1054,6 +1165,122 @@ function registerMoneyRoutes(app, {
             await rollback(transaction, "TẠO YÊU CẦU THANH TOÁN");
             return respondMoneyProcedureError(res, "LỖI TẠO YÊU CẦU THANH TOÁN", error,
                 "Không thể ghi nhận yêu cầu thanh toán.", errorContext);
+        }
+    });
+
+    app.post("/api/payments/demo-confirm", async (req, res) => {
+        if (process.env.ALLOW_DEMO_PAYMENT !== "true") {
+            return respondRequestError(res, 503, "Thanh toán QR demo đang tắt.");
+        }
+        if (req.auth?.role !== "Sinh viên") {
+            return respondRequestError(res, req.auth ? 403 : 401,
+                "Chỉ Sinh viên mới được xác nhận thanh toán QR demo.");
+        }
+        if (!isObjectBody(req.body) || !isValidId(req.body.MaHoaDon, 20)
+            || typeof req.body.MaGiaoDich !== "string"
+            || !/^PAY-[A-F0-9]{32}$/.test(req.body.MaGiaoDich)) {
+            return respondRequestError(res, 400, "Mã hóa đơn hoặc mã giao dịch demo không hợp lệ.");
+        }
+
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const invoiceResult = await new sql.Request(transaction)
+                .input("MaHoaDon", sql.NVarChar(20), req.body.MaHoaDon)
+                .input("MaSinhVien", sql.NVarChar(30), req.auth.studentId)
+                .query(`
+                    SELECT hd.MaHoaDon, hd.TrangThaiThanhToan,
+                           total.TongThuc - received.DaThu AS ConNo
+                    FROM dbo.HoaDon hd WITH (UPDLOCK, HOLDLOCK)
+                    CROSS APPLY (
+                        SELECT ISNULL(SUM(c.SoTien), 0) AS TongThuc
+                        FROM dbo.ChiTietHoaDon c
+                        WHERE c.MaHoaDon = hd.MaHoaDon
+                    ) total
+                    CROSS APPLY (
+                        SELECT ISNULL(SUM(pt.SoTien), 0) AS DaThu
+                        FROM dbo.PhieuThu pt
+                        WHERE pt.MaHoaDon = hd.MaHoaDon AND pt.TrangThai = N'Hợp lệ'
+                    ) received
+                    WHERE hd.MaHoaDon = @MaHoaDon
+                      AND ${INVOICE_OWNER}
+                `);
+            const invoice = invoiceResult.recordset[0];
+            if (!invoice) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy hóa đơn được phép thanh toán.");
+            }
+            if (invoice.TrangThaiThanhToan === "Đã hủy") {
+                await transaction.rollback();
+                return respondRequestError(res, 409, "Hóa đơn đã bị hủy.");
+            }
+
+            const paymentResult = await new sql.Request(transaction)
+                .input("MaGiaoDich", sql.NVarChar(60), req.body.MaGiaoDich)
+                .input("MaHoaDon", sql.NVarChar(20), req.body.MaHoaDon)
+                .input("MaSinhVien", sql.NVarChar(30), req.auth.studentId)
+                .query(`
+                    SELECT gd.TrangThai AS TrangThaiGiaoDich, gd.PhuongThuc,
+                           pt.MaPhieuThu, pt.TrangThai AS TrangThaiPhieuThu, pt.SoTien
+                    FROM dbo.GiaoDichThanhToan gd WITH (UPDLOCK, HOLDLOCK)
+                    INNER JOIN dbo.PhieuThu pt WITH (UPDLOCK, HOLDLOCK)
+                        ON pt.MaGiaoDich = gd.MaGiaoDich
+                    WHERE gd.MaGiaoDich = @MaGiaoDich
+                      AND gd.MaSinhVien = @MaSinhVien
+                      AND gd.PhuongThuc = N'ONLINE'
+                      AND pt.PhuongThuc = N'ONLINE'
+                      AND pt.MaHoaDon = @MaHoaDon
+                `);
+            const payment = paymentResult.recordset[0];
+            if (!payment) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy giao dịch QR thuộc hóa đơn này.");
+            }
+            if (payment.TrangThaiGiaoDich !== "PENDING"
+                || payment.TrangThaiPhieuThu !== "Chờ xác nhận") {
+                await transaction.rollback();
+                return respondRequestError(res, 409,
+                    Number(invoice.ConNo) <= 0
+                        ? "Hóa đơn đã thanh toán đủ, không ghi nhận thêm."
+                        : "Giao dịch này đã được xử lý, không ghi nhận thêm.");
+            }
+
+            const demoReference = `QR-DEMO:${req.body.MaGiaoDich}`;
+            await new sql.Request(transaction)
+                .input("MaPhieuThu", sql.BigInt, payment.MaPhieuThu)
+                .input("MaThamChieu", sql.NVarChar(100), demoReference)
+                .input("GhiChu", sql.NVarChar(255), "QR demo thanh toán")
+                .query(`
+                    UPDATE dbo.PhieuThu
+                    SET MaThamChieu = @MaThamChieu, GhiChu = @GhiChu
+                    WHERE MaPhieuThu = @MaPhieuThu AND TrangThai = N'Chờ xác nhận'
+                `);
+            const confirmed = await new sql.Request(transaction)
+                .input("MaPhieuThu", sql.BigInt, payment.MaPhieuThu)
+                .input("NguoiXacNhan", sql.Int, req.auth.accountId)
+                .input("MaThamChieuNgoai", sql.NVarChar(100), demoReference)
+                .execute("dbo.sp_XacNhanPhieuThu");
+            const result = confirmed.recordset?.[0] || {};
+            if (result.TrangThaiGiaoDich === "RECONCILIATION") {
+                await transaction.commit();
+                return respondRequestError(res, 409,
+                    Number(invoice.ConNo) <= 0
+                        ? "Hóa đơn đã thanh toán đủ, không ghi nhận thêm."
+                        : result.LyDoDoiSoat || "Không ghi nhận giao dịch QR demo.");
+            }
+            await transaction.commit();
+            return res.json({
+                success: true,
+                message: "Thanh toán thành công.",
+                MaGiaoDich: req.body.MaGiaoDich,
+                MaHoaDon: req.body.MaHoaDon,
+                SoTien: Number(payment.SoTien),
+                PhuongThuc: "QR_DEMO"
+            });
+        } catch (error) {
+            await rollback(transaction, "XÁC NHẬN THANH TOÁN QR DEMO");
+            return respondMoneyProcedureError(res, "LỖI XÁC NHẬN THANH TOÁN QR DEMO",
+                error, "Không thể xác nhận thanh toán QR demo.", errorContext);
         }
     });
 

@@ -57,8 +57,9 @@
                         <button type="button" id="dk-reset" class="dk-button">Đặt lại</button>
                     </form>
                     <p id="dk-date-error" class="text-red-600 px-5" role="alert"></p>
-                    <div class="dk-table-wrap" id="dk-table-wrap"></div>
-                    <footer class="dk-footer"><span id="dk-count" role="status"></span><div class="flex items-center gap-3"><button id="dk-prev" class="dk-button" aria-label="Trang trước">‹</button><span id="dk-page"></span><button id="dk-next" class="dk-button" aria-label="Trang sau">›</button></div></footer>
+                    <p id="dk-count" class="px-5 pb-2 text-sm text-slate-600" role="status"></p>
+                    <div class="dk-table-wrap" id="dk-table-wrap" data-no-admin-filters></div>
+                    <footer class="dk-footer"><div class="flex items-center gap-3"><button id="dk-prev" class="dk-button" aria-label="Trang trước">‹</button><span id="dk-page"></span><button id="dk-next" class="dk-button" aria-label="Trang sau">›</button></div></footer>
                 </div>
                 </section>
                 <dialog id="dk-dialog" class="dk-dialog" aria-labelledby="dk-dialog-title"></dialog>
@@ -97,7 +98,7 @@
     function configureFilters() {
         root.querySelector('#dk-filters').reset();
         const options = list => '<option value="">Tất cả</option>' + list.map(value => `<option>${escape(value)}</option>`).join('');
-        root.querySelector('#dk-type').innerHTML = options(['Gia hạn hợp đồng', 'Báo hỏng thiết bị']);
+        root.querySelector('#dk-type').innerHTML = options(['Gia hạn hợp đồng', 'Báo hỏng thiết bị', 'Yêu cầu khác']);
         root.querySelector('#dk-status').innerHTML = options([pending, approved, rejected]);
         page = 1;
         renderRows();
@@ -130,7 +131,7 @@
             'Không có kết quả phù hợp. Hãy thử thay đổi bộ lọc.',
             () => 'class="transition-colors hover:bg-slate-50"', 'dk-table'
         );
-        root.querySelector('#dk-count').textContent = `Hiển thị ${rows.length ? (page - 1) * pageSize + 1 : 0}–${Math.min(page * pageSize, rows.length)} / ${rows.length} kết quả`;
+        root.querySelector('#dk-count').textContent = `Tổng: ${allRequests.length} yêu cầu · ${rows.length} phù hợp`;
         root.querySelector('#dk-page').textContent = `${page} / ${pages}`;
         root.querySelector('#dk-prev').disabled = page <= 1;
         root.querySelector('#dk-next').disabled = page >= pages;

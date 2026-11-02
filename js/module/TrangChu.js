@@ -87,7 +87,9 @@ function renderTrangChuModule() {
                                 <option value="TAT_CA">Tất cả sinh viên</option><option value="PHONG">Theo phòng</option><option value="SINH_VIEN">Theo mã sinh viên</option>
                             </select>
                             <input name="TenPhong" maxlength="50" placeholder="Tên phòng" aria-label="Tên phòng nhận thông báo" hidden>
-                            <input name="MaSinhVien" maxlength="30" placeholder="Mã sinh viên" aria-label="Mã sinh viên nhận thông báo" hidden>
+                            <label data-notice-student-field class="hidden text-sm font-semibold">Mã sinh viên
+                                <input name="MaSinhVien" maxlength="30" placeholder="Nhập mã sinh viên" aria-label="Mã sinh viên nhận thông báo" class="mt-1 w-full rounded-lg border px-3 py-2">
+                            </label>
                             <p data-notice-status role="status" class="text-sm"></p>
                             <button type="submit" class="w-fit rounded-lg bg-emerald-700 px-4 py-2 font-semibold text-white">Gửi thông báo</button>
                         </form>
@@ -175,7 +177,6 @@ function renderTrangChuModule() {
                                 </h4>
                         </div>
                         <div>
-                            <p class="text-xs text-amber-700 mb-3">Danh sách mẫu — chưa có API văn bản.</p>
                             ${documentsHTML}
                             <p class="text-[11px] text-slate-500 mt-2 flex items-center gap-1">
                                 <i class="fa-solid fa-circle-info"></i>
@@ -531,7 +532,7 @@ function startHomeDashboard(root) {
         const form = scope.form;
         form.elements.TenPhong.hidden = scope.value !== "PHONG";
         form.elements.TenPhong.required = scope.value === "PHONG";
-        form.elements.MaSinhVien.hidden = scope.value !== "SINH_VIEN";
+        form.querySelector("[data-notice-student-field]").classList.toggle("hidden", scope.value !== "SINH_VIEN");
         form.elements.MaSinhVien.required = scope.value === "SINH_VIEN";
     }, { signal: controller.signal });
     root.addEventListener("submit", async event => {
@@ -573,7 +574,7 @@ function startHomeDashboard(root) {
                 form.reset();
                 form.elements.TenPhong.hidden = true;
                 form.elements.TenPhong.required = false;
-                form.elements.MaSinhVien.hidden = true;
+                form.querySelector("[data-notice-student-field]").classList.add("hidden");
                 form.elements.MaSinhVien.required = false;
                 showStatus(form.querySelector("[data-notice-status]"), "Đã gửi thông báo.");
                 await loadManagedNotices();

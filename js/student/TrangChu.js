@@ -224,7 +224,7 @@
                     hasRoom ? room.TrangThaiPhong || 'Đang ở' : '',
                     daysRemaining == null ? '' : daysRemaining < 0 ? 'Đã hết hạn' : `Còn ${daysRemaining} ngày`,
                     overdueInvoices
-                    ? `${overdueInvoices} hóa đơn quá hạn`
+                    ? `${overdueInvoices} hóa đơn trễ hạn`
                     : unpaidInvoices.length ? 'Chờ thanh toán'
                         : allInvoicesPaid ? 'Đã thanh toán đủ' : invoices.length ? 'Không có công nợ' : 'Chưa có hóa đơn',
                     invoices.length ? debt > 0 ? 'Cần thanh toán' : 'Không có công nợ' : ''
@@ -248,7 +248,7 @@
                 set('[data-dashboard-contract-warning]', daysRemaining != null && daysRemaining <= 30
                     ? `Hợp đồng lưu trú ${daysRemaining < 0 ? 'đã hết hạn' : `sắp hết hạn ngày ${date(endDate)} (${daysRemaining} ngày)`}.`
                     : '');
-                set('[data-dashboard-overdue]', overdueInvoices ? `Bạn có ${overdueInvoices} hóa đơn quá hạn thanh toán.` : '');
+                set('[data-dashboard-overdue]', overdueInvoices ? `Bạn có ${overdueInvoices} hóa đơn trễ hạn thanh toán.` : '');
             } catch (error) {
                 if (root.isConnected) set('[data-dashboard-error]', error.message || 'Không thể tải thông tin lưu trú và hóa đơn.');
             }

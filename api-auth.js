@@ -29,7 +29,8 @@ function createApiAuthenticationMiddleware({ jwt, getSecret }) {
                         || req.path === "/payments/qr"
                         || req.path === "/noi-quy"
                         || req.path === "/lien-he"
-                        || /^\/student\/(?:profile|room|contracts|requests)$/.test(req.path)))
+                        || /^\/student\/(?:profile|room|contracts|requests)$/.test(req.path)
+                        || req.path === "/student/notifications"))
                     || (req.method === "POST" && (req.path === "/payments/create"
                         || req.path === "/student/requests"
                         || req.path === "/change-password"));

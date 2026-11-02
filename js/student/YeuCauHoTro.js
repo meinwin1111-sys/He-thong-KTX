@@ -19,6 +19,7 @@
         <div class="st-request-layout">
             <div class="st-request-fields">
                 <label>Loại yêu cầu<select name="type" required><option>Gia hạn hợp đồng</option><option>Báo hỏng thiết bị</option><option>Yêu cầu khác</option></select></label>
+                <p class="st-request-guidance-inline" data-request-guidance>${guidance('Gia hạn hợp đồng')}</p>
                 <label data-extension-date>Ngày kết thúc đề xuất
                     <span class="st-date-control">
                         <input type="text" name="extensionEndDateText" maxlength="10" inputmode="numeric" placeholder="dd/mm/yyyy" autocomplete="off" aria-describedby="extension-date-error" required>
@@ -34,13 +35,13 @@
                 <p class="st-field-error" data-form-error role="alert" aria-live="polite"></p>
                 <button class="st-button st-primary" type="submit">Gửi yêu cầu</button>
             </div>
-            <aside class="st-request-guidance"><h3>Hướng dẫn gửi yêu cầu</h3><p data-request-guidance>${guidance('Gia hạn hợp đồng')}</p><p class="st-muted">Bạn có thể theo dõi phản hồi trong mục “Yêu cầu đã gửi”.</p></aside>
         </div>
     </form>`;
     const demoForm = () => `<form id="student-request-form">
         <div class="st-request-layout">
             <div class="st-request-fields">
                 <label>Loại yêu cầu<select name="type" required><option>Gia hạn hợp đồng</option><option>Báo hỏng thiết bị</option><option>Yêu cầu khác</option></select></label>
+                <p class="st-request-guidance-inline" data-request-guidance>${guidance('Gia hạn hợp đồng')}</p>
                 <label data-extension-date>Ngày kết thúc đề xuất
                     <span class="st-date-control">
                         <input type="text" name="extensionEndDateText" maxlength="10" inputmode="numeric" placeholder="dd/mm/yyyy" autocomplete="off" aria-describedby="extension-date-error" required>
@@ -56,7 +57,6 @@
                 <p class="st-field-error" data-form-error role="alert" aria-live="polite"></p>
                 <button class="st-button st-primary" type="submit">Gửi yêu cầu (demo)</button>
             </div>
-            <aside class="st-request-guidance"><h3>Hướng dẫn gửi yêu cầu</h3><p data-request-guidance>${guidance('Gia hạn hợp đồng')}</p><p class="st-muted">Bạn có thể theo dõi phản hồi trong mục “Yêu cầu đã gửi”.</p></aside>
         </div>
     </form>`;
     const normalizeRequest = request => ({

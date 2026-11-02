@@ -147,6 +147,29 @@
         return `Tổng: ${items.length} ${label} (${activeCount} ${activeLabel})`;
     }
 
+    function statusClass(value) {
+        const label = displayLabel(value).trim().toLocaleLowerCase("vi");
+        if (["chờ xác nhận", "còn nợ", "chưa thanh toán", "thanh toán một phần",
+            "chưa xếp phòng", "chờ duyệt", "chờ xử lý", "sắp hết hạn"].includes(label)) {
+            return "admin-status--warning";
+        }
+        if (["đang ở", "còn hiệu lực", "đã thanh toán", "hợp lệ", "thành công",
+            "đang áp dụng"].includes(label)) {
+            return "admin-status--success";
+        }
+        if (["đã rời", "đã rời khỏi", "trễ hạn", "quá hạn", "thất bại", "từ chối"].includes(label)) {
+            return "admin-status--danger";
+        }
+        if (["đầy"].includes(label)) return "admin-status--info";
+        if (["không ghi nhận"].includes(label)) return "admin-status--dark";
+        return "admin-status--neutral";
+    }
+
+    function statusBadge(value, extraClass = "") {
+        const label = displayLabel(value).trim() || "—";
+        return `<span class="admin-status-badge ${statusClass(label)} ${escapeHtml(extraClass)}">${escapeHtml(label)}</span>`;
+    }
+
     function serviceEditMode(editing) {
         const isEditing = Boolean(editing);
         return Object.freeze({
@@ -167,15 +190,16 @@
 
     function renderTable(columns, rows, emptyText = "Không có dữ liệu phù hợp", rowAttributes = () => "", tableClass = "") {
         const header = columns.map(column =>
-            `<th scope="col" class="whitespace-nowrap p-3 align-middle ${column.align === "right" ? "text-right" : "text-left"}">${escapeHtml(column.label)}</th>`
+            `<th scope="col" ${column.align === "right" || column.width ? `style="width:${Number(column.width) || 140}px"` : ""} class="whitespace-nowrap p-3 align-middle ${column.align === "right" ? "text-right tabular-nums" : "text-left"}">${escapeHtml(column.label)}</th>`
         ).join("");
         const body = rows.length ? rows.map((row, index) => `<tr class="border-t" ${rowAttributes(row, index)}>${columns.map(column => {
             const value = column.render(row, index);
             const title = column.title ? ` title="${escapeHtml(column.title(row, index))}"` : "";
-            const longText = column.longText ? " max-w-64 truncate" : "";
-            return `<td class="whitespace-nowrap p-3 align-middle${longText} ${column.align === "right" ? "text-right" : "text-left"}"${title}>${value}</td>`;
+            const longText = column.longText ? " admin-cell-truncate" : "";
+            const width = Number(column.width) || (column.align === "right" ? 140 : 0);
+            return `<td ${Number.isFinite(width) && width > 0 ? `style="width:${width}px;max-width:${width}px"` : ""} class="whitespace-nowrap p-3 align-middle${longText} ${column.align === "right" ? "text-right tabular-nums" : "text-left"}"${title}>${value}</td>`;
         }).join("")}</tr>`).join("") : `<tr><td colspan="${columns.length}" class="p-5 text-center text-slate-500">${escapeHtml(emptyText)}</td></tr>`;
-        return `<table class="min-w-max w-full text-sm text-left ${escapeHtml(tableClass)}"><thead class="bg-slate-100"><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
+        return `<table class="admin-data-table min-w-max w-full text-sm text-left ${escapeHtml(tableClass)}"><thead class="bg-slate-100"><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
     }
 
     function enhanceAdminTables(container) {
@@ -317,19 +341,21 @@
 
     function dateField(label, name, value = "", { required = false, birthDate = false } = {}) {
         const displayValue = normalizeDateInput(String(value ?? "")) || "";
-        return `<div class="block text-sm font-semibold text-slate-700">
-            <label for="date-${escapeHtml(name)}">${escapeHtml(label)}</label>
-            <div class="relative mt-1 flex gap-1">
+        return `<div class="grid grid-cols-[160px_minmax(0,1fr)] items-start gap-3 text-[13px] font-semibold text-[#0f172a]">
+            <label class="pt-2" for="date-${escapeHtml(name)}">${escapeHtml(label)}${required ? ' <span class="text-red-500">*</span>' : ""}</label>
+            <div>
+            <div class="relative flex gap-1">
                 <input id="date-${escapeHtml(name)}" name="${escapeHtml(name)}" type="text" maxlength="10"
                     inputmode="numeric" autocomplete="off" placeholder="dd/mm/yyyy" value="${escapeHtml(displayValue)}"
                     data-admin-date ${birthDate ? 'data-date-birth="true"' : ""} ${required ? "required" : ""}
-                    class="w-full rounded-lg border border-slate-300 px-3 py-2 font-normal">
+                    class="h-[34px] w-full rounded border border-[#e2e8f0] px-3 text-[12px] font-normal">
                 <button type="button" data-action="date-picker-open" aria-label="Chọn ngày"
-                    class="rounded-lg border px-3 text-slate-600" title="Chọn ngày">▦</button>
+                    class="h-[34px] rounded border border-[#e2e8f0] px-3 text-slate-600" title="Chọn ngày">▦</button>
                 <input type="date" data-date-picker aria-hidden="true" tabindex="-1"
                     class="absolute right-0 top-0 h-px w-px opacity-0">
             </div>
             <p class="mt-1 min-h-4 text-xs font-normal text-red-700" data-date-error role="alert"></p>
+            </div>
         </div>`;
     }
 
@@ -353,6 +379,47 @@
     function canChangeRoomTier(room) {
         return Number(room?.SoSinhVienHienTai || 0) === 0
             && Number(room?.SoHopDongConHieuLuc || 0) === 0;
+    }
+
+    function contractRoomSelection(roomName, contracts) {
+        const roomContracts = (contracts || []).filter(contract =>
+            contract.TenPhong === roomName && contract.TrangThaiHopDong === "Còn hiệu lực"
+        );
+        if (roomContracts.length > 1) return { mode: "invalid", contract: null };
+        return roomContracts.length === 1
+            ? { mode: "add-member", contract: roomContracts[0] }
+            : { mode: "create-contract", contract: null };
+    }
+
+    function contractRoomAvailability(rooms, contracts) {
+        const occupied = new Map();
+        const activeContracts = new Map();
+        for (const contract of contracts || []) {
+            if (contract.TrangThaiHopDong !== "Còn hiệu lực") continue;
+            const roomContracts = activeContracts.get(contract.TenPhong) || [];
+            roomContracts.push(contract);
+            activeContracts.set(contract.TenPhong, roomContracts);
+            for (const member of contract.sinhVien || []) {
+                if (member.TrangThai !== "Đang ở") continue;
+                occupied.set(contract.TenPhong, (occupied.get(contract.TenPhong) || 0) + 1);
+            }
+        }
+        return (rooms || [])
+            .filter(room => !["Bảo trì", "Ngưng sử dụng"].includes(room.TrangThaiPhong))
+            .map(room => {
+                const currentOccupants = occupied.get(room.TenPhong) || 0;
+                const contractsForRoom = activeContracts.get(room.TenPhong) || [];
+                return {
+                    ...room,
+                    currentOccupants,
+                    availableSeats: Math.max(0, Number(room.SucChuaToiDa || 0) - currentOccupants),
+                    activeContract: contractsForRoom.length === 1 ? contractsForRoom[0] : null,
+                    activeContractAmbiguous: contractsForRoom.length > 1
+                };
+            })
+            .filter(room => room.availableSeats > 0 && !room.activeContractAmbiguous)
+            .sort((left, right) => left.availableSeats - right.availableSeats
+                || String(left.TenPhong || "").localeCompare(String(right.TenPhong || ""), "vi"));
     }
 
     function tierDraftKey(draft = {}) {
@@ -384,7 +451,7 @@
         CO_DINH_KY: "Cố định theo kỳ",
         PHONG: "Cả phòng",
         CA_NHAN: "Từng người",
-        RECONCILIATION: "Cần đối soát",
+        RECONCILIATION: "Không ghi nhận",
         VALID: "Hợp lệ",
         SUCCESS: "Thành công",
         PENDING: "Chờ xác nhận",
@@ -396,7 +463,7 @@
         UNPAID: "Còn nợ",
         "CHƯA THANH TOÁN": "Còn nợ",
         PARTIAL: "Thanh toán một phần",
-        OVERDUE: "Quá hạn",
+        OVERDUE: "Trễ hạn",
         THANG: "Theo tháng",
         NAM: "Theo năm",
         PENDING_CONFIRMATION: "Chờ xác nhận",
@@ -421,7 +488,7 @@
         "ĐÃ KẾT THÚC": "Đã kết thúc",
         "CÒN HIỆU LỰC": "Còn hiệu lực",
         "CHỜ XÁC NHẬN": "Chờ xác nhận",
-        "CẦN ĐỐI SOÁT": "Cần đối soát",
+        "CẦN ĐỐI SOÁT": "Không ghi nhận",
         "ĐÃ THANH TOÁN": "Đã thanh toán",
         "HỢP LỆ": "Hợp lệ",
         "ĐÃ HỦY": "Đã hủy",
@@ -443,6 +510,16 @@
         return displayLabels[raw.toUpperCase()] || raw;
     }
 
+    function isOverdueInvoice(invoice, today = "") {
+        const dueDate = date(String(invoice?.HanThanhToan ?? "").slice(0, 10), "parse");
+        if (!dueDate || Number(invoice?.ConNo) <= 0 || invoice?.TrangThaiThanhToan === "Đã hủy") return false;
+        const currentDate = today || (() => {
+            const now = new Date();
+            return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        })();
+        return dueDate < currentDate;
+    }
+
     function filterFinancialRows(rows, type, filters = {}) {
         const search = String(filters.search || "").trim().toLocaleLowerCase("vi");
         const status = String(filters.status || "ACTION_REQUIRED");
@@ -452,18 +529,21 @@
         return rows.filter(row => {
             const rowStatus = String(row.TrangThaiThanhToan || row.TrangThai || "");
             const normalizedStatus = displayLabel(rowStatus, "");
+            if (type === "invoices" && status === "OVERDUE" && !isOverdueInvoice(row)) return false;
             if (filters.invoiceType && filters.invoiceType !== "ALL" && row.LoaiHoaDon !== filters.invoiceType) return false;
             const isActionRequired = type === "invoices"
                 ? ["Chưa thanh toán", "Thanh toán một phần", "Còn nợ"].includes(normalizedStatus)
                 : type === "receipts"
                     ? normalizedStatus === "Chờ xác nhận"
                     : type === "payments"
-                        ? ["Cần đối soát", "Chờ xác nhận"].includes(normalizedStatus)
+                        ? ["Không ghi nhận", "Chờ xác nhận"].includes(normalizedStatus)
                         : type === "expenses"
                             ? normalizedStatus === "Chưa lập hóa đơn"
                         : ["Chờ xác nhận", "Cần xử lý"].includes(normalizedStatus);
             if (status === "ACTION_REQUIRED" && !isActionRequired) return false;
-            if (status !== "ACTION_REQUIRED" && status !== "ALL" && normalizedStatus !== displayLabel(status, status)) return false;
+            if (!(status === "OVERDUE" && type === "invoices")
+                && status !== "ACTION_REQUIRED" && status !== "ALL"
+                && normalizedStatus !== displayLabel(status, status)) return false;
             if (method !== "ALL" && String(row.PhuongThuc || "") !== method) return false;
             const searchable = [
                 row.TenPhong, row.MaSinhVien, row.MaSinhVienNop, row.HoTen,
@@ -571,7 +651,8 @@
     const utils = Object.freeze({
         escapeHtml, parseVnd, parseVndNonNegative, formatVnd, exceedsBalance,
         refundReasonRequired, invoicePersonLabel, amountInWords, date, dateTime, tierForRoom,
-        displayLabel, filterFinancialRows, serviceCanBeActive, canChangeRoomTier, hasTierDraftChanges, sanitizeDateInput, normalizeDateInput,
+        displayLabel, statusClass, statusBadge, filterFinancialRows, isOverdueInvoice, serviceCanBeActive, canChangeRoomTier,
+        contractRoomAvailability, contractRoomSelection, hasTierDraftChanges, sanitizeDateInput, normalizeDateInput,
         validateDateInput, filterRows, paginateRows, groupContractDetails, renderTable, dateField, bindDateInputs,
         listSummary, serviceEditMode
         , enhanceAdminTables

@@ -12,6 +12,24 @@ test("Admin money helpers accept positive integer VND and format thousands", () 
     assert.equal(utils.parseVnd("1.5"), null);
     assert.equal(utils.formatVnd(1250000), "1.250.000\u00a0đ");
     assert.equal(utils.formatVnd(-1250000), "-1.250.000\u00a0đ");
+    const table = utils.renderTable([
+        { label: "Đơn giá", align: "right", render: row => utils.formatVnd(row.amount) }
+    ], [{ amount: 1250000 }]);
+    assert.match(table, /<th[^>]+style="width:140px"[^>]+text-right tabular-nums/);
+    assert.match(table, /style="width:140px;max-width:140px"[^>]+text-right tabular-nums/);
+});
+
+test("Admin status badges use one consistent status color mapping", () => {
+    assert.match(utils.statusBadge("Đang ở"), /admin-status--success/);
+    assert.match(utils.statusBadge("Chưa xếp phòng"), /admin-status--warning/);
+    assert.match(utils.statusBadge("Đã rời khỏi"), /admin-status--danger/);
+    assert.match(utils.statusBadge("Trống"), /admin-status--neutral/);
+    assert.match(utils.statusBadge("Đầy"), /admin-status--info/);
+    assert.match(utils.statusBadge("Còn hiệu lực"), /admin-status--success/);
+    assert.match(utils.statusBadge("Đã kết thúc"), /admin-status--neutral/);
+    assert.match(utils.statusBadge("Trễ hạn"), /admin-status--danger/);
+    assert.match(utils.statusBadge("Chờ xác nhận"), /admin-status--warning/);
+    assert.match(utils.statusBadge("Không ghi nhận"), /admin-status--dark/);
 });
 
 test("Shared table filters, pagination, grouping, and rendering preserve row and column counts", () => {
@@ -127,15 +145,64 @@ test("Selecting a room resolves its exact tier instead of defaulting to the firs
     assert.match(source, /maHangPhong: roomTier/);
 });
 
+test("Contract room options use current members, exclude unusable/full rooms, and sort by remaining seats", () => {
+    const rooms = [
+        { TenPhong: "B2", SucChuaToiDa: 4, SoSinhVienHienTai: 0, TrangThaiPhong: "Trống" },
+        { TenPhong: "A1", SucChuaToiDa: 4, SoSinhVienHienTai: 3, TrangThaiPhong: "Trống" },
+        { TenPhong: "C3", SucChuaToiDa: 4, SoSinhVienHienTai: 4, TrangThaiPhong: "Trống" },
+        { TenPhong: "D4", SucChuaToiDa: 4, TrangThaiPhong: "Bảo trì" },
+        { TenPhong: "E5", SucChuaToiDa: 4, TrangThaiPhong: "Ngưng sử dụng" }
+    ];
+    const contracts = [
+        { MaHopDong: "HD-A1", TenPhong: "A1", TrangThaiHopDong: "Còn hiệu lực",
+            sinhVien: [{ TrangThai: "Đang ở" }, { TrangThai: "Đang ở" }, { TrangThai: "Đã rời" }] },
+        { MaHopDong: "HD-B2", TenPhong: "B2", TrangThaiHopDong: "Còn hiệu lực",
+            sinhVien: [{ TrangThai: "Đang ở" }, { TrangThai: "Đã rời" }] },
+        { TenPhong: "C3", TrangThaiHopDong: "Còn hiệu lực", sinhVien: Array.from({ length: 4 }, () => ({ TrangThai: "Đang ở" })) }
+    ];
+    assert.deepEqual(utils.contractRoomAvailability(rooms, contracts).map(room =>
+        [room.TenPhong, room.currentOccupants, room.availableSeats]), [
+        ["A1", 2, 2], ["B2", 1, 3]
+    ]);
+});
+
+test("Contract room selection routes active rooms to member-add and new rooms to contract-create", () => {
+    const rooms = [
+        { TenPhong: "A1", SucChuaToiDa: 4, TrangThaiPhong: "Trống" },
+        { TenPhong: "B2", SucChuaToiDa: 4, TrangThaiPhong: "Trống" }
+    ];
+    const contracts = [
+        {
+            MaHopDong: "HD00042", TenPhong: "A1", TrangThaiHopDong: "Còn hiệu lực",
+            sinhVien: [{ TrangThai: "Đang ở" }, { TrangThai: "Đang ở" }]
+        }
+    ];
+    const options = utils.contractRoomAvailability(rooms, contracts);
+    assert.equal(options.find(room => room.TenPhong === "A1").activeContract.MaHopDong, "HD00042");
+    assert.deepEqual(utils.contractRoomSelection("A1", contracts), {
+        mode: "add-member", contract: contracts[0]
+    });
+    assert.deepEqual(utils.contractRoomSelection("B2", contracts), {
+        mode: "create-contract", contract: null
+    });
+    assert.equal(utils.contractRoomSelection("A1", [
+        ...contracts, { ...contracts[0], MaHopDong: "HD00043" }
+    ]).mode, "invalid");
+    assert.deepEqual(options.map(room => [room.TenPhong, room.activeContract?.MaHopDong || null]), [
+        ["A1", "HD00042"], ["B2", null]
+    ]);
+});
+
 test("Admin display labels translate persisted payment and workflow codes without changing values", () => {
     assert.equal(utils.displayLabel("CASH"), "Tiền mặt");
     assert.equal(utils.displayLabel("ONLINE"), "Chuyển khoản (QR)");
     assert.equal(utils.displayLabel("CHUYEN_DOI"), "Chuyển đổi dữ liệu cũ");
     assert.equal(utils.displayLabel("Chưa thanh toán"), "Còn nợ");
-    assert.equal(utils.displayLabel("RECONCILIATION"), "Cần đối soát");
+    assert.equal(utils.displayLabel("RECONCILIATION"), "Không ghi nhận");
+    assert.equal(utils.displayLabel("Cần đối soát"), "Không ghi nhận");
     assert.equal(utils.displayLabel("PENDING"), "Chờ xác nhận");
     assert.equal(utils.displayLabel("VALID"), "Hợp lệ");
-    assert.equal(utils.displayLabel("OVERDUE"), "Quá hạn");
+    assert.equal(utils.displayLabel("OVERDUE"), "Trễ hạn");
     assert.equal(utils.displayLabel("CHI_SO"), "Theo chỉ số công tơ");
     assert.equal(utils.displayLabel("CO_DINH_KY"), "Cố định theo kỳ");
     assert.equal(utils.displayLabel("PHONG"), "Cả phòng");
@@ -154,6 +221,23 @@ test("Financial filters default to actionable rows and allow all rows", () => {
     ];
     assert.deepEqual(utils.filterFinancialRows(receipts, "receipts").map(row => row.MaPhieuThu), ["PT01"]);
     assert.equal(utils.filterFinancialRows(receipts, "receipts", { status: "ALL" }).length, 3);
+});
+
+test("Invoice overdue label and filter derive from the due date and outstanding balance", () => {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const rows = [
+        { MaHoaDon: "OLD-OWED", HanThanhToan: "2000-01-01", ConNo: 100, TrangThaiThanhToan: "Chưa thanh toán" },
+        { MaHoaDon: "TODAY", HanThanhToan: today, ConNo: 100, TrangThaiThanhToan: "Chưa thanh toán" },
+        { MaHoaDon: "PAID", HanThanhToan: "2000-01-01", ConNo: 0, TrangThaiThanhToan: "Đã thanh toán" },
+        { MaHoaDon: "CANCELLED", HanThanhToan: "2000-01-01", ConNo: 100, TrangThaiThanhToan: "Đã hủy" }
+    ];
+    assert.equal(utils.isOverdueInvoice(rows[0], today), true);
+    assert.equal(utils.isOverdueInvoice(rows[1], today), false);
+    assert.equal(utils.isOverdueInvoice(rows[2], today), false);
+    assert.equal(utils.isOverdueInvoice(rows[3], today), false);
+    assert.deepEqual(utils.filterFinancialRows(rows, "invoices", { status: "OVERDUE" })
+        .map(row => row.MaHoaDon), ["OLD-OWED"]);
 });
 
 test("A zero-priced tier service cannot be enabled", () => {
@@ -240,6 +324,8 @@ test("Active Admin date fields are text inputs using the shared date utility", (
     assert.match(adminWorkflows, /U\.dateField/);
     assert.match(utilsSource, /data-date-picker/);
     assert.match(utilsSource, /data-admin-date/);
+    assert.match(utilsSource, /grid-cols-\[160px_minmax\(0,1fr\)\]/);
+    assert.match(utilsSource, /data-date-picker/);
     assert.doesNotMatch(students, /type="date"/);
     assert.doesNotMatch(approvals, /type="date"/);
     assert.match(adminWorkflows, /U\.date\(value, "parse"\)/);

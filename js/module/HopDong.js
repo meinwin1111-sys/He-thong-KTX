@@ -86,7 +86,8 @@ function renderHopDongModule() {
 
 
 <!-- ================= TABLE ================= -->
-<div class="bg-white rounded-xl border overflow-x-auto">
+<p id="showingHD" class="admin-list-summary text-sm text-slate-600" aria-live="polite"></p>
+<div data-no-admin-filters class="bg-white rounded-xl border overflow-x-auto">
 <table class="min-w-[1500px] w-full table-fixed">
 <colgroup>
     <col class="w-[140px]"><col class="w-[180px]"><col class="w-[190px]"><col class="w-[120px]">
@@ -107,8 +108,6 @@ function renderHopDongModule() {
 
 <!-- ================= FOOTER ================= -->
 <div class="px-6 py-4 flex justify-between items-center text-sm text-slate-500">
-    <!-- Hiển thị số dòng -->
-    <span id="showingHD"></span>
 <div id="paginationHD" class="flex items-center gap-2"></div>
 </div>
 
@@ -428,6 +427,7 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
 
     <!-- TABLE (SCROLL) -->
     <div class="flex-1 overflow-y-auto">
+        <p id="historyCount" class="px-6 py-2 text-sm text-slate-600" aria-live="polite"></p>
         <table class="w-full text-sm">
 
 
@@ -456,9 +456,6 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
 
     <!-- FOOTER (KHÔNG SCROLL) -->
     <div class="px-6 py-4 flex justify-between items-center text-sm text-slate-500 border-t">
-
-
-        <span id="historyCount"></span>
 
 
         <div class="flex items-center gap-2">
@@ -803,13 +800,7 @@ function renderTableWarning() {
 
 
             <td class="px-6 py-4">
-                <span class="inline-flex shrink-0 items-center justify-center whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold
-                    ${status === "Còn hiệu lực"
-                        ? "bg-green-100 text-green-600"
-                        : status === "Sắp hết hạn"
-                            ? "bg-orange-100 text-orange-500"
-                            : status === "Chưa xác định" ? "bg-slate-100 text-slate-600" : "bg-slate-200 text-slate-500"
-                    }">
+                <span class="admin-status-badge ${window.AdminWorkflowUtils.statusClass(status)}">
                     ${status}
                 </span>
             </td>
@@ -850,10 +841,6 @@ function renderTableWarning() {
         </tr>
         `;
     }).join("");
-
-
-    document.getElementById("showingHD").innerText =
-        `Hiển thị ${data.length}/${filteredHopDong.length} hợp đồng`;
 
 
     renderPaginationHD();
@@ -904,13 +891,7 @@ function renderHopDongTable() {
 
 
             <td class="px-6 py-4">
-                <span class="inline-flex shrink-0 items-center justify-center whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold
-                    ${status === "Còn hiệu lực"
-                        ? "bg-green-100 text-green-600"
-                        : status === "Sắp hết hạn"
-                            ? "bg-orange-100 text-orange-500"
-                            : status === "Chưa xác định" ? "bg-slate-100 text-slate-600" : "bg-slate-200 text-slate-500"
-                    }">
+                <span class="admin-status-badge ${window.AdminWorkflowUtils.statusClass(status)}">
                     ${status}
                 </span>
             </td>
@@ -958,10 +939,6 @@ function renderHopDongTable() {
     }).join("");
 
 
-    document.getElementById("showingHD").innerText =
-        `Hiển thị ${start + 1}-${start + data.length}/${filteredHopDong.length} hợp đồng`;
-
-
     renderPaginationHD();
 }
 
@@ -972,13 +949,10 @@ function renderPaginationHD() {
     const totalPages = Math.ceil(totalRows / rowsPerPageHD) || 1;
 
 
-    const start = totalRows === 0 ? 0 : (currentPageHD - 1) * rowsPerPageHD + 1;
-    const end = Math.min(currentPageHD * rowsPerPageHD, totalRows);
-
-
-    // TEXT: Hiển thị 1-10/135
+    const activeCount = rawHopDong.filter(contract => contract.TrangThai === "Còn hiệu lực").length;
+    const endedCount = rawHopDong.filter(contract => contract.TrangThai === "Đã kết thúc").length;
     document.getElementById("showingHD").innerText =
-        `Hiển thị ${start}-${end}/${totalRows} hợp đồng`;
+        `Tổng: ${rawHopDong.length} hợp đồng · ${activeCount} đang hiệu lực · ${endedCount} đã kết thúc · ${totalRows} phù hợp`;
 
 
     // UI pagination giống phòng
@@ -1464,13 +1438,7 @@ function renderHistoryTable() {
 
 
             <td class="px-6 py-4 whitespace-nowrap">
-                <span class="inline-flex items-center justify-center whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold
-                ${status === "Còn hiệu lực"
-                    ? "bg-green-100 text-green-600"
-                    : status === "Sắp hết hạn"
-                        ? "bg-orange-100 text-orange-500"
-                        : status === "Chưa xác định" ? "bg-slate-100 text-slate-600" : "bg-slate-200 text-slate-500"
-                }">
+                <span class="admin-status-badge ${window.AdminWorkflowUtils.statusClass(status)}">
                     ${status}
                 </span>
             </td>
@@ -1502,7 +1470,7 @@ function renderHistoryTable() {
 
     // update footer
     document.getElementById("historyCount").innerText =
-        `Hiển thị ${start + 1}-${Math.min(end, historyHD.length)}/${historyHD.length} hợp đồng`;
+        `Tổng: ${historyHD.length} sự kiện lịch sử hợp đồng`;
 
 
     const totalPages = Math.ceil(historyHD.length / historyPageSize);

@@ -238,6 +238,24 @@ test("student notifications are session-scoped and admin removal is a soft delet
     assert.doesNotMatch(harness.queries[1].statement, /\bDELETE\s+FROM\b/i);
 });
 
+test("QR demo confirmation is unavailable when the feature flag is disabled", async () => {
+    const original = process.env.ALLOW_DEMO_PAYMENT;
+    delete process.env.ALLOW_DEMO_PAYMENT;
+    try {
+        const harness = fakeApi();
+        const result = await invoke(harness, "post", "/api/payments/demo-confirm", {
+            auth: { role: "Sinh viên", accountId: 23, studentId: "SV-A" },
+            body: { MaHoaDon: "INV1", MaGiaoDich: `PAY-${"A".repeat(32)}` }
+        });
+        assert.equal(result.statusCode, 503);
+        assert.equal(result.body.message, "Thanh toán QR demo đang tắt.");
+        assert.equal(harness.queries.length, 0);
+    } finally {
+        if (original === undefined) delete process.env.ALLOW_DEMO_PAYMENT;
+        else process.env.ALLOW_DEMO_PAYMENT = original;
+    }
+});
+
 test("Yêu cầu khác requires non-empty description and rejects proposed end dates", async () => {
     const harness = fakeApi({
         queryResult: call => call.statement.includes("SELECT sv.TenPhong")
@@ -1520,6 +1538,546 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
     } finally {
         if (server) await new Promise(resolve => server.close(resolve));
         restoreEnvironment();
+        await pool.close();
+    }
+});
+
+test("real SQL Server overdue reminders use invoice scope, audit sender, recheck debt, and serialize duplicates", {
+    skip: process.env.DB_NAME !== "KTX_Group3_test"
+        ? "Only runs when DB_NAME is explicitly set to KTX_Group3_test."
+        : false
+}, async t => {
+    require("dotenv").config({ path: require("node:path").join(__dirname, ".env") });
+    assert.equal(process.env.DB_NAME, "KTX_Group3_test");
+    if (!process.env.DB_SERVER || !process.env.DB_USER || !process.env.DB_PASSWORD) {
+        throw new Error("Thiếu cấu hình kết nối SQL Server; không thể chạy kiểm thử nhắc nợ thật.");
+    }
+    const pool = await new sql.ConnectionPool({
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        server: process.env.DB_SERVER,
+        port: Number(process.env.DB_PORT) || undefined,
+        database: process.env.DB_NAME,
+        options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true, useUTC: true }
+    }).connect();
+    let server;
+    let fixture;
+    const invoiceIds = new Set();
+    try {
+        const identity = await pool.request().query("SELECT DB_NAME() AS DatabaseName");
+        assert.equal(identity.recordset[0].DatabaseName, "KTX_Group3_test");
+        fixture = await createSqlIntegrationFixture(pool, sql, {
+            roomMemberCount: 3,
+            createOtherRoomStudent: true
+        });
+        const [departedStudent, activeStudentA, activeStudentB, otherRoomStudent] = fixture.studentIds;
+        const startDate = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+        const periodText = startDate.toISOString().slice(0, 10);
+        const endDate = new Date(Date.UTC(
+            startDate.getUTCFullYear() + 3, startDate.getUTCMonth(), startDate.getUTCDate()
+        )).toISOString().slice(0, 10);
+        const app = express();
+        app.use(express.json());
+        app.use((req, _res, next) => {
+            if (req.get("x-test-role") === "manager") {
+                req.auth = { accountId: fixture.managerId, role: "Quản lý" };
+            } else if (req.get("x-test-role") === "student") {
+                req.auth = { role: "Sinh viên", studentId: req.get("x-test-student") };
+            }
+            next();
+        });
+        registerApiRoutes(app, {
+            getPool: () => pool,
+            sql,
+            bcrypt: require("bcryptjs"),
+            mapPaymentStatusToDatabase: value => value,
+            mapPaymentMethodToDatabase: value => value,
+            rollback: async transaction => transaction.rollback()
+        });
+        await new Promise((resolve, reject) => {
+            server = app.listen(0, "127.0.0.1", resolve);
+            server.once("error", reject);
+        });
+        const baseUrl = `http://127.0.0.1:${server.address().port}`;
+        const call = async (method, route, role, studentId, body) => {
+            const headers = {};
+            if (body !== undefined) headers["Content-Type"] = "application/json";
+            if (role) headers["x-test-role"] = role;
+            if (studentId) headers["x-test-student"] = studentId;
+            const response = await fetch(`${baseUrl}${route}`, {
+                method,
+                headers,
+                ...(body === undefined ? {} : { body: JSON.stringify(body) })
+            });
+            return { status: response.status, body: await response.json() };
+        };
+        const contractResponse = await call("POST", "/api/HopDong", "manager", null, {
+            tenPhong: fixture.roomA,
+            maHangPhong: fixture.tierId,
+            ngayBatDau: periodText,
+            ngayKetThuc: endDate,
+            sinhVien: [departedStudent, activeStudentA, activeStudentB].map((maSinhVien, index) => ({
+                maSinhVien, kyHanThanhToanPhong: "THANG", laNguoiDaiDien: index === 0
+            }))
+        });
+        assert.equal(contractResponse.status, 201, JSON.stringify(contractResponse.body));
+        const contractId = contractResponse.body.MaHopDong;
+        const otherContractResponse = await call("POST", "/api/HopDong", "manager", null, {
+            tenPhong: fixture.roomB,
+            maHangPhong: fixture.tierId,
+            ngayBatDau: periodText,
+            ngayKetThuc: endDate,
+            sinhVien: [{ maSinhVien: otherRoomStudent, kyHanThanhToanPhong: "THANG", laNguoiDaiDien: true }]
+        });
+        assert.equal(otherContractResponse.status, 201, JSON.stringify(otherContractResponse.body));
+        const detailsResult = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .query(`
+                SELECT MaChiTiet, MaSinhVien
+                FROM dbo.ChiTietHopDong
+                WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
+            `);
+        const details = new Map(detailsResult.recordset.map(row => [row.MaSinhVien, row.MaChiTiet]));
+        const otherDetailsResult = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), otherContractResponse.body.MaHopDong)
+            .query(`
+                SELECT MaChiTiet, MaSinhVien
+                FROM dbo.ChiTietHopDong
+                WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
+            `);
+        const otherDetails = new Map(otherDetailsResult.recordset.map(row => [row.MaSinhVien, row.MaChiTiet]));
+        const overdueInvoice = async studentId => {
+            const result = await call("POST", "/api/HoaDon/xuat-ky", "manager", null, {
+                loaiHoaDon: "TIEN_PHONG",
+                maChiTiet: details.get(studentId) || otherDetails.get(studentId),
+                kyThanhToan: periodText
+            });
+            assert.equal(result.status, 201, JSON.stringify(result.body));
+            invoiceIds.add(result.body.MaHoaDon);
+            await pool.request()
+                .input("MaHoaDon", sql.NVarChar(20), result.body.MaHoaDon)
+                .query("UPDATE dbo.HoaDon SET HanThanhToan = DATEADD(day, -1, CONVERT(date, SYSDATETIME())) WHERE MaHoaDon = @MaHoaDon");
+            return result.body.MaHoaDon;
+        };
+        const rentInvoice = await overdueInvoice(departedStudent);
+        const concurrencyInvoice = await overdueInvoice(activeStudentA);
+        const paidInvoice = await overdueInvoice(otherRoomStudent);
+        const leave = await call(
+            "PUT", `/api/HopDong/${contractId}/chitiet/${details.get(departedStudent)}/roi`, "manager", null, {}
+        );
+        assert.equal(leave.status, 200, JSON.stringify(leave.body));
+
+        const serviceResult = await call("POST", "/api/HoaDon/xuat-ky", "manager", null, {
+            loaiHoaDon: "DICH_VU_PHONG", maHopDong: contractId, kyThanhToan: periodText
+        });
+        assert.equal(serviceResult.status, 201, JSON.stringify(serviceResult.body));
+        const serviceInvoice = serviceResult.body.MaHoaDon;
+        invoiceIds.add(serviceInvoice);
+        const expenseResult = await call("POST", "/api/ChiPhiPhatSinh", "manager", null, {
+            maHopDong: contractId,
+            maChiTiet: details.get(activeStudentB),
+            noiDung: `Reminder test ${fixture.tierId}`,
+            soTien: 250,
+            ngayPhatSinh: periodText
+        });
+        assert.equal(expenseResult.status, 201, JSON.stringify(expenseResult.body));
+        const incidentResult = await call(
+            "POST", `/api/ChiPhiPhatSinh/${expenseResult.body.MaChiPhi}/tao-hoa-don`, "manager", null, {}
+        );
+        assert.equal(incidentResult.status, 201, JSON.stringify(incidentResult.body));
+        const incidentInvoice = incidentResult.body.MaHoaDon;
+        invoiceIds.add(incidentInvoice);
+
+        await pool.request()
+            .input("ServiceInvoice", sql.NVarChar(20), serviceInvoice)
+            .input("IncidentInvoice", sql.NVarChar(20), incidentInvoice)
+            .query(`
+                UPDATE dbo.HoaDon
+                SET HanThanhToan = DATEADD(day, -1, CONVERT(date, SYSDATETIME()))
+                WHERE MaHoaDon IN (@ServiceInvoice, @IncidentInvoice)
+            `);
+
+        const rentReminder = await call("POST", `/api/HoaDon/${rentInvoice}/nhac-no`, "manager", null, {});
+        assert.equal(rentReminder.status, 201, JSON.stringify(rentReminder.body));
+        assert.equal(rentReminder.body.SoSinhVienNhan, 1);
+        const repeatedRentReminder = await call("POST", `/api/HoaDon/${rentInvoice}/nhac-no`, "manager", null, {});
+        assert.equal(repeatedRentReminder.status, 409);
+        const serviceReminder = await call("POST", `/api/HoaDon/${serviceInvoice}/nhac-no`, "manager", null, {});
+        const incidentReminder = await call("POST", `/api/HoaDon/${incidentInvoice}/nhac-no`, "manager", null, {});
+        assert.equal(serviceReminder.status, 201, JSON.stringify(serviceReminder.body));
+        assert.equal(serviceReminder.body.SoSinhVienNhan, 2);
+        assert.equal(incidentReminder.status, 201, JSON.stringify(incidentReminder.body));
+        assert.equal(incidentReminder.body.SoSinhVienNhan, 2);
+
+        for (const [invoiceId, expected] of [
+            [rentInvoice, [departedStudent]],
+            [serviceInvoice, [activeStudentA, activeStudentB]],
+            [incidentInvoice, [activeStudentA, activeStudentB]]
+        ]) {
+            const notices = await pool.request()
+                .input("MaHoaDon", sql.NVarChar(20), invoiceId)
+                .query(`
+                    SELECT MaSinhVien, NguoiTao, NgayTao, TieuDe, NoiDung, DaXoa
+                    FROM dbo.ThongBao
+                    WHERE MaHoaDon = @MaHoaDon
+                `);
+            assert.deepEqual(notices.recordset.map(row => row.MaSinhVien).sort(), [...expected].sort());
+            assert(notices.recordset.every(row => row.NguoiTao === fixture.managerId && row.NgayTao && row.DaXoa === false));
+            assert(notices.recordset.every(row => row.NoiDung.includes(invoiceId)));
+            assert.equal(notices.recordset.some(row => row.MaSinhVien === otherRoomStudent), false);
+        }
+
+        const currentMembers = [...details.entries()]
+            .filter(([studentId]) => studentId !== departedStudent)
+            .map(([, detailId]) => detailId);
+        const currentRoomMembers = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .query(`
+                SELECT MaSinhVien
+                FROM dbo.ChiTietHopDong
+                WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
+            `);
+        assert.deepEqual(currentRoomMembers.recordset.map(row => row.MaSinhVien).sort(),
+            [activeStudentA, activeStudentB].sort());
+        assert.equal(currentMembers.length, 2);
+
+        const concurrent = await Promise.all([1, 2].map(() =>
+            call("POST", `/api/HoaDon/${concurrencyInvoice}/nhac-no`, "manager", null, {})));
+        assert.deepEqual(concurrent.map(result => result.status).sort(), [201, 409]);
+        const concurrentCount = await pool.request()
+            .input("MaHoaDon", sql.NVarChar(20), concurrencyInvoice)
+            .query("SELECT COUNT_BIG(*) AS ReminderCount FROM dbo.ThongBao WHERE MaHoaDon = @MaHoaDon");
+        assert.equal(Number(concurrentCount.recordset[0].ReminderCount), 1);
+
+        const paidAmount = await pool.request()
+            .input("MaHoaDon", sql.NVarChar(20), paidInvoice)
+            .query(`
+                SELECT v.TongThuc, v.ConNo
+                FROM dbo.vw_HoaDonTongHop v
+                WHERE v.MaHoaDon = @MaHoaDon
+            `);
+        const paid = await call("POST", `/api/HoaDon/${paidInvoice}/phieuthu`, "manager", null, {
+            soTien: Number(paidAmount.recordset[0].TongThuc),
+            phuongThuc: "CASH",
+            trangThai: "Hợp lệ",
+            maSinhVienNop: otherRoomStudent
+        });
+        assert.equal(paid.status, 201, JSON.stringify(paid.body));
+        const paidReminder = await call("POST", `/api/HoaDon/${paidInvoice}/nhac-no`, "manager", null, {});
+        assert.equal(paidReminder.status, 409);
+        const noPaidReminder = await pool.request()
+            .input("MaHoaDon", sql.NVarChar(20), paidInvoice)
+            .query("SELECT COUNT_BIG(*) AS ReminderCount FROM dbo.ThongBao WHERE MaHoaDon = @MaHoaDon");
+        assert.equal(Number(noPaidReminder.recordset[0].ReminderCount), 0);
+
+        const otherRoomNotices = await call("GET", "/api/student/notifications", "student", otherRoomStudent);
+        assert.equal(otherRoomNotices.status, 200);
+        assert.equal(otherRoomNotices.body.some(row =>
+            [...invoiceIds].some(invoiceId => row.TieuDe.includes(invoiceId))), false);
+
+        t.diagnostic(
+            `Real SQL reminders on ${fixture.tierId}: TIEN_PHONG -> departed member only; DICH_VU_PHONG/PHAT_SINH -> current room members; other room excluded; duplicate blocked; concurrent result ${JSON.stringify(concurrent.map(result => result.status))}; fully paid invoice blocked; sender/time audited.`
+        );
+    } finally {
+        if (server) await new Promise(resolve => server.close(resolve));
+        if (pool.connected && invoiceIds.size) {
+            const cleanup = new sql.Transaction(pool);
+            await cleanup.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            try {
+                for (const invoiceId of invoiceIds) {
+                    await new sql.Request(cleanup)
+                        .input("MaHoaDon", sql.NVarChar(20), invoiceId)
+                        .query("UPDATE dbo.ThongBao SET DaXoa = 1 WHERE MaHoaDon = @MaHoaDon AND DaXoa = 0");
+                }
+                await cleanup.commit();
+            } catch (error) {
+                await cleanup.rollback();
+                throw error;
+            }
+        }
+        await pool.close();
+    }
+});
+
+test("real SQL Server QR demo records one valid receipt, blocks repeats, and reconciles overpayment", {
+    skip: process.env.DB_NAME !== "KTX_Group3_test"
+        ? "Only runs when DB_NAME is explicitly set to KTX_Group3_test."
+        : false
+}, async t => {
+    require("dotenv").config({ path: require("node:path").join(__dirname, ".env") });
+    assert.equal(process.env.DB_NAME, "KTX_Group3_test");
+    if (!process.env.DB_SERVER || !process.env.DB_USER || !process.env.DB_PASSWORD) {
+        throw new Error("Thiếu cấu hình kết nối SQL Server; không thể chạy kiểm thử QR demo thật.");
+    }
+    const pool = await new sql.ConnectionPool({
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        server: process.env.DB_SERVER,
+        port: Number(process.env.DB_PORT) || undefined,
+        database: process.env.DB_NAME,
+        options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true, useUTC: true }
+    }).connect();
+    let server;
+    const fixtureEnvironment = {};
+    for (const name of [
+        "ALLOW_DEMO_PAYMENT", "PAYMENT_BANK_BIN", "PAYMENT_BANK_ACCOUNT_NO",
+        "PAYMENT_BANK_ACCOUNT_NAME", "PAYMENT_WEBHOOK_SECRET"
+    ]) fixtureEnvironment[name] = process.env[name];
+    try {
+        const identity = await pool.request().query("SELECT DB_NAME() AS DatabaseName");
+        assert.equal(identity.recordset[0].DatabaseName, "KTX_Group3_test");
+        const fixture = await createSqlIntegrationFixture(pool, sql, {
+            roomMemberCount: 2,
+            createOtherRoomStudent: false
+        });
+        const [studentA, studentB] = fixture.studentIds;
+        const studentAccounts = new Map();
+        for (const studentId of [studentA, studentB]) {
+            const account = await pool.request()
+                .input("Email", sql.VarChar(100), `${studentId.toLowerCase()}@gmail.com`)
+                .input("TenHienThi", sql.NVarChar(100), `Demo ${studentId}`)
+                .input("MaSinhVien", sql.NVarChar(30), studentId)
+                .query(`
+                    INSERT INTO dbo.TaiKhoan (Email, MatKhau, TenHienThi, VaiTro, MaSinhVien)
+                    OUTPUT inserted.MaTaiKhoan
+                    VALUES (@Email, 'test-only-not-authenticated', @TenHienThi, N'Sinh viên', @MaSinhVien)
+                `);
+            studentAccounts.set(studentId, account.recordset[0].MaTaiKhoan);
+        }
+
+        const startDate = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+        const periodText = startDate.toISOString().slice(0, 10);
+        const endDate = new Date(Date.UTC(
+            startDate.getUTCFullYear() + 3, startDate.getUTCMonth(), startDate.getUTCDate()
+        )).toISOString().slice(0, 10);
+        const app = express();
+        app.use(express.json());
+        app.use((req, _res, next) => {
+            if (req.get("x-test-role") === "manager") {
+                req.auth = { accountId: fixture.managerId, role: "Quản lý" };
+            } else if (req.get("x-test-role") === "student") {
+                const studentId = req.get("x-test-student");
+                req.auth = {
+                    accountId: studentAccounts.get(studentId),
+                    role: "Sinh viên",
+                    studentId
+                };
+            }
+            next();
+        });
+        registerApiRoutes(app, {
+            getPool: () => pool,
+            sql,
+            bcrypt: require("bcryptjs"),
+            mapPaymentStatusToDatabase: value => ({
+                PENDING: "PENDING",
+                WAITING_CASH: "Chờ xác nhận",
+                SUCCESS: "SUCCESS",
+                REJECTED: "REJECTED",
+                EXPIRED: "EXPIRED",
+                RECONCILIATION: "RECONCILIATION",
+                "Hợp lệ": "Hợp lệ",
+                "Chờ xác nhận": "Chờ xác nhận",
+                "Đã hủy": "Đã hủy"
+            })[value] || null,
+            mapPaymentMethodToDatabase: value => ({
+                CASH: "CASH", ONLINE: "ONLINE", CHUYEN_DOI: "CHUYEN_DOI"
+            })[value] || null,
+            rollback: async transaction => transaction.rollback()
+        });
+        await new Promise((resolve, reject) => {
+            server = app.listen(0, "127.0.0.1", resolve);
+            server.once("error", reject);
+        });
+        const baseUrl = `http://127.0.0.1:${server.address().port}`;
+        const call = async (method, route, role, studentId, body) => {
+            const headers = {};
+            if (body !== undefined) headers["Content-Type"] = "application/json";
+            if (role) headers["x-test-role"] = role;
+            if (studentId) headers["x-test-student"] = studentId;
+            const response = await fetch(`${baseUrl}${route}`, {
+                method,
+                headers,
+                ...(body === undefined ? {} : { body: JSON.stringify(body) })
+            });
+            return { status: response.status, body: await response.json() };
+        };
+        const contract = await call("POST", "/api/HopDong", "manager", null, {
+            tenPhong: fixture.roomA,
+            maHangPhong: fixture.tierId,
+            ngayBatDau: periodText,
+            ngayKetThuc: endDate,
+            sinhVien: [studentA, studentB].map((maSinhVien, index) => ({
+                maSinhVien, kyHanThanhToanPhong: "THANG", laNguoiDaiDien: index === 0
+            }))
+        });
+        assert.equal(contract.status, 201, JSON.stringify(contract.body));
+        const members = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contract.body.MaHopDong)
+            .query(`
+                SELECT MaChiTiet, MaSinhVien
+                FROM dbo.ChiTietHopDong
+                WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
+            `);
+        const memberDetails = new Map(members.recordset.map(row => [row.MaSinhVien, row.MaChiTiet]));
+        const invoiceIds = new Map();
+        for (const studentId of [studentA, studentB]) {
+            const invoice = await call("POST", "/api/HoaDon/xuat-ky", "manager", null, {
+                loaiHoaDon: "TIEN_PHONG",
+                maChiTiet: memberDetails.get(studentId),
+                kyThanhToan: periodText
+            });
+            assert.equal(invoice.status, 201, JSON.stringify(invoice.body));
+            invoiceIds.set(studentId, invoice.body.MaHoaDon);
+            await pool.request()
+                .input("MaHoaDon", sql.NVarChar(20), invoice.body.MaHoaDon)
+                .query(`
+                    UPDATE dbo.ChiTietHoaDon
+                    SET SoTien = 300, DonGia = 300
+                    WHERE MaHoaDon = @MaHoaDon
+                `);
+        }
+
+        Object.assign(process.env, {
+            ALLOW_DEMO_PAYMENT: "false",
+            PAYMENT_BANK_BIN: "970415",
+            PAYMENT_BANK_ACCOUNT_NO: "123456789012",
+            PAYMENT_BANK_ACCOUNT_NAME: "KTX TEST",
+            PAYMENT_WEBHOOK_SECRET: `test-${crypto.randomBytes(24).toString("hex")}`
+        });
+        const invoiceA = invoiceIds.get(studentA);
+        const requestA = await call("POST", "/api/payments/create", "student", studentA, {
+            MaHoaDon: invoiceA, PhuongThuc: "ONLINE"
+        });
+        assert.equal(requestA.status, 201, JSON.stringify(requestA.body));
+        const disabledDemo = await call("POST", "/api/payments/demo-confirm", "student", studentA, {
+            MaHoaDon: invoiceA, MaGiaoDich: requestA.body.MaGiaoDich
+        });
+        assert.equal(disabledDemo.status, 503);
+        const qrOff = await call("GET", `/api/payments/qr?MaHoaDon=${invoiceA}`, "student", studentA);
+        assert.equal(qrOff.status, 200);
+        assert.equal(qrOff.body.DemoPaymentEnabled, false);
+
+        process.env.ALLOW_DEMO_PAYMENT = "true";
+        const qrOn = await call("GET", `/api/payments/qr?MaHoaDon=${invoiceA}`, "student", studentA);
+        assert.equal(qrOn.status, 200);
+        assert.equal(qrOn.body.DemoPaymentEnabled, true);
+        const confirmedA = await call("POST", "/api/payments/demo-confirm", "student", studentA, {
+            MaHoaDon: invoiceA, MaGiaoDich: requestA.body.MaGiaoDich
+        });
+        assert.equal(confirmedA.status, 200, JSON.stringify(confirmedA.body));
+        assert.equal(confirmedA.body.PhuongThuc, "QR_DEMO");
+        assert.equal(confirmedA.body.SoTien, 300);
+        const repeatedA = await call("POST", "/api/payments/demo-confirm", "student", studentA, {
+            MaHoaDon: invoiceA, MaGiaoDich: requestA.body.MaGiaoDich
+        });
+        assert.equal(repeatedA.status, 409);
+
+        const lateTransactionId = `PAY-${crypto.randomBytes(16).toString("hex").toUpperCase()}`;
+        await pool.request()
+            .input("MaGiaoDich", sql.NVarChar(60), lateTransactionId)
+            .input("MaSinhVien", sql.NVarChar(30), studentA)
+            .input("NoiDungCK", sql.NVarChar(100), `KTX ${invoiceA}`)
+            .query(`
+                INSERT INTO dbo.GiaoDichThanhToan
+                    (MaGiaoDich, MaSinhVien, TongTien, PhuongThuc, TrangThai, NoiDungCK)
+                VALUES (@MaGiaoDich, @MaSinhVien, 300, N'ONLINE', N'PENDING', @NoiDungCK)
+            `);
+        await pool.request()
+            .input("MaHoaDon", sql.NVarChar(20), invoiceA)
+            .input("SoTien", sql.Decimal(18, 2), 300)
+            .input("PhuongThuc", sql.NVarChar(20), "ONLINE")
+            .input("MaSinhVienNop", sql.NVarChar(30), studentA)
+            .input("TrangThai", sql.NVarChar(20), "Chờ xác nhận")
+            .input("MaGiaoDich", sql.NVarChar(60), lateTransactionId)
+            .execute("dbo.sp_GhiPhieuThu");
+        const lateDemo = await call("POST", "/api/payments/demo-confirm", "student", studentA, {
+            MaHoaDon: invoiceA, MaGiaoDich: lateTransactionId
+        });
+        assert.equal(lateDemo.status, 409);
+        assert.equal(lateDemo.body.message, "Hóa đơn đã thanh toán đủ, không ghi nhận thêm.");
+
+        const invoiceB = invoiceIds.get(studentB);
+        const requestB = await call("POST", "/api/payments/create", "student", studentB, {
+            MaHoaDon: invoiceB, PhuongThuc: "ONLINE"
+        });
+        assert.equal(requestB.status, 201, JSON.stringify(requestB.body));
+        const concurrentResults = await Promise.all([1, 2].map(() =>
+            call("POST", "/api/payments/demo-confirm", "student", studentB, {
+                MaHoaDon: invoiceB, MaGiaoDich: requestB.body.MaGiaoDich
+            })));
+        assert.deepEqual(concurrentResults.map(result => result.status).sort(), [200, 409]);
+
+        const totals = await pool.request()
+            .input("InvoiceA", sql.NVarChar(20), invoiceA)
+            .input("InvoiceB", sql.NVarChar(20), invoiceB)
+            .input("MaGiaoDichLate", sql.NVarChar(60), lateTransactionId)
+            .query(`
+                SELECT hd.MaHoaDon, v.TongThuc, v.DaThu, v.ConNo,
+                       SUM(CASE WHEN pt.TrangThai = N'Hợp lệ' THEN pt.SoTien ELSE 0 END) AS ThuHopLe,
+                       SUM(CASE WHEN gd.TrangThai = N'RECONCILIATION' THEN pt.SoTien ELSE 0 END) AS KhongGhiNhan,
+                       SUM(CASE WHEN pt.MaThamChieu LIKE N'QR-DEMO:%'
+                                 AND pt.TrangThai = N'Hợp lệ' THEN 1 ELSE 0 END) AS SoPhieuQrDemo,
+                       SUM(CASE WHEN pt.MaThamChieu LIKE N'QR-DEMO:%'
+                                 AND gd.TrangThai = N'RECONCILIATION' THEN 1 ELSE 0 END) AS SoQrKhongGhiNhan
+                FROM dbo.HoaDon hd
+                INNER JOIN dbo.vw_HoaDonTongHop v ON v.MaHoaDon = hd.MaHoaDon
+                LEFT JOIN dbo.PhieuThu pt ON pt.MaHoaDon = hd.MaHoaDon
+                LEFT JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = pt.MaGiaoDich
+                WHERE hd.MaHoaDon IN (@InvoiceA, @InvoiceB)
+                GROUP BY hd.MaHoaDon, v.TongThuc, v.DaThu, v.ConNo
+            `);
+        assert.equal(totals.recordset.length, 2);
+        for (const row of totals.recordset) {
+            assert.equal(Number(row.TongThuc), 300);
+            assert.equal(Number(row.DaThu), 300);
+            assert.equal(Number(row.ConNo), 0);
+            assert.equal(Number(row.ThuHopLe), 300);
+            assert.equal(Number(row.SoPhieuQrDemo), 1);
+            assert.equal(Number(row.KhongGhiNhan), row.MaHoaDon === invoiceA ? 300 : 0);
+            assert.equal(Number(row.SoQrKhongGhiNhan), row.MaHoaDon === invoiceA ? 1 : 0);
+        }
+        const rejectedTransaction = await pool.request()
+            .input("MaGiaoDich", sql.NVarChar(60), lateTransactionId)
+            .query(`
+                SELECT gd.TrangThai, pt.TrangThai AS TrangThaiPhieuThu,
+                       pt.PhuongThuc, pt.MaThamChieu, pt.GhiChu
+                FROM dbo.GiaoDichThanhToan gd
+                INNER JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
+                WHERE gd.MaGiaoDich = @MaGiaoDich
+            `);
+        assert.equal(rejectedTransaction.recordset[0].TrangThai, "RECONCILIATION");
+        assert.equal(rejectedTransaction.recordset[0].TrangThaiPhieuThu, "Chờ xác nhận");
+        assert.equal(rejectedTransaction.recordset[0].PhuongThuc, "ONLINE");
+        assert.match(rejectedTransaction.recordset[0].MaThamChieu, /^QR-DEMO:/);
+        assert.equal(rejectedTransaction.recordset[0].GhiChu, "QR demo thanh toán");
+
+        const revenueConsistency = await pool.request().query(`
+            SELECT report.TongThu AS BaoCaoThang,
+                   ISNULL(receipts.TongThuHopLe, 0) AS TongPhieuThuHopLe
+            FROM dbo.vw_DoanhThuThang report
+            OUTER APPLY (
+                SELECT SUM(pt.SoTien) AS TongThuHopLe
+                FROM dbo.PhieuThu pt
+                WHERE pt.TrangThai = N'Hợp lệ'
+                  AND YEAR(pt.NgayThu) = report.Nam
+                  AND MONTH(pt.NgayThu) = report.Thang
+            ) receipts
+            WHERE report.Nam = YEAR(SYSDATETIME()) AND report.Thang = MONTH(SYSDATETIME())
+        `);
+        assert.equal(
+            Number(revenueConsistency.recordset[0].BaoCaoThang),
+            Number(revenueConsistency.recordset[0].TongPhieuThuHopLe)
+        );
+        t.diagnostic(
+            `Real SQL QR demo: invoices ${invoiceA}/${invoiceB} each have exactly one valid 300 VND receipt; same-code repeat blocked; concurrent confirmations ${JSON.stringify(concurrentResults.map(result => result.status))}; late overpayment is RECONCILIATION and remains excluded from paid balance.`
+        );
+    } finally {
+        if (server) await new Promise(resolve => server.close(resolve));
+        for (const [name, value] of Object.entries(fixtureEnvironment)) {
+            if (value === undefined) delete process.env[name];
+            else process.env[name] = value;
+        }
         await pool.close();
     }
 });

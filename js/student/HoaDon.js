@@ -4,7 +4,7 @@
     const data = ui.repository.data;
     const store = KTXPaymentDemo;
     const { esc, money, date, fields, card, table } = ui.helpers;
-    const labels = { UNPAID: 'Chưa thanh toán', OVERDUE: 'Quá hạn', WAITING_CASH: 'Chờ thanh toán tiền mặt',
+    const labels = { UNPAID: 'Chưa thanh toán', OVERDUE: 'Trễ hạn', WAITING_CASH: 'Chờ thanh toán tiền mặt',
         PARTIAL: 'Đã thanh toán một phần', PAID: 'Đã thanh toán' };
     const itemLabels = { UNPAID: 'Chưa thanh toán', WAITING_CASH: 'Chờ thu tiền mặt', PAID: 'Đã thanh toán' };
     const method = value => value === 'CASH' ? 'Tiền mặt' : value === 'ONLINE' ? 'Chuyển khoản (QR)' : value || '—';
@@ -240,12 +240,21 @@
                 if (!historyByInvoice.has(payment.MaHoaDon)) historyByInvoice.set(payment.MaHoaDon, []);
                 historyByInvoice.get(payment.MaHoaDon).push(payment);
             }
-            const statusLabel = value => ({
+            const statusLabel = payment => {
+                if (payment.TrangThai === 'Cần đối soát') {
+                    return /vượt tổng|đã thanh toán đủ/i.test(payment.LyDoDoiSoat || '')
+                        ? 'Hóa đơn đã thanh toán đủ, không ghi nhận thêm'
+                        : 'Không ghi nhận';
+                }
+                return ({
                 SUCCESS: 'Thành công',
                 PENDING: 'Đang chờ xác minh',
                 REJECTED: 'Từ chối',
                 EXPIRED: 'Hết hạn'
-            }[value] || value || '—');
+                }[payment.TrangThai] || payment.TrangThai || '—');
+            };
+            const paymentMethodLabel = payment => payment.ThamChieuPhieuThu?.startsWith('QR-DEMO:')
+                ? 'QR demo' : payment.PhuongThuc === 'ONLINE' ? 'Chuyển khoản QR' : 'Tiền mặt';
             const confirmationSource = payment => {
                 if (payment.TrangThai === 'PENDING') {
                     return payment.PhuongThuc === 'ONLINE' ? 'Đang chờ ngân hàng' : 'Chờ Quản lý xác nhận';
@@ -263,8 +272,9 @@
                         <td>${esc(payment.TenKhoan)}</td>
                         <td class="st-amount">${money(Number(payment.SoTien || 0))}</td>
                         <td>${esc(time(payment.NgayThanhToan || payment.NgayTao))}</td>
-                        <td>${esc(payment.PhuongThuc === 'ONLINE' ? 'Chuyển khoản QR' : 'Tiền mặt')}</td>
-                        <td>${esc(statusLabel(payment.TrangThai))}${payment.LyDoTuChoi ? `<small>${esc(payment.LyDoTuChoi)}</small>` : ''}</td>
+                        <td>${esc(paymentMethodLabel(payment))}</td>
+                        <td>${esc(statusLabel(payment))}${payment.LyDoTuChoi || payment.LyDoDoiSoat
+                            ? `<small>${esc(payment.LyDoTuChoi || payment.LyDoDoiSoat)}</small>` : ''}</td>
                         <td>${esc(confirmationSource(payment))}</td>
                     </tr>`).join('')
                 ).replace('class="st-table-wrap"', 'class="st-table-wrap st-payment-history"')
@@ -273,19 +283,22 @@
                 const invoiceId = invoice.MaHoaDon;
                 const amount = Number(invoice.TongTien || 0);
                 const status = invoice.TrangThaiThanhToan || '—';
+                const overdue = window.AdminWorkflowUtils?.isOverdueInvoice(invoice) === true;
                 const invoiceHistory = historyByInvoice.get(invoiceId) || [];
                 const pending = invoiceHistory.find(payment => payment.TrangThai === 'PENDING');
                 return `<details class="st-invoice">
                     <summary><span>${esc(invoiceId)}</span>${badge(status === 'Đã thanh toán' ? 'PAID' : 'UNPAID')}
+                        ${overdue ? '<span class="st-badge st-danger">Trễ hạn</span>' : ''}
                         <span>${esc(invoice.Thang)}/${esc(invoice.Nam)}</span><span>${money(amount)}</span></summary>
                     <div class="st-invoice-items">
                         ${fields([
                             ['Mã hóa đơn', invoiceId],
                             ['Ngày lập', date(invoice.NgayLap)],
+                            ['Hạn thanh toán', date(invoice.HanThanhToan)],
                             ['Tổng tiền', money(amount)],
                             ['Đã thanh toán', money(Number(invoice.DaTra || 0))],
                             ['Còn nợ', money(Number(invoice.ConNo || 0))],
-                            ['Trạng thái', status]
+                            ['Trạng thái', overdue ? 'Trễ hạn' : status]
                         ])}
                     </div>
                     ${pending ? `<p class="st-notice" role="status">${pending.PhuongThuc === 'ONLINE'
@@ -346,7 +359,7 @@
         }).join('');
         return `<p class="st-demo">DEMO / SANDBOX — không giao dịch tiền thật. Dữ liệu được lưu trên trình duyệt này và dùng chung với màn hình Admin cùng địa chỉ website.</p>
         <div class="st-invoice-page">
-        <div class="st-summary">${[['Tổng số tiền còn nợ', money(summary.debt)], ['Hóa đơn chưa thanh toán', summary.unpaid], ['Hóa đơn quá hạn', summary.overdue]].map(([title, value]) => `<article class="st-card"><span>${title}</span><strong>${value}</strong></article>`).join('')}</div>
+        <div class="st-summary">${[['Tổng số tiền còn nợ', money(summary.debt)], ['Hóa đơn chưa thanh toán', summary.unpaid], ['Hóa đơn trễ hạn', summary.overdue]].map(([title, value]) => `<article class="st-card"><span>${title}</span><strong>${value}</strong></article>`).join('')}</div>
         <label class="st-check-all st-check-all-page"><input type="checkbox" data-select-all ${payable.length && totals.count === payable.length ? 'checked' : ''}> Chọn tất cả hạng mục còn nợ</label>
         <div class="st-invoice-list">${invoices}</div>
         <div class="st-pay-bar">

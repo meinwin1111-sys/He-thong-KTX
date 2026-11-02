@@ -96,7 +96,7 @@ async function renderSinhVienModule() {
                 </div>
             </div>
 
-            <div class="flex items-center gap-3 mb-6">
+            <div class="flex items-center gap-3 mb-2">
                 <input id="studentSearch" type="text" placeholder="Tìm tên sinh viên..."
                     class="border-none rounded px-4 py-2 w-64 outline-none bg-white shadow-sm focus:ring-1 focus:ring-emerald-400 text-sm">
 
@@ -113,7 +113,8 @@ async function renderSinhVienModule() {
             </div>
 
             <p id="studentLoadError" class="mb-3 min-h-5 text-sm text-red-700" role="alert" aria-live="polite"></p>
-            <div class="bg-white rounded-lg shadow-sm overflow-x-auto border border-slate-200">
+            <p id="studentCountText" class="admin-list-summary text-sm text-slate-600" aria-live="polite"></p>
+            <div data-no-admin-filters class="bg-white rounded-lg shadow-sm overflow-x-auto border border-slate-200">
                 <table class="min-w-[1620px] w-full text-left table-fixed">
                     <thead class="bg-slate-50 border-b border-slate-200">
                         <tr class="text-[12px] font-bold text-slate-500 uppercase tracking-wider">
@@ -135,7 +136,6 @@ async function renderSinhVienModule() {
                 </table>
 
                 <footer class="px-8 py-4 flex justify-between items-center text-slate-500 bg-white border-t border-slate-200 text-xs">
-                    <span id="studentCountText"></span>
                     <div class="flex items-center gap-3">
                         <button id="btnPrevPage" class="hover:text-emerald-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                             <i class="fa-solid fa-chevron-left"></i>
@@ -313,25 +313,7 @@ async function loadDanhSachSinhVien(
  */
 function getStatusBadge(status) {
     const label = window.AdminWorkflowUtils?.displayLabel(status, "Chưa xếp phòng") || "Chưa xếp phòng";
-    if (label === "Đang ở") {
-        return `
-                <span class="inline-flex items-center justify-center whitespace-nowrap min-w-[100px] h-[24px] px-3 rounded-full text-[11px] font-medium bg-[#DDF8E8] text-[#166534]">
-                    ${escapeStudentHtml(label)}
-                </span>
-            `;
-    }
-    if (label === "Chưa xếp phòng") {
-        return `
-                <span class="inline-flex items-center justify-center whitespace-nowrap min-w-[100px] h-[24px] px-3 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600">
-                    ${escapeStudentHtml(label)}
-                </span>
-            `;
-    }
-    return `
-            <span class="inline-flex items-center justify-center whitespace-nowrap min-w-[100px] h-[24px] px-3 rounded-full text-[11px] font-medium bg-[#FFE3E3] text-[#991b1b]">
-                ${escapeStudentHtml(label)}
-            </span>
-        `;
+    return window.AdminWorkflowUtils?.statusBadge(label, "min-w-[100px]") || escapeStudentHtml(label);
 }
 
 /**
@@ -364,17 +346,17 @@ function renderTable(data) {
     if (!tableBody) return;
     const U = window.AdminWorkflowUtils;
     const columns = [
-        { label: "MSSV", render: student => escapeStudentHtml(student.mssv || "—") },
-        { label: "Tên sinh viên", render: student => escapeStudentHtml(student.name || "—"), longText: true, title: student => student.name || "—" },
-        { label: "Ngày sinh", render: student => escapeStudentHtml(student.birthday || "—") },
-        { label: "Giới tính", render: student => escapeStudentHtml(U?.displayLabel(student.gender) || student.gender || "—") },
-        { label: "Điện thoại", render: student => escapeStudentHtml(student.phone || "—") },
-        { label: "Email", render: student => escapeStudentHtml(student.email || "—"), longText: true, title: student => student.email || "—" },
-        { label: "Địa chỉ", render: student => escapeStudentHtml(student.address || "—"), longText: true, title: student => student.address || "—" },
-        { label: "Phòng", render: student => escapeStudentHtml(student.room || "—") },
-        { label: "Trạng thái", render: student => getStatusBadge(student.status) },
-        { label: "Ghi chú", render: student => escapeStudentHtml(student.note || "—"), longText: true, title: student => student.note || "—" },
-        { label: "Thao tác", render: (_, index) => renderActionButtons(index) }
+        { label: "MSSV", width: 180, render: student => escapeStudentHtml(student.mssv || "—"), longText: true, title: student => student.mssv || "—" },
+        { label: "Tên sinh viên", width: 220, render: student => escapeStudentHtml(student.name || "—"), longText: true, title: student => student.name || "—" },
+        { label: "Ngày sinh", width: 130, render: student => escapeStudentHtml(student.birthday || "—") },
+        { label: "Giới tính", width: 100, render: student => escapeStudentHtml(U?.displayLabel(student.gender) || student.gender || "—") },
+        { label: "Điện thoại", width: 150, render: student => escapeStudentHtml(student.phone || "—") },
+        { label: "Email", width: 260, render: student => escapeStudentHtml(student.email || "—"), longText: true, title: student => student.email || "—" },
+        { label: "Địa chỉ", width: 260, render: student => escapeStudentHtml(student.address || "—"), longText: true, title: student => student.address || "—" },
+        { label: "Phòng", width: 130, render: student => escapeStudentHtml(student.room || "—") },
+        { label: "Trạng thái", width: 160, render: student => getStatusBadge(student.status) },
+        { label: "Ghi chú", width: 180, render: student => escapeStudentHtml(student.note || "—"), longText: true, title: student => student.note || "—" },
+        { label: "Thao tác", width: 150, render: (_, index) => renderActionButtons(index) }
     ];
     const table = tableBody.closest("table");
     if (!table) return;
@@ -388,7 +370,7 @@ function renderTable(data) {
         totalStudentsFromDB === 0 ? 0 : (currentPage - 1) * rowsPerPage + 1;
     const displayEnd = Math.min(currentPage * rowsPerPage, totalStudentsFromDB);
 
-    studentCountText.textContent = `Hiển thị ${displayStart}-${displayEnd}/${totalStudentsFromDB} sinh viên`;
+    studentCountText.textContent = `Tổng: ${totalStudentsFromDB} sinh viên`;
     currentPageBox.textContent = currentPage;
     totalPageText.textContent = totalPagesFromDB;
 

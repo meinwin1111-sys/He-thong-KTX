@@ -1,5 +1,5 @@
 -- Chạy từ thư mục gốc repo. Bắt buộc -I (QUOTED_IDENTIFIER ON).
--- sqlcmd -I -S 127.0.0.1,53606 -d KTX_Group3 -U DNKTX -i db/run_all.sql
+-- sqlcmd -E -I -S <server> -d KTX_Group3_test -i db/run_all.sql
 :on error exit
 SET ANSI_NULLS ON
 GO
@@ -96,6 +96,10 @@ GO
 PRINT N'=== Migration 023 ==='
 GO
 :r db/migrations/023_student_notifications.sql
+GO
+PRINT N'=== Migration 024 ==='
+GO
+:r db/migrations/024_invoice_reminder_reference.sql
 GO
 PRINT N'=== Hết run_all (master seed chạy riêng: db/seed/run_master.sql) ==='
 GO

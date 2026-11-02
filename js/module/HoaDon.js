@@ -91,7 +91,8 @@ function renderHoaDonModule() {
     </div>
 
 
-    <div class="bg-white rounded-xl border overflow-x-auto shadow-sm">
+    <p id="showingInvoice" class="mb-2 text-sm text-slate-600" aria-live="polite">Đang tải danh sách hóa đơn...</p>
+    <div data-no-admin-filters class="bg-white rounded-xl border overflow-x-auto shadow-sm">
         <table class="min-w-[1320px] w-full table-fixed text-left border-collapse">
             <colgroup>
                 <col class="w-[160px]"><col class="w-[100px]"><col class="w-[65px]"><col class="w-[70px]">
@@ -115,7 +116,6 @@ function renderHoaDonModule() {
 
 
         <div class="px-6 py-4 flex justify-between items-center text-sm text-slate-500 border-t">
-            <span id="showingInvoice">Đang tải dữ liệu...</span>
             <div id="paginationInvoice" class="flex items-center gap-2">
                 </div>
         </div>
@@ -508,14 +508,9 @@ function renderInvoicePagination(totalRows) {
     const totalPages = Math.ceil(totalRows / invoiceRowsPerPage) || 1;
 
 
-    // 1. Cập nhật dòng thông báo số lượng (ID khớp với HTML module Hóa đơn)
-    const start = totalRows === 0 ? 0 : (invoiceCurrentPage - 1) * invoiceRowsPerPage + 1;
-    const end = Math.min(invoiceCurrentPage * invoiceRowsPerPage, totalRows);
-
-
     const showingInvoiceEl = document.getElementById('showingInvoice');
     if (showingInvoiceEl) {
-        showingInvoiceEl.innerText = `Hiển thị ${start}-${end}/${totalRows} hóa đơn`;
+        showingInvoiceEl.innerText = `Tổng: ${dsHoaDon.length} hóa đơn · ${totalRows} phù hợp`;
     }
 
 
@@ -623,12 +618,9 @@ function renderHoaDonTable() {
             <td class="px-3 py-4 text-slate-500 whitespace-nowrap">${hd.thang || (hd.ngayLap ? new Date(hd.ngayLap).getMonth()+1 : '---')}</td>
             <td class="px-3 py-4 text-slate-500 whitespace-nowrap">${hd.nam || (hd.ngayLap ? new Date(hd.ngayLap).getFullYear() : '---')}</td>
             <td class="px-3 py-4 whitespace-nowrap">${hd.ngayLap ? hd.ngayLap.split('T')[0] : '---'}</td>
-            <td class="px-4 py-4 text-right font-bold text-red-500 whitespace-nowrap">${(hd.tongTien || 0).toLocaleString('vi-VN')}</td>
+            <td class="px-4 py-4 text-right tabular-nums font-bold text-red-500 whitespace-nowrap">${(hd.tongTien || 0).toLocaleString('vi-VN')}</td>
             <td class="px-6 py-4 text-center">
-                <span class="inline-flex shrink-0 items-center justify-center whitespace-nowrap px-3 py-1 rounded-full text-[11px] font-bold
-                    ${status === 'Đã thanh toán' ? 'bg-green-100 text-green-700' : status === 'Chưa cập nhật' ? 'bg-slate-100 text-slate-600' : 'bg-yellow-100 text-yellow-700'}">
-                    ${status}
-                </span>
+                ${window.AdminWorkflowUtils.statusBadge(status)}
             </td>
             <td class="px-6 py-4 text-center">
                 <div class="flex flex-wrap justify-center gap-2">

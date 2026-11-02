@@ -23,12 +23,13 @@
         ? invoice.items.reduce((sum, item) => sum + Number(item.amount || 0), 0)
         : Number(invoice.room) + Number(invoice.electricity) + Number(invoice.water);
     const badge = status => {
-        const value = String(status ?? '').trim() || '—';
+        const raw = String(status ?? '').trim() || '—';
+        const value = raw === 'Cần đối soát' ? 'Không ghi nhận' : raw;
         const tone = ['Đã duyệt', 'Đã thanh toán', 'Đang hiệu lực', 'Đã xử lý', 'Hoàn tất'].includes(value)
             ? 'st-success'
             : ['Từ chối', 'Đã hủy', 'Đã huỷ'].includes(value)
                 ? 'st-neutral'
-                : ['Chờ xác nhận', 'Cần đối soát', 'Còn nợ', 'Chờ duyệt', 'Chờ xử lý', 'Quá hạn'].includes(value)
+                : ['Chờ xác nhận', 'Không ghi nhận', 'Còn nợ', 'Chờ duyệt', 'Chờ xử lý', 'Trễ hạn'].includes(value)
                     ? 'st-warning'
                     : 'st-neutral';
         return `<span class="st-badge ${tone}">${esc(value)}</span>`;

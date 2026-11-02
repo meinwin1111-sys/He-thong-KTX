@@ -138,6 +138,8 @@
             await submitBackendPaymentRequest(button.dataset.id, 'CASH', button);
         } else if (action === 'backend-payment-submit' && backendStudent) {
             await submitBackendPaymentRequest(button.dataset.id, button.dataset.paymentMethod, button);
+        } else if (action === 'backend-payment-demo-confirm' && backendStudent) {
+            await confirmBackendDemoPayment(button.dataset.id, button.dataset.transactionId, button);
         } else if (['invoice', 'payment', 'online-step', 'cash-step', 'confirm-online', 'confirm-cash'].includes(action)) {
             handleStudentPayment(action, button.dataset.id);
         }
@@ -190,18 +192,47 @@
                 body: JSON.stringify({ MaHoaDon: invoiceId, PhuongThuc: 'ONLINE' })
             });
             const request = await createResponse.json();
+            if (!createResponse.ok) throw new Error(request.message || 'Không thể tạo yêu cầu thanh toán.');
             const response = await window.ApiClient.fetch(`/api/payments/qr?MaHoaDon=${encodeURIComponent(invoiceId)}`);
             const payment = await response.json();
-            if (Math.round(Number(payment.TongTien) * 100) !== Math.round(Number(request.TongTien) * 100)) {
+            if (!response.ok) throw new Error(payment.message || 'Không thể tạo mã QR.');
+            if (Math.round(Number(payment.TongTien) * 100)
+                !== Math.round(Number(request.SoTien ?? request.TongTien) * 100)) {
                 throw new Error('Số tiền hóa đơn đã thay đổi. Đóng cửa sổ và tải lại hóa đơn trước khi chuyển khoản.');
             }
-            modal('Chuyển khoản QR', ui.backendPayments.qrModal(payment) +
-                `<div class="st-actions"><button type="button" class="st-button" data-action="close">Đóng</button>
-                    <button type="button" class="st-button st-primary" data-action="backend-payment-submit"
+            const confirmButton = payment.DemoPaymentEnabled === true
+                ? `<button type="button" class="st-button st-primary" data-action="backend-payment-demo-confirm"
+                        data-id="${esc(invoiceId)}" data-transaction-id="${esc(request.MaGiaoDich)}">Xác nhận đã chuyển khoản (demo)</button>`
+                : `<button type="button" class="st-button st-primary" data-action="backend-payment-submit"
                         data-payment-method="ONLINE" data-id="${esc(invoiceId)}"
-                        data-transaction-id="${esc(request.MaGiaoDich)}">Đã chuyển khoản thành công</button></div>`);
+                        data-transaction-id="${esc(request.MaGiaoDich)}">Đã chuyển khoản thành công</button>`;
+            modal('Chuyển khoản QR', ui.backendPayments.qrModal(payment) +
+                `<div class="st-actions"><button type="button" class="st-button" data-action="close">Đóng</button>${confirmButton}</div>`);
         } catch (error) {
             toast(error.message || 'Không thể tạo QR chuyển khoản.');
+        }
+    }
+    async function confirmBackendDemoPayment(invoiceId, transactionId, button) {
+        if (!invoiceId || !transactionId || button.disabled) return;
+        button.disabled = true;
+        try {
+            const response = await window.ApiClient.fetch('/api/payments/demo-confirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ MaHoaDon: invoiceId, MaGiaoDich: transactionId })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || 'Không thể xác nhận thanh toán QR demo.');
+            dialog.close();
+            render();
+            modal('Thanh toán thành công',
+                '<p role="status">Thanh toán thành công</p><div class="st-dialog-close"><button class="st-button" data-action="close">Đóng</button></div>');
+        } catch (error) {
+            dialog.close();
+            modal('Thất bại',
+                `<p role="alert">Thất bại</p><p>${esc(error.message || 'Không thể xác nhận thanh toán.')}</p><div class="st-dialog-close"><button class="st-button" data-action="close">Đóng</button></div>`);
+        } finally {
+            button.disabled = false;
         }
     }
     async function submitBackendPaymentRequest(invoiceId, paymentMethod, button) {
