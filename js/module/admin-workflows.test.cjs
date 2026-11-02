@@ -193,6 +193,24 @@ test("Contract room selection routes active rooms to member-add and new rooms to
     ]);
 });
 
+test("Contract creation popup renders a student row and has no unresolved excludedIds reference", () => {
+    const source = fs.readFileSync(path.join(__dirname, "AdminWorkflows.js"), "utf8");
+    const fakeMemberHost = { innerHTML: "" };
+    const initialStudents = [
+        { value: "SV-A", label: "An · SV-A · Nữ" },
+        { value: "SV-B", label: "Bình · SV-B · Nam" }
+    ];
+    fakeMemberHost.innerHTML = utils.contractMemberRowHtml(initialStudents);
+    assert.match(fakeMemberHost.innerHTML, /name="maSinhVien"/);
+    assert.match(fakeMemberHost.innerHTML, /value="SV-A"/);
+    assert.match(fakeMemberHost.innerHTML, /value="SV-B"/);
+    assert.match(source, /function memberFormRow\(member = \{\}, roomName = "", excludedIds = \[\]\)[\s\S]*?excludeIds: excludedIds/);
+    assert.doesNotMatch(source, /studentOptions\(\{\s*availableOnly:\s*true,\s*roomName,\s*excludeIds\s*\}\)/);
+    assert.match(source, /modal\.querySelector\("\[data-new-members\]"\)\.innerHTML = memberFormRow\(\)/);
+    assert.match(source, /function openAddMember\(contractId\)[\s\S]*?data-form="member-add"[\s\S]*?studentOptions\(\{ availableOnly: true, roomName: contract\?\.TenPhong \|\| "" \}\)/);
+    assert.match(source, /data-form="member-move"[\s\S]*?roomOptions\(contract\?\.TenPhong/);
+});
+
 test("Room labels preserve nonstandard gender values and gender filters match exactly", () => {
     const rooms = [
         { TenPhong: "A103", LoaiPhong: "Nữ", SoSinhVienHienTai: 0, SucChuaToiDa: 4 },
@@ -209,13 +227,41 @@ test("Room labels preserve nonstandard gender values and gender filters match ex
     ], rooms[0]).map(student => student.MaSinhVien), ["SV1"]);
 });
 
+test("Contract room options require selected students' gender and enough remaining seats", () => {
+    const rooms = [
+        { TenPhong: "N-2", Khu: "N", LoaiPhong: "Nữ", SucChuaToiDa: 2 },
+        { TenPhong: "N-4", Khu: "N", LoaiPhong: "Nữ", SucChuaToiDa: 4 },
+        { TenPhong: "M-4", Khu: "M", LoaiPhong: "Nam", SucChuaToiDa: 4 }
+    ];
+    const students = [
+        { MaSinhVien: "N1", GioiTinh: "Nữ" },
+        { MaSinhVien: "N2", GioiTinh: "Nữ" },
+        { MaSinhVien: "M1", GioiTinh: "Nam" }
+    ];
+    const contracts = [{
+        MaHopDong: "HD-N2", TenPhong: "N-2", TrangThaiHopDong: "Còn hiệu lực",
+        sinhVien: [{ TrangThai: "Đang ở" }]
+    }];
+    const available = utils.contractRoomsForStudents(rooms, contracts, [students[0], students[1]]);
+    assert.deepEqual(available.map(room => room.TenPhong), ["N-4"]);
+    assert.deepEqual(utils.contractRoomsForStudents(rooms, contracts, [students[0], students[2]]), []);
+    assert.deepEqual(utils.contractRoomsForStudents(rooms, contracts, []), []);
+});
+
 test("Admin contract and move-room forms apply room gender and tier filters", () => {
     const source = fs.readFileSync(path.join(__dirname, "AdminWorkflows.js"), "utf8");
     assert.match(source, /updateCreateRoomOptions\(form\)/);
     assert.match(source, /updateCreateStudentOptions\(form, event\.target\.value\)/);
+    assert.match(source, /Chọn sinh viên trước/);
     assert.match(source, /gender: student\?\.GioiTinh \|\| currentRoom\?\.LoaiPhong/);
     assert.match(source, /tier: contract\?\.MaHangPhong \|\| currentRoom\?\.MaHangPhong/);
     assert.match(source, /Không có phòng \$\{esc\(gender\)\} còn chỗ/);
+    assert.match(source, /data-new-members[\s\S]*?select\("Phòng", "tenPhong", \[\], "", true\)/);
+    assert.match(source, /label: "Phòng"[\s\S]*?label: "Khu"[\s\S]*?label: "Giới tính"[\s\S]*?label: "Hạng"[\s\S]*?label: "Sĩ số \(hiện\/tối đa\)"[\s\S]*?label: "Giá hạng\/tháng"[\s\S]*?label: "Trạng thái"/);
+    assert.match(source, /\.sort\(\(left, right\) => String\(left\.Khu \|\| ""\)\.localeCompare/);
+    assert.match(utils.genderBadge("Nam"), /admin-status--info/);
+    assert.match(utils.genderBadge("Nữ"), /admin-status--success/);
+    assert.match(utils.genderBadge("Khác"), /Khác/);
 });
 
 test("Admin display labels translate persisted payment and workflow codes without changing values", () => {

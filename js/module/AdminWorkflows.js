@@ -292,17 +292,18 @@
                 ? ` · ${U.contractRoomSelection(room.TenPhong, state.contracts).contract.MaHopDong}` : ""}`
         }));
     };
-    const studentOptions = ({ availableOnly = false, roomName = "", excludeIds = [] } = {}) => {
+    const studentOptions = ({ availableOnly = false, roomName = "", gender = "", excludeIds = [] } = {}) => {
         const activeIds = new Set(state.contracts.flatMap(contract => activeMembers(contract).map(member => member.MaSinhVien)));
         const excluded = new Set(excludeIds);
         const room = state.rooms.find(item => item.TenPhong === roomName);
-        return U.filterStudentsByRoomGender(state.students, room)
+        const selectedGender = gender || room?.LoaiPhong || "";
+        return U.filterStudentsByRoomGender(state.students, { LoaiPhong: selectedGender })
             .filter(student => (!availableOnly || !activeIds.has(student.MaSinhVien))
                 && !excluded.has(student.MaSinhVien))
             .map(student => {
                 return {
                     value: student.MaSinhVien,
-                    label: `${studentLabel(student)}${student.TenPhong ? ` · ${student.TenPhong}` : ""}`
+                    label: `${studentLabel(student)} · ${U.displayLabel(student.GioiTinh)}${student.TenPhong ? ` · ${student.TenPhong}` : ""}`
                 };
             });
     };
@@ -506,14 +507,14 @@
     }
     async function openCreateContract() {
         await Promise.all([loadContracts(), loadRoomsAndTiers(), loadStudents()]);
-        const options = U.contractRoomAvailability(state.rooms, state.contracts).map(room => ({
-                value: room.TenPhong,
-                label: `${U.roomLabel(room, room.currentOccupants)}${room.activeContract ? ` · ${room.activeContract.MaHopDong}` : ""}`
-            }));
         const modal = modalShell("Tạo hợp đồng và thêm thành viên", `
             <form id="admin-workflow-form" data-form="contract-create" class="space-y-3">
-                ${select("Phòng", "tenPhong", options, "", true)}
+                <div class="flex items-center justify-between"><h4 class="font-bold">Sinh viên</h4>
+                    <button type="button" data-action="add-member-row" class="rounded bg-slate-700 px-3 py-2 text-white disabled:opacity-50">Thêm dòng SV</button></div>
+                <div data-new-members class="space-y-2"></div>
+                ${select("Phòng", "tenPhong", [], "", true)}
                 <input type="hidden" name="activeContractId" value="">
+                <p data-contract-capacity class="text-sm text-slate-600" role="status">Chọn sinh viên trước để lọc phòng phù hợp.</p>
                 <div data-create-contract-fields class="space-y-3">
                     <label class="block text-sm font-semibold text-slate-700">Hạng phòng
                         <input name="maHangPhongDisplay" type="text" readonly placeholder="Tự điền theo phòng"
@@ -524,13 +525,13 @@
                     ${field("Ngày kết thúc", "ngayKetThuc", "date", "", true)}
                     <label class="block text-sm font-semibold">Ghi chú<textarea name="ghiChu" maxlength="255" class="mt-1 w-full rounded-lg border p-2"></textarea></label>
                 </div>
-                <div class="flex items-center justify-between"><h4 class="font-bold">Sinh viên</h4>
-                    <button type="button" data-action="add-member-row" disabled class="rounded bg-slate-700 px-3 py-2 text-white disabled:opacity-50">Thêm dòng SV</button></div>
-                <p data-contract-capacity class="text-sm text-slate-600" role="status">Chọn phòng để xem số chỗ còn trống.</p>
-                <div data-new-members class="space-y-2"></div>
             </form>`, "Tạo hợp đồng");
         if (!modal) return;
         modal.querySelector("[data-new-members]").innerHTML = memberFormRow();
+        const form = modal.querySelector('form[data-form="contract-create"]');
+        updateCreateRoomOptions(form, "");
+        updateCreateStudentOptions(form, "");
+        updateContractCapacity(form, "");
     }
     function updateContractMode(form, roomName) {
         const selection = U.contractRoomSelection(roomName, state.contracts);
@@ -564,32 +565,40 @@
     }
     function updateContractCapacity(form, roomName) {
         const room = state.rooms.find(item => item.TenPhong === roomName);
-        const remaining = room ? availableRoomSpaces(room) : 0;
+        const selectedGender = form.querySelector('.member-row [name="maSinhVien"]')?.value
+            ? state.students.find(student => student.MaSinhVien === form.querySelector('.member-row [name="maSinhVien"]').value)?.GioiTinh
+            : "";
+        const availableRooms = U.contractRoomAvailability(state.rooms, state.contracts)
+            .filter(candidate => !selectedGender || candidate.LoaiPhong === selectedGender);
+        const remaining = room ? availableRoomSpaces(room)
+            : Math.max(0, ...availableRooms.map(candidate => candidate.availableSeats));
         const currentRows = form.querySelectorAll(".member-row").length;
+        const selectedCount = [...form.querySelectorAll('.member-row [name="maSinhVien"]')]
+            .filter(selectNode => selectNode.value).length;
         form.dataset.availableSeats = String(remaining);
         const activeContractId = form.dataset.activeContract;
         form.querySelector("[data-contract-capacity]").textContent = room
             ? `${activeContractId ? `Thêm thành viên vào hợp đồng ${activeContractId} · ` : ""}Đang ở ${roomOccupancy(room.TenPhong)}/${Number(room.SucChuaToiDa || 0)} người · Còn ${remaining} chỗ trống · Đã thêm ${currentRows} dòng`
-            : "Chọn phòng để xem số chỗ còn trống.";
+            : selectedGender
+                ? `Đã chọn ${selectedCount} sinh viên · Chọn phòng ${selectedGender} còn đủ chỗ.`
+                : "Chọn sinh viên trước để lọc phòng phù hợp.";
         const addButton = form.querySelector('[data-action="add-member-row"]');
-        if (addButton) addButton.disabled = !room || Boolean(activeContractId) || currentRows >= remaining;
+        if (addButton) addButton.disabled = Boolean(activeContractId) || currentRows >= remaining;
     }
     function memberFormRow(member = {}, roomName = "", excludedIds = []) {
-        return `<div class="member-row grid gap-2 rounded-lg border p-3 md:grid-cols-[1fr_130px_1fr_auto]">
-            <select name="maSinhVien" required class="rounded border p-2">
-                <option value="">Chọn sinh viên</option>
-                ${studentOptions({ availableOnly: true, roomName, excludeIds }).map(student => `<option value="${esc(student.value)}" ${student.value === member.MaSinhVien ? "selected" : ""}>${esc(student.label)}</option>`).join("")}
-            </select>
-            <select name="kyHanThanhToanPhong" class="rounded border p-2"><option value="THANG">Theo tháng</option><option value="NAM">Theo năm</option></select>
-            <label class="flex items-center gap-2 text-sm"><input name="laNguoiDaiDien" type="checkbox"> Đại diện dịch vụ</label>
-            <button type="button" data-action="remove-member-row" class="rounded bg-red-100 px-3 py-2 text-red-800">Bỏ</button>
-        </div>`;
+        const firstStudentId = root.querySelector('.member-row [name="maSinhVien"]')?.value || "";
+        const gender = state.students.find(student => student.MaSinhVien === firstStudentId)?.GioiTinh || "";
+        return U.contractMemberRowHtml(
+            studentOptions({ availableOnly: true, roomName, gender, excludeIds: excludedIds }),
+            member
+        );
     }
     function updateCreateRoomOptions(form, preferredRoom = form.elements.tenPhong.value) {
-        const firstStudentId = form.querySelector('.member-row [name="maSinhVien"]')?.value || "";
-        const gender = state.students.find(student => student.MaSinhVien === firstStudentId)?.GioiTinh || "";
-        const available = U.contractRoomAvailability(state.rooms, state.contracts)
-            .filter(room => !gender || String(room.LoaiPhong || "").trim() === String(gender).trim());
+        const selectedStudents = [...form.querySelectorAll('.member-row [name="maSinhVien"]')]
+            .map(selectNode => state.students.find(student => student.MaSinhVien === selectNode.value))
+            .filter(Boolean);
+        const gender = selectedStudents[0]?.GioiTinh || "";
+        const available = U.contractRoomsForStudents(state.rooms, state.contracts, selectedStudents);
         const roomSelect = form.elements.tenPhong;
         const options = available.map(room => {
             const activeContract = U.contractRoomSelection(room.TenPhong, state.contracts).contract;
@@ -598,7 +607,7 @@
         }).join("");
         const placeholder = gender && !available.length
             ? `Không có phòng ${esc(gender)} còn chỗ`
-            : "Chọn một mục";
+            : "Chọn sinh viên trước";
         roomSelect.innerHTML = `<option value="" disabled>${placeholder}</option>${options}`;
         roomSelect.value = available.some(room => room.TenPhong === preferredRoom) ? preferredRoom : "";
         if (!roomSelect.value) {
@@ -612,15 +621,18 @@
     function updateCreateStudentOptions(form, roomName = form.elements.tenPhong.value) {
         const rows = [...form.querySelectorAll(".member-row")];
         const selectedIds = rows.map(row => row.querySelector('[name="maSinhVien"]').value);
+        const firstStudentId = selectedIds[0] || "";
+        const firstGender = state.students.find(student => student.MaSinhVien === firstStudentId)?.GioiTinh || "";
+        const roomGender = state.rooms.find(room => room.TenPhong === roomName)?.LoaiPhong || "";
+        const gender = roomGender || firstGender;
         rows.forEach((row, index) => {
             const selectNode = row.querySelector('[name="maSinhVien"]');
             const selected = selectNode.value;
             const excludedIds = selectedIds.filter((id, otherIndex) => id && otherIndex !== index);
-            const options = studentOptions({ availableOnly: true, roomName, excludeIds: excludedIds });
+            const options = studentOptions({ availableOnly: true, roomName, gender, excludeIds: excludedIds });
             const room = state.rooms.find(item => item.TenPhong === roomName);
-            const gender = room ? U.roomGender(room) : "";
             const placeholder = room && options.length === 0
-                ? `Không có sinh viên ${esc(gender)} chưa có chỗ ở hiệu lực`
+                ? `Không có sinh viên ${esc(U.roomGender(room))} chưa có chỗ ở hiệu lực`
                 : "Chọn sinh viên";
             selectNode.innerHTML = `<option value="" disabled>${placeholder}</option>${options.map(student =>
                 `<option value="${esc(student.value)}">${esc(student.label)}</option>`
@@ -1203,7 +1215,9 @@
                 && (filters.gender === "ALL" || U.roomGender(room) === filters.gender)
                 && (filters.khu === "ALL" || room.Khu === filters.khu)
                 && (filters.tier === "ALL" || room.MaHangPhong === filters.tier)
-                && String(room.TenPhong || "").toLocaleLowerCase("vi").includes(String(filters.search || "").toLocaleLowerCase("vi")));
+                && String(room.TenPhong || "").toLocaleLowerCase("vi").includes(String(filters.search || "").toLocaleLowerCase("vi")))
+                .sort((left, right) => String(left.Khu || "").localeCompare(String(right.Khu || ""), "vi")
+                    || String(left.TenPhong || "").localeCompare(String(right.TenPhong || ""), "vi"));
             const page = U.paginateRows(rooms, filters.page, 20);
             state.roomFilters.page = page.page;
             pane.innerHTML = `<form data-form="room-filter" class="mb-1 flex flex-wrap items-end gap-2 rounded-xl border bg-white p-3">
@@ -1221,13 +1235,13 @@
                     <span>${page.page}/${page.pageCount}</span>${button("Sau", "room-page", `data-page="${page.page + 1}" ${page.page >= page.pageCount ? "disabled" : ""}`, "bg-slate-100 text-slate-800")}</span>
             </footer>`;
             const columns = [
-                { label: "Phòng · giới tính · sĩ số", render: room => text(U.roomLabel(room)) },
+                { label: "Phòng", render: room => text(room.TenPhong) },
                 { label: "Khu", render: room => text(room.Khu) },
+                { label: "Giới tính", render: room => U.genderBadge(room.LoaiPhong) },
                 { label: "Hạng", render: room => text(room.MaHangPhong) },
-                { label: "Sĩ số", render: room => `${Number(room.SoSinhVienHienTai || 0)}/${Number(room.SucChuaToiDa || 0)} người` },
+                { label: "Sĩ số (hiện/tối đa)", render: room => `${Number(room.SoSinhVienHienTai || 0)}/${Number(room.SucChuaToiDa || 0)}` },
                 { label: "Giá hạng/tháng", align: "right", width: 160, render: room => money(room.GiaPhong) },
-                { label: "Trạng thái", render: room => badge(room.TrangThaiPhong) },
-                { label: "", render: () => `<span aria-hidden="true" class="text-lg text-slate-500">›</span>` }
+                { label: "Trạng thái", render: room => badge(room.TrangThaiPhong) }
             ];
             root.querySelector("[data-room-list]").innerHTML = U.renderTable(columns, page.rows, "Không có dữ liệu phù hợp", room =>
                 `data-action="row-detail" data-detail-type="room" data-detail-id="${esc(room.TenPhong)}" tabindex="0" role="button" aria-label="Chi tiết phòng ${esc(room.TenPhong)}" class="cursor-pointer hover:bg-slate-50 focus:bg-emerald-50 focus:outline focus:outline-2 focus:outline-emerald-600"`);
@@ -1526,19 +1540,25 @@
                     const form = root.querySelector('form[data-form="contract-create"]');
                     const rows = form?.querySelectorAll(".member-row").length || 0;
                     const remaining = Number(form?.dataset.availableSeats || 0);
-                    if (!form || !form.elements.tenPhong.value) throw new Error("Chọn phòng trước khi thêm sinh viên.");
-                    if (rows >= remaining) throw new Error("Số sinh viên không được vượt số chỗ còn trống của phòng.");
+                    if (!form) throw new Error("Không tìm thấy biểu mẫu hợp đồng.");
+                    if (rows >= remaining) throw new Error("Không còn chỗ phù hợp để thêm dòng sinh viên.");
                     const selectedIds = [...form.querySelectorAll('.member-row [name="maSinhVien"]')]
                         .map(selectNode => selectNode.value).filter(Boolean);
                     root.querySelector("[data-new-members]").insertAdjacentHTML("beforeend",
                         memberFormRow({}, form.elements.tenPhong.value, selectedIds));
+                    updateCreateRoomOptions(form);
+                    updateCreateStudentOptions(form);
                     updateContractCapacity(form, form.elements.tenPhong.value);
                     break;
                 }
                 case "remove-member-row": {
                     const form = actionButton.closest('form[data-form="contract-create"]');
                     actionButton.closest(".member-row")?.remove();
-                    if (form) updateContractCapacity(form, form.elements.tenPhong.value);
+                    if (form) {
+                        const selectedRoom = updateCreateRoomOptions(form);
+                        updateCreateStudentOptions(form, selectedRoom);
+                        updateContractMode(form, selectedRoom);
+                    }
                     break;
                 }
                 case "contract-create": await openCreateContract(); break;
@@ -1985,10 +2005,7 @@
             updateContractMode(form, event.target.value);
         }
         if (form.dataset.form === "contract-create" && event.target.name === "maSinhVien") {
-            const firstRowSelect = form.querySelector('.member-row [name="maSinhVien"]');
-            const selectedRoom = firstRowSelect === event.target
-                ? updateCreateRoomOptions(form)
-                : form.elements.tenPhong.value;
+            const selectedRoom = updateCreateRoomOptions(form);
             updateCreateStudentOptions(form, selectedRoom);
             const tier = U.tierForRoom(state.rooms, selectedRoom);
             form.elements.maHangPhong.value = tier;

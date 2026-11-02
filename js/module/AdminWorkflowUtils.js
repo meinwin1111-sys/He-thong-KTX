@@ -170,6 +170,13 @@
         return `<span class="admin-status-badge ${statusClass(label)} ${escapeHtml(extraClass)}">${escapeHtml(label)}</span>`;
     }
 
+    function genderBadge(value) {
+        const label = String(value ?? "").trim() || "Chưa xác định";
+        const color = label === "Nam" ? "admin-status--info"
+            : label === "Nữ" ? "admin-status--success" : "admin-status--neutral";
+        return `<span class="admin-status-badge ${color}">${escapeHtml(label)}</span>`;
+    }
+
     function serviceEditMode(editing) {
         const isEditing = Boolean(editing);
         return Object.freeze({
@@ -445,6 +452,31 @@
                 || String(left.TenPhong || "").localeCompare(String(right.TenPhong || ""), "vi"));
     }
 
+    function contractRoomsForStudents(rooms, contracts, students) {
+        const selected = (students || []).filter(Boolean);
+        if (!selected.length) return [];
+        const gender = String(selected[0].GioiTinh || "").trim();
+        if (!gender || selected.some(student => String(student.GioiTinh || "").trim() !== gender)) return [];
+        return contractRoomAvailability(rooms, contracts).filter(room =>
+            String(room.LoaiPhong || "").trim() === gender && room.availableSeats >= selected.length
+            && (selected.length === 1 || !room.activeContract)
+        );
+    }
+
+    function contractMemberRowHtml(students, member = {}) {
+        const options = (students || []).map(student =>
+            `<option value="${escapeHtml(student.value)}" ${student.value === member.MaSinhVien ? "selected" : ""}>${escapeHtml(student.label)}</option>`
+        ).join("");
+        return `<div class="member-row grid gap-2 rounded-lg border p-3 md:grid-cols-[1fr_130px_1fr_auto]">
+            <select name="maSinhVien" required class="rounded border p-2">
+                <option value="">Chọn sinh viên</option>${options}
+            </select>
+            <select name="kyHanThanhToanPhong" class="rounded border p-2"><option value="THANG">Theo tháng</option><option value="NAM">Theo năm</option></select>
+            <label class="flex items-center gap-2 text-sm"><input name="laNguoiDaiDien" type="checkbox"> Đại diện dịch vụ</label>
+            <button type="button" data-action="remove-member-row" class="rounded bg-red-100 px-3 py-2 text-red-800">Bỏ</button>
+        </div>`;
+    }
+
     function tierDraftKey(draft = {}) {
         return JSON.stringify({
             tierId: draft.tierId,
@@ -674,9 +706,9 @@
     const utils = Object.freeze({
         escapeHtml, parseVnd, parseVndNonNegative, formatVnd, exceedsBalance,
         refundReasonRequired, invoicePersonLabel, amountInWords, date, dateTime, tierForRoom,
-        displayLabel, statusClass, statusBadge, filterFinancialRows, isOverdueInvoice, serviceCanBeActive, canChangeRoomTier,
+        displayLabel, statusClass, statusBadge, genderBadge, filterFinancialRows, isOverdueInvoice, serviceCanBeActive, canChangeRoomTier,
         roomGender, roomLabel, filterRoomsByGender, filterStudentsByRoomGender,
-        contractRoomAvailability, contractRoomSelection, hasTierDraftChanges, sanitizeDateInput, normalizeDateInput,
+        contractRoomAvailability, contractRoomSelection, contractRoomsForStudents, contractMemberRowHtml, hasTierDraftChanges, sanitizeDateInput, normalizeDateInput,
         validateDateInput, filterRows, paginateRows, groupContractDetails, renderTable, dateField, bindDateInputs,
         listSummary, serviceEditMode
         , enhanceAdminTables
