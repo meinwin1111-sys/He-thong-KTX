@@ -11,6 +11,8 @@
     const dialog = document.getElementById('student-dialog');
     let signedOut = false;
     let toastTimer;
+    let paymentPollTimer;
+    let paymentPollStartedAt;
     document.getElementById('student-name').textContent = data.profile.name;
     const studentSession = StudentAuth.session();
     document.getElementById('student-session-label').textContent = studentSession.isBackend
@@ -53,6 +55,11 @@
     dialog.addEventListener('cancel', event => {
         event.preventDefault();
         dialog.close();
+    });
+    dialog.addEventListener('close', () => {
+        clearTimeout(paymentPollTimer);
+        paymentPollTimer = undefined;
+        paymentPollStartedAt = undefined;
     });
     account.addEventListener('focusout', event => {
         if (!account.contains(event.relatedTarget)) closeAccount();
@@ -132,14 +139,28 @@
             catch { toast('Không thể xóa phiên và dữ liệu của tài khoản. Hãy kiểm tra quyền lưu trữ trình duyệt.'); return; }
             window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
             window.location.replace('Admin.html');
+        } else if (action === 'backend-invoice-pay' && backendStudent) {
+            const invoice = button.closest('.st-invoice');
+            const method = invoice?.querySelector('[data-payment-method]')?.value;
+            if (method === 'CASH') {
+                const contact = ui.backendPayments.getOfficeContact();
+                const officeHours = contact.GioLamViec || 'liên hệ Ban quản lý KTX';
+                const officePhone = contact.DienThoai || 'liên hệ Ban quản lý KTX';
+                const balance = Number(button.dataset.max);
+                modal('Nộp tiền mặt tại văn phòng',
+                    `<p>Vui lòng đến văn phòng Ban quản lý KTX gặp Quản lý, giờ làm việc ${esc(officeHours)}, SĐT ${esc(officePhone)}, mang mã hóa đơn ${esc(button.dataset.id)}, số tiền ${money(balance)}.</p>` +
+                    '<div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>');
+            } else if (method === 'ONLINE') {
+                await openBackendPaymentQr(button);
+            } else {
+                toast('Vui lòng chọn phương thức thanh toán hợp lệ.');
+            }
         } else if (action === 'backend-payment-qr' && backendStudent) {
             await openBackendPaymentQr(button);
-        } else if (action === 'backend-payment-cash' && backendStudent) {
-            await submitBackendPaymentRequest(button, 'CASH');
-        } else if (action === 'backend-payment-submit' && backendStudent) {
-            await submitBackendPaymentRequest(button, button.dataset.paymentMethod);
         } else if (action === 'backend-payment-demo-confirm' && backendStudent) {
             await confirmBackendDemoPayment(button.dataset.id, button.dataset.transactionId, button);
+        } else if (action === 'backend-payment-detail' && backendStudent) {
+            await showBackendPaymentDetail(button.dataset.id, button.dataset.transactionId);
         } else if (action === 'backend-receipts' && backendStudent) {
             await showBackendReceipts(button.dataset.id);
         } else if (action === 'backend-receipt-print' && backendStudent) {
@@ -149,17 +170,13 @@
             window.addEventListener('afterprint', cleanup, { once: true });
             document.body.classList.add('student-printing');
             window.print();
-        } else if (['invoice', 'payment', 'online-step', 'cash-step', 'confirm-online', 'confirm-cash'].includes(action)) {
+        } else if (['invoice', 'payment', 'online-step', 'confirm-online'].includes(action)) {
             handleStudentPayment(action, button.dataset.id);
         }
     });
-    main.addEventListener('change', event => ui.billing.handleChange?.(event));
-    function readBackendPaymentAmount(button) {
-        const field = button.closest('.st-invoice')?.querySelector('[data-payment-amount]');
-        const value = button.dataset.amount ?? field?.value;
-        const maximum = Number(button.dataset.max ?? field?.max);
-        return ui.backendPayments.parseAmount(value, maximum);
-    }
+    main.addEventListener('change', event => {
+        ui.billing.handleChange?.(event);
+    });
     async function backendInvoiceDetail(invoiceId) {
         const response = await window.ApiClient.fetch(`/api/HoaDon/${encodeURIComponent(invoiceId)}`);
         const detail = await response.json();
@@ -169,21 +186,56 @@
         }
         return detail;
     }
+    async function showBackendPaymentDetail(invoiceId, transactionId) {
+        try {
+            const response = await window.ApiClient.fetch(
+                `/api/payments/history?MaHoaDon=${encodeURIComponent(invoiceId)}`
+            );
+            const history = await response.json();
+            if (!response.ok) throw new Error(history.message || 'Không thể tải chi tiết giao dịch.');
+            if (!Array.isArray(history)) throw new Error('Dữ liệu lịch sử thanh toán không hợp lệ.');
+            const payment = history.find(item => item.MaGiaoDich === transactionId);
+            if (!payment) throw new Error('Không tìm thấy giao dịch trong lịch sử thanh toán.');
+            const requested = Number(payment.SoTienYeuCau ?? payment.SoTien);
+            const actual = payment.SoTienThucNhan == null ? null : Number(payment.SoTienThucNhan);
+            let difference = 'Chưa có';
+            if (actual !== null && Number.isFinite(actual) && Number.isFinite(requested)) {
+                const delta = actual - requested;
+                difference = delta < 0 ? `Thiếu ${money(Math.abs(delta))}`
+                    : delta > 0 ? `Dư ${money(delta)}` : 'Không chênh lệch';
+            }
+            const paymentTime = payment.NgayThanhToan || payment.NgayTao;
+            const formattedTime = window.AdminWorkflowUtils?.dateTime(String(paymentTime || ''));
+            modal('Chi tiết giao dịch', fields([
+                ['Mã giao dịch', payment.MaGiaoDich],
+                ['Hóa đơn / phòng', `${payment.MaHoaDon || invoiceId} · ${payment.TenPhong || 'Chưa có'}`],
+                ['Người nộp', payment.HoTen || 'Chưa có'],
+                ['Số tiền yêu cầu', money(requested)],
+                ['Số tiền thực nhận', actual === null ? 'Chưa có' : money(actual)],
+                ['Chênh lệch', difference],
+                ['Phương thức', ui.helpers.paymentMethodLabel(payment.PhuongThuc) || 'Chưa xác định'],
+                ['Thời điểm', formattedTime || date(paymentTime) || 'Chưa có'],
+                ['Trạng thái', ui.backendPayments.statusLabel(payment.TrangThai)]
+            ]) + '<div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>');
+        } catch (error) {
+            toast(error.message || 'Không thể tải chi tiết giao dịch.');
+        }
+    }
     async function showBackendReceipts(invoiceId) {
         try {
             const invoice = await backendInvoiceDetail(invoiceId);
             const receipts = invoice.PhieuThu;
             const rows = receipts.length
                 ? receipts.map(receipt => `<tr>
-                    <td>${esc(receipt.MaPhieuThu ?? '—')}</td>
+                    <td>${esc(receipt.MaPhieuThu ?? 'Chưa có')}</td>
                     <td>${money(receipt.SoTien)}</td>
                     <td>${esc(date(receipt.NgayThu))}</td>
                     <td>${esc(ui.helpers.paymentMethodLabel(receipt.PhuongThuc))}</td>
-                    <td>${esc(receipt.TrangThai || '—')}</td>
+                    <td>${esc(receipt.TrangThai || 'Chưa có')}</td>
                     <td>${receipt.TrangThai === 'Hợp lệ'
                         ? `<button type="button" class="st-button" data-action="backend-receipt-print"
                             data-id="${esc(invoiceId)}" data-receipt-id="${esc(receipt.MaPhieuThu)}">Xem/In</button>`
-                        : '—'}</td>
+                        : 'Chưa có'}</td>
                 </tr>`).join('')
                 : '';
             const content = receipts.length
@@ -223,26 +275,18 @@
                 const content = await ui.billing.qrModal(selection);
                 modal('Thanh toán bằng QR', content + '<div class="st-actions"><button type="button" class="st-button" data-action="close">Đóng</button>' + payButton('confirm-online', 'DEMO · Giả lập thanh toán thành công') + '</div>');
             } catch (error) { toast(error.message); }
-        } else if (action === 'cash-step') {
-            modal('Thanh toán tại Ban quản lý KTX', ui.billing.cashModal(selection) +
-                '<div class="st-actions">' + payButton('confirm-cash', 'Đăng ký thanh toán tiền mặt') + '</div>' +
-                '<div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>');
         } else {
             try {
-                const method = action === 'confirm-cash' ? 'CASH' : 'ONLINE';
                 const totals = selection.reduce((sum, group) => {
                     const invoice = data.invoices.find(entry => entry.id === group.invoiceId);
                     return sum + group.itemIds.reduce((itemSum, itemId) => itemSum + Number(invoice?.items?.find(item => item.id === itemId)?.amount || 0), 0);
                 }, 0);
                 const count = selection.reduce((sum, group) => sum + group.itemIds.length, 0);
-                if (!window.confirm(method === 'ONLINE'
-                    ? `Mô phỏng cổng thanh toán trả kết quả SUCCESS cho ${count} hạng mục (${money(totals)})?`
-                    : `Đăng ký thanh toán tiền mặt cho ${count} hạng mục (${money(totals)})?`)) return;
-                const result = await ui.billing.pay(selection, method);
+                if (!window.confirm(`Mô phỏng cổng thanh toán trả kết quả SUCCESS cho ${count} hạng mục (${money(totals)})?`)) return;
+                const result = await ui.billing.pay(selection, 'ONLINE');
                 dialog.close();
                 render();
-                if (method === 'ONLINE') modal('Thanh toán thành công', ui.billing.receipt(result) + '<div class="st-dialog-close"><button class="st-button" data-action="close">Đóng</button></div>');
-                else toast('Chờ thanh toán tiền mặt. Vui lòng đến Ban quản lý KTX để hoàn tất thanh toán. Công nợ chưa thay đổi.');
+                modal('Thanh toán thành công', ui.billing.receipt(result) + '<div class="st-dialog-close"><button class="st-button" data-action="close">Đóng</button></div>');
             } catch (error) { toast(error.message); }
         }
     }
@@ -251,7 +295,7 @@
         const invoiceId = button.dataset.id;
         let amount;
         try {
-            amount = readBackendPaymentAmount(button);
+            amount = ui.backendPayments.parseAmount(button.dataset.max, Number(button.dataset.max));
         } catch (error) {
             toast(error.message);
             return;
@@ -278,12 +322,11 @@
             }
             const confirmButton = payment.DemoPaymentEnabled === true
                 ? `<button type="button" class="st-button st-primary" data-action="backend-payment-demo-confirm"
-                        data-id="${esc(invoiceId)}" data-transaction-id="${esc(request.MaGiaoDich)}">Xác nhận đã chuyển khoản (demo)</button>`
-                : `<button type="button" class="st-button st-primary" data-action="backend-payment-submit"
-                        data-payment-method="ONLINE" data-id="${esc(invoiceId)}"
-                        data-transaction-id="${esc(request.MaGiaoDich)}">Đã chuyển khoản thành công</button>`;
+                        data-id="${esc(invoiceId)}" data-transaction-id="${esc(request.MaGiaoDich)}">Giả lập: đã chuyển khoản thành công (demo)</button>`
+                : '<span class="st-button st-payment-dialog-status" role="status" data-payment-status>Đang xử lý</span>';
             modal('Chuyển khoản QR', ui.backendPayments.qrModal(payment) +
-                `<div class="st-actions"><button type="button" class="st-button" data-action="close">Đóng</button>${confirmButton}</div>`);
+                `<div class="st-actions st-payment-dialog-actions"><button type="button" class="st-button" data-action="close">Đóng</button>${confirmButton}</div>`);
+            if (payment.DemoPaymentEnabled !== true) startBackendPaymentPolling(invoiceId, request.MaGiaoDich);
         } catch (error) {
             toast(error.message || 'Không thể tạo QR chuyển khoản.');
         } finally {
@@ -303,77 +346,62 @@
             if (!response.ok) throw new Error(result.message || 'Không thể xác nhận thanh toán.');
             dialog.close();
             render();
-            modal('Thanh toán thành công',
-                '<p role="status">Thanh toán thành công</p><div class="st-dialog-close"><button class="st-button" data-action="close">Đóng</button></div>');
+            toast('Thanh toán thành công');
         } catch (error) {
             dialog.close();
-            modal('Thất bại',
-                `<p role="alert">Thất bại</p><p>${esc(error.message || 'Không thể xác nhận thanh toán.')}</p><div class="st-dialog-close"><button class="st-button" data-action="close">Đóng</button></div>`);
+            modal('Không thể xác nhận thanh toán',
+                `<p role="alert">${esc(error.message || 'Không thể xác nhận thanh toán.')}</p><div class="st-dialog-close"><button class="st-button" data-action="close">Đóng</button></div>`);
         } finally {
             button.disabled = false;
         }
     }
-    async function submitBackendPaymentRequest(button, paymentMethod) {
-        const invoiceId = button.dataset.id;
-        if (!invoiceId || !['ONLINE', 'CASH'].includes(paymentMethod)) return;
-        let amount = null;
-        if (paymentMethod === 'CASH') {
+    function startBackendPaymentPolling(invoiceId, transactionId) {
+        clearTimeout(paymentPollTimer);
+        paymentPollStartedAt = Date.now();
+        const poll = async () => {
+            if (!dialog.open || !paymentPollStartedAt) return;
+            if (Date.now() - paymentPollStartedAt >= 10 * 60 * 1000) {
+                const status = dialog.querySelector('[data-payment-status]');
+                if (status) status.textContent = 'Chưa nhận được kết quả sau 10 phút. Trạng thái: Đang xử lý.';
+                clearTimeout(paymentPollTimer);
+                paymentPollTimer = undefined;
+                paymentPollStartedAt = undefined;
+                return;
+            }
             try {
-                amount = readBackendPaymentAmount(button);
-            } catch (error) {
-                toast(error.message);
-                return;
-            }
-        }
-        button.disabled = true;
-        try {
-            if (paymentMethod === 'ONLINE') {
-                const transactionId = button.dataset.transactionId;
-                const response = await window.ApiClient.fetch(`/api/payments/history?MaHoaDon=${encodeURIComponent(invoiceId)}`);
+                const response = await window.ApiClient.fetch(
+                    `/api/payments/history?MaHoaDon=${encodeURIComponent(invoiceId)}`
+                );
                 const history = await response.json();
-                if (!response.ok) throw new Error(history.message || 'Không thể kiểm tra trạng thái giao dịch.');
+                if (!response.ok) throw new Error(history.message || 'Không thể làm mới trạng thái thanh toán.');
                 if (!Array.isArray(history)) throw new Error('Dữ liệu lịch sử thanh toán không hợp lệ.');
-                const transaction = history.find(payment => payment.MaGiaoDich === transactionId);
-                if (!transaction) throw new Error('Không tìm thấy yêu cầu chuyển khoản. Hãy tải lại hóa đơn và thử lại.');
-                dialog.close();
-                render();
-                const title = transaction.TrangThai === 'SUCCESS'
-                    ? 'Thanh toán thành công'
-                    : transaction.TrangThai === 'REJECTED'
-                        ? 'Chuyển khoản chưa được xác nhận'
-                        : 'Đang xác minh chuyển khoản';
-                modal(title, fields([
-                    ['Mã giao dịch', transaction.MaGiaoDich],
-                    ['Mã hóa đơn', invoiceId],
-                    ['Số tiền', money(Number(transaction.SoTien))],
-                    ['Trạng thái', transaction.TrangThai === 'SUCCESS' ? 'Thanh toán thành công' : transaction.TrangThai === 'REJECTED' ? 'Số tiền hoặc nội dung không khớp' : 'Đang chờ ngân hàng xác minh'],
-                    ['Xác nhận', transaction.PhuongThuc === 'ONLINE' && transaction.TrangThai === 'SUCCESS' ? 'Tự động từ ngân hàng' : 'Chờ xác minh']
-                ]) + (transaction.LyDoTuChoi ? `<p class="st-notice" role="alert">${esc(transaction.LyDoTuChoi)}</p>` : '') +
-                    '<p class="st-notice">Nút này chỉ kiểm tra trạng thái giao dịch; thao tác bấm không xác nhận thanh toán.</p>' +
-                    '<div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>');
-                return;
+                const payment = history.find(item => item.MaGiaoDich === transactionId);
+                if (!payment) throw new Error('Không tìm thấy giao dịch trong lịch sử thanh toán.');
+                const status = dialog.querySelector('[data-payment-status]');
+                if (status) status.textContent = ui.backendPayments.statusLabel(payment.TrangThai);
+                if (payment.TrangThai === 'SUCCESS') {
+                    clearTimeout(paymentPollTimer);
+                    paymentPollTimer = undefined;
+                    paymentPollStartedAt = undefined;
+                    dialog.close();
+                    render();
+                    toast('Thanh toán thành công');
+                    return;
+                }
+                if (payment.TrangThai !== 'PENDING') {
+                    clearTimeout(paymentPollTimer);
+                    paymentPollTimer = undefined;
+                    paymentPollStartedAt = undefined;
+                    return;
+                }
+            } catch (error) {
+                toast(error.message || 'Không thể làm mới trạng thái thanh toán.');
             }
-            const response = await window.ApiClient.fetch('/api/payments/create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ MaHoaDon: invoiceId, PhuongThuc: paymentMethod, SoTien: amount })
-            });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.message || 'Không thể gửi yêu cầu thanh toán.');
-            dialog.close();
-            render();
-            modal('Yêu cầu thanh toán đã được ghi nhận', fields([
-                ['Mã giao dịch', result.MaGiaoDich],
-                ['Mã hóa đơn', result.MaHoaDon],
-                ['Số tiền', money(Number(result.SoTien))],
-                ['Phương thức', result.PhuongThuc === 'ONLINE' ? 'Chuyển khoản QR' : 'Tiền mặt'],
-                ['Trạng thái', result.PhuongThuc === 'ONLINE' ? 'Đang chờ ngân hàng xác minh' : 'Chờ Quản lý xác nhận']
-            ]) + `<p class="st-notice">${esc(result.message)}</p>
-                <div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>`);
-        } catch (error) {
-            button.disabled = false;
-            toast(error.message || 'Không thể gửi yêu cầu thanh toán.');
-        }
+            if (dialog.open && paymentPollStartedAt) {
+                paymentPollTimer = setTimeout(poll, 5000);
+            }
+        };
+        paymentPollTimer = setTimeout(poll, 5000);
     }
     main.addEventListener('submit', async event => {
         if (event.defaultPrevented) return;
@@ -388,7 +416,9 @@
                 return;
             }
             if (!ui.requestRules?.isValid(type, content)) {
-                form.querySelector('[data-content-error]').textContent = 'Vui lòng chọn loại yêu cầu hợp lệ và nhập nội dung từ 1 đến 1.000 ký tự.';
+                form.querySelector('[data-content-error]').textContent = type === 'Trả phòng sớm'
+                    ? 'Lý do trả phòng sớm phải từ 10 đến 1.000 ký tự.'
+                    : 'Vui lòng chọn loại yêu cầu hợp lệ và nhập nội dung từ 1 đến 1.000 ký tự.';
                 return;
             }
             if (backendStudent) {
@@ -402,7 +432,7 @@
                         body: JSON.stringify({
                             Loai: type,
                             NoiDung: content,
-                            ...(type === 'Gia hạn hợp đồng'
+                            ...(ui.requestRules?.dateRequired(type)
                                 ? { NgayKetThucDeXuat: form.elements.extensionEndDate.value }
                                 : {})
                         })

@@ -36,7 +36,6 @@ function openStudentRegistration() {
             ${field('email', 'Gmail', 'email', 'maxlength="100" autocomplete="username" placeholder="ten@gmail.com"')}
             ${field('school', 'Trường', 'text', 'maxlength="150" autocomplete="organization"', false)}
             ${field('className', 'Lớp', 'text', 'maxlength="50" autocomplete="off"')}
-            ${field('address', 'Địa chỉ', 'text', 'maxlength="250" autocomplete="street-address"', false)}
             ${field('password', 'Mật khẩu', 'password', 'minlength="8" maxlength="72" autocomplete="new-password"')}
             ${field('confirm', 'Xác nhận mật khẩu', 'password', 'minlength="8" maxlength="72" autocomplete="new-password"')}
             <small>Mật khẩu tối thiểu 8 ký tự.</small>
@@ -75,7 +74,7 @@ function openStudentRegistration() {
         try {
             const input = Object.fromEntries(new FormData(event.target));
             const student = {};
-            for (const key of ['name', 'code', 'gender', 'phone', 'email', 'school', 'className', 'address']) {
+            for (const key of ['name', 'code', 'gender', 'phone', 'email', 'school', 'className']) {
                 student[key] = String(input[key] || '').trim();
             }
             if (['name', 'code', 'gender', 'phone', 'email', 'className'].some(key => !student[key])) {
@@ -110,7 +109,6 @@ function openStudentRegistration() {
                     GioiTinh: student.gender,
                     SoDienThoai: student.phone,
                     Email: student.email,
-                    DiaChi: student.address,
                     Truong: student.school,
                     Lop: student.className,
                     MatKhau: password

@@ -81,9 +81,6 @@ function switchPage(pageId, element) {
     else if (pageId === "Hoa Don") {
         renderHoaDonModule();
     }
-    else if (pageId === "Thanh Toan") {
-        renderThanhToanDemoModule();
-    }
     else if (pageId === "Duyet & Kiem soat") {
         renderDuyetKiemSoatModule();
     }
@@ -201,3 +198,5 @@ function showToast(message, type = 'success') {
         setTimeout(() => toast.remove(), 300);
     }, 3000);
 }
+
+window.showToast = showToast;

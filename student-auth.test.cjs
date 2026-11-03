@@ -99,6 +99,7 @@ function createRegistrationHarness({ students = [], accounts = [] } = {}) {
                     Email: this.values.Email,
                     NgaySinh: this.values.NgaySinh,
                     SoDienThoai: this.values.SoDienThoai,
+                    DiaChi: this.values.DiaChi,
                     TrangThaiSinhVien: null,
                     TenPhong: null
                 });
@@ -145,9 +146,11 @@ test("Express API keeps registration, login, and health public while protecting 
         body: JSON.stringify(body)
     });
 
-    const registration = await post("/api/student/register", validRegistration);
+    const { DiaChi, ...registrationWithoutAddress } = validRegistration;
+    const registration = await post("/api/student/register", registrationWithoutAddress);
     assert.equal(registration.status, 201);
     assert.equal(state.accounts.length, 1);
+    assert.equal(state.students[0].DiaChi, null);
     assert.equal((await post("/api/login", {})).status, 200);
     assert.equal((await fetch(`${baseUrl}/api/health`)).status, 200);
 
@@ -158,6 +161,8 @@ test("Express API keeps registration, login, and health public while protecting 
 
 test("registration validation accepts Vietnamese phone formats and normalizes phone", () => {
     assert.equal(validateRegistration(validRegistration, now).value.phone, "0901234567");
+    const { DiaChi, ...registrationWithoutAddress } = validRegistration;
+    assert.equal(validateRegistration(registrationWithoutAddress, now).error, undefined);
     assert.equal(validateRegistration({ ...validRegistration, SoDienThoai: "0901234567" }, now).error, undefined);
     assert.equal(validateRegistration({ ...validRegistration, Truong: "" }, now).error, undefined);
     const passport = validateRegistration({ ...validRegistration, MaSinhVien: " ab12cd " }, now);

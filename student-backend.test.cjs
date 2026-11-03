@@ -10,7 +10,7 @@ function loadSource(file, context) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), context, { filename: file });
 }
 
-test("shared date input sanitizer handles typing, paste, deletion and normalizes complete dates", () => {
+test("shared date input filter preserves raw edits and uses the common blur normalizer", () => {
     const context = vm.createContext({
         localStorage: {
             getItem() { return null; },
@@ -27,29 +27,13 @@ test("shared date input sanitizer handles typing, paste, deletion and normalizes
     });
     context.window = context;
     loadSource("js/student/auth.js", context);
-    const format = context.StudentDate.formatInput;
-
-    let state = { value: "", selectionStart: 0 };
-    for (const digit of "11112005") {
-        state = format(state.value.slice(0, state.selectionStart) + digit + state.value.slice(state.selectionStart),
-            state.selectionStart + 1, { inputType: "insertText" });
-    }
-    assert.deepEqual({ value: state.value, selectionStart: state.selectionStart }, { value: "11112005", selectionStart: 8 });
-    assert.equal(AdminWorkflowUtils.normalizeDateInput(state.value), "11/11/2005");
-
-    for (const pasted of ["11112005", "11/11/2005", "11-11-2005"]) {
-        const sanitized = format(pasted, pasted.length, { inputType: "insertFromPaste" }).value;
-        assert.equal(AdminWorkflowUtils.normalizeDateInput(sanitized), "11/11/2005");
-    }
-    const afterDayBackspace = format("1/11/2005", 1);
-    assert.equal(afterDayBackspace.value, "1/11/2005");
-    assert.equal(afterDayBackspace.selectionStart, 1);
-    const afterMonthBackspace = format("11/1/2005", 4);
-    assert.equal(afterMonthBackspace.value, "11/1/2005");
-    assert.equal(afterMonthBackspace.selectionStart, 4);
-    assert.equal(format("1a1/1-1/2005", 12).value, "11/11/2005");
-    assert.equal(format("11112005999", 11).value, "1111200599");
-    assert.equal(format("29/02/2023", 10).value, "29/02/2023");
+    const filter = context.StudentDate.formatInput;
+    assert.equal(filter("11112005"), "11112005");
+    assert.equal(filter("1a/02-2003x"), "1/022003");
+    assert.equal(filter("11112005999"), "1111200599");
+    assert.equal(AdminWorkflowUtils.normalizeDateInput("11112005"), "11/11/2005");
+    assert.equal(AdminWorkflowUtils.normalizeDateInput("1/2/2005"), "01/02/2005");
+    assert.equal(AdminWorkflowUtils.normalizeDateInput("29/02/2023"), null);
     assert.equal(context.StudentDate.parse("29/02/2023"), null);
 });
 
@@ -131,7 +115,7 @@ function dashboard(invoices, contracts = [], room = null) {
             repository: { data: { profile: { name: "Sinh viên A" } } },
             helpers: {
                 esc: value => String(value ?? ""),
-                money: value => `${value} VND`,
+                money: value => `${value} đ`,
                 date: value => String(value),
                 total() {}, badge() {}, fields() {}, card() {}, table() {}, requestTable() {}, contractWarning() {}
             },
@@ -172,7 +156,8 @@ test("backend dashboard shows empty statuses and never says fully paid without i
     const nodes = await dashboard([]);
     assert.equal(nodes.get("[data-dashboard-unpaid]").textContent, "—");
     assert.equal(nodes.get("[data-dashboard-unpaid-hint]").textContent, "Chưa có hóa đơn");
-    assert.equal(nodes.get("[data-dashboard-debt]").textContent, "—");
+    assert.equal(nodes.get("[data-dashboard-debt]").textContent, "0 đ");
+    assert.equal(nodes.get("[data-dashboard-debt-hint]").textContent, "Không có nợ");
     assert.equal(nodes.get("[data-dashboard-contract]").textContent, "—");
     assert.equal(nodes.get("[data-dashboard-contract-warning]").textContent, "");
     assert.equal(nodes.has("[data-dashboard-overdue]"), false);

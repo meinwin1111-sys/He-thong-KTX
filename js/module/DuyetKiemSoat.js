@@ -89,6 +89,11 @@
             if (!Array.isArray(result)) throw new Error('Dữ liệu yêu cầu không hợp lệ.');
             requests = result;
             renderRows();
+            const pendingId = window.pendingAdminRequestId;
+            if (pendingId && requests.some(request => String(request.MaYeuCau) === String(pendingId))) {
+                delete window.pendingAdminRequestId;
+                openDetail(pendingId);
+            }
         } catch (error) {
             tableHost.innerHTML = window.AdminWorkflowUtils.renderTable(tableColumns(), [], 'Không thể tải danh sách yêu cầu.', () => '', 'dk-table');
             errorNode.textContent = error.message || 'Không thể tải danh sách yêu cầu.';
@@ -98,7 +103,7 @@
     function configureFilters() {
         root.querySelector('#dk-filters').reset();
         const options = list => '<option value="">Tất cả</option>' + list.map(value => `<option>${escape(value)}</option>`).join('');
-        root.querySelector('#dk-type').innerHTML = options(['Gia hạn hợp đồng', 'Báo hỏng thiết bị', 'Yêu cầu khác']);
+        root.querySelector('#dk-type').innerHTML = options(['Gia hạn hợp đồng', 'Trả phòng sớm', 'Báo hỏng thiết bị', 'Yêu cầu khác']);
         root.querySelector('#dk-status').innerHTML = options([pending, approved, rejected]);
         page = 1;
         renderRows();
@@ -137,20 +142,48 @@
         root.querySelector('#dk-next').disabled = page >= pages;
     }
 
-    function openDetail(id) {
+    async function openDetail(id) {
         const row = requestRows().find(item => item.id === id);
         if (!row) return;
         const dialog = root.querySelector('#dk-dialog');
         const field = (label, content) => `<div><dt>${label}</dt><dd>${escape(content)}</dd></div>`;
+        let checkout = null;
+        if (row.type === 'Trả phòng sớm') {
+            try {
+                const response = await ApiClient.fetch(`/api/requests/${encodeURIComponent(id)}/early-checkout`);
+                checkout = await response.json();
+            } catch (error) {
+                showToast(error.message || 'Không thể tính tiền hoàn.');
+                return;
+            }
+        }
+        const formatDateOnly = value => {
+            const text = String(value || '').slice(0, 10);
+            return window.AdminWorkflowUtils.date(text, 'format') || '—';
+        };
+        const formatMoney = value => `${Number(value || 0).toLocaleString('vi-VN')} đ`;
+        const checkoutDetails = checkout ? `
+            ${field('Hợp đồng', checkout.MaHopDong)}
+            ${field('Ngày bắt đầu hợp đồng', formatDateOnly(checkout.NgayBatDauHopDong))}
+            ${field('Ngày kết thúc hợp đồng', formatDateOnly(checkout.NgayKetThucHopDong))}
+            ${field('Ngày kết thúc đề xuất', formatDateOnly(checkout.NgayKetThucDeXuat))}
+            ${field('Số ngày hợp đồng', checkout.SoNgayHopDong)}
+            ${field('Đã thanh toán tiền phòng', formatMoney(checkout.DaThanhToan))}
+            ${field('Đơn giá ngày', formatMoney(checkout.DonGiaNgay))}
+            ${field('Số ngày đã ở', checkout.SoNgayDaO)}
+            ${field('Tiền đã ở', formatMoney(checkout.TienDaO))}
+            ${field('Số tiền hoàn', formatMoney(checkout.SoTienHoan))}
+        ` : '';
         dialog.innerHTML = `<div class="dk-dialog-heading"><h3 id="dk-dialog-title">Chi tiết yêu cầu</h3><button type="button" class="dk-button" data-close aria-label="Đóng chi tiết">×</button></div>
             <div class="dk-dialog-content">${badge(row.status)}<dl class="dk-details">
                 ${field('Mã', row.id)}${field('Sinh viên', `${row.student} (${row.code})`)}${field('Phòng', row.room)}${field('Ngày gửi', dateText(row.date))}
-                ${field('Loại yêu cầu', row.type)}${row.extensionEndDate ? field('Ngày kết thúc đề xuất', dateText(row.extensionEndDate)) : ''}
+                ${field('Loại yêu cầu', row.type)}${row.extensionEndDate && !checkout ? field('Ngày kết thúc đề xuất', dateText(row.extensionEndDate)) : ''}
+                ${checkoutDetails}
                 ${row.reviewedAt ? field('Thời gian xử lý', dateText(row.reviewedAt)) : ''}
                 ${row.reviewer ? field('Người xử lý', row.reviewer) : ''}
             </dl><h4 class="font-semibold mt-4">Nội dung yêu cầu</h4><p class="dk-description">${escape(row.content)}</p>
             ${row.note ? `<h4 class="font-semibold mt-4">Ghi chú / Lý do</h4><p class="dk-description">${escape(row.note)}</p>` : ''}
-            ${row.status === pending ? `<form id="dk-decision"><label for="dk-note" class="block font-semibold mt-4">Ghi chú xử lý <span class="font-normal text-slate-500">(bắt buộc khi từ chối)</span></label><textarea id="dk-note" rows="3" maxlength="1000" placeholder="Nhập phản hồi cho sinh viên..."></textarea><p id="dk-error" role="alert" class="text-red-600"></p><div class="dk-dialog-actions"><button type="button" class="dk-button" data-close>Đóng</button><button type="submit" value="reject" class="dk-button dk-danger">Từ chối yêu cầu</button><button type="submit" value="approve" class="dk-button dk-primary">Duyệt yêu cầu</button></div></form>` : '<div class="dk-dialog-actions"><button type="button" class="dk-button" data-close>Đóng</button></div>'}
+            ${row.status === pending ? `<form id="dk-decision"><label for="dk-note" class="block font-semibold mt-4">Ghi chú xử lý <span class="font-normal text-slate-500">(bắt buộc khi từ chối)</span></label><textarea id="dk-note" rows="3" maxlength="1000" placeholder="Nhập phản hồi cho sinh viên..."></textarea><p id="dk-error" role="alert" class="text-red-600"></p><div class="dk-dialog-actions"><button type="button" class="dk-button" data-close>Đóng</button><button type="submit" value="reject" class="dk-button dk-danger">Từ chối</button><button type="submit" value="approve" class="dk-button dk-primary">${checkout ? 'Duyệt và hoàn tiền mặt' : 'Duyệt yêu cầu'}</button></div></form>` : '<div class="dk-dialog-actions"><button type="button" class="dk-button" data-close>Đóng</button></div>'}
             </div>`;
         dialog.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => dialog.close()));
         dialog.querySelector('#dk-decision')?.addEventListener('submit', async event => {
@@ -163,7 +196,10 @@
                 dialog.querySelector('#dk-note').focus();
                 return;
             }
-            if (!window.confirm(`${status === approved ? 'Duyệt' : 'Từ chối'} yêu cầu ${id}?`)) return;
+            const confirmMessage = checkout && status === approved
+                ? `Xác nhận đã đưa ${formatMoney(checkout.SoTienHoan)} tiền mặt cho sinh viên?`
+                : `${status === approved ? 'Duyệt' : 'Từ chối'} yêu cầu ${id}?`;
+            if (!window.confirm(confirmMessage)) return;
             const buttons = [...dialog.querySelectorAll('#dk-decision button[type="submit"]')];
             buttons.forEach(button => { button.disabled = true; });
             try {

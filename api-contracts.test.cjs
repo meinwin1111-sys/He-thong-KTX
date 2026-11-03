@@ -7,6 +7,7 @@ const registerApiRoutes = require("./api-routes");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { createLoginHandler, createRegistrationHandler } = require("./student-auth");
+const { createApiAuthenticationMiddleware } = require("./api-auth");
 
 function fakeApi({ queryResult, executeError, executeResult } = {}) {
     const routes = new Map();
@@ -179,6 +180,25 @@ async function createSqlIntegrationFixture(pool, sql, {
     }
 }
 
+async function deleteContractInvoices(transaction, sql, contractId) {
+    await new sql.Request(transaction)
+        .input("MaHopDong", sql.NVarChar(20), contractId)
+        .query(`
+            DELETE tb
+            FROM dbo.ThongBao tb
+            WHERE tb.MaSinhVien IN (
+                SELECT MaSinhVien
+                FROM dbo.ChiTietHopDong
+                WHERE MaHopDong = @MaHopDong
+            );
+
+            DELETE hd
+            FROM dbo.HoaDon hd
+            INNER JOIN dbo.ChiTietHopDong cthd ON cthd.MaChiTiet = hd.MaChiTiet
+            WHERE cthd.MaHopDong = @MaHopDong;
+        `);
+}
+
 function response() {
     return {
         statusCode: 200,
@@ -282,6 +302,76 @@ test("QR demo confirmation is unavailable when the feature flag is disabled", as
     }
 });
 
+test("public office contact uses configured phone and hours", async () => {
+    const previous = {
+        phone: process.env.OFFICE_PHONE,
+        hours: process.env.OFFICE_HOURS
+    };
+    process.env.OFFICE_PHONE = "0123456789";
+    process.env.OFFICE_HOURS = "08:00-17:00";
+    try {
+        const harness = fakeApi({
+            queryResult: () => ({ recordset: [
+                { Khoa: "SUPPORT_PHONE", GiaTri: "0999999999" },
+                { Khoa: "SUPPORT_HOURS", GiaTri: "09:00-18:00" },
+                { Khoa: "SUPPORT_EMAIL", GiaTri: "office@example.test" }
+            ] })
+        });
+        const result = await invoke(harness, "get", "/api/lien-he");
+        assert.equal(result.statusCode, 200);
+        assert.deepEqual(result.body, {
+            DienThoai: "0123456789",
+            Email: "office@example.test",
+            GioLamViec: "08:00-17:00"
+        });
+    } finally {
+        if (previous.phone === undefined) delete process.env.OFFICE_PHONE;
+        else process.env.OFFICE_PHONE = previous.phone;
+        if (previous.hours === undefined) delete process.env.OFFICE_HOURS;
+        else process.env.OFFICE_HOURS = previous.hours;
+    }
+});
+
+test("invoice notifications include configured cash-payment guidance without changing the event key", async () => {
+    const previous = {
+        phone: process.env.OFFICE_PHONE,
+        hours: process.env.OFFICE_HOURS
+    };
+    process.env.OFFICE_PHONE = "0123456789";
+    process.env.OFFICE_HOURS = "08:00-17:00";
+    try {
+        const harness = fakeApi({
+            queryResult: call => {
+                if (call.statement.includes("SELECT hd.MaHopDong, hd.LoaiHoaDon")) {
+                    return { recordset: [{
+                        MaHopDong: "HD00001", LoaiHoaDon: "TIEN_PHONG",
+                        TongThuc: 1200000, HanThanhToan: "2026-03-08"
+                    }] };
+                }
+                if (call.statement.includes("SELECT DISTINCT c.MaSinhVien")) {
+                    return { recordset: [{ MaSinhVien: "SV001" }] };
+                }
+                return { recordset: [], rowsAffected: [1] };
+            },
+            executeResult: () => ({ recordset: [], output: { MaHoaDon: "INV-CASH-NOTICE" } })
+        });
+        const result = await invoke(harness, "post", "/api/HoaDon/xuat-ky", {
+            body: { loaiHoaDon: "TIEN_PHONG", maChiTiet: 45, kyThanhToan: "2026-03-01" }
+        });
+        assert.equal(result.statusCode, 201);
+        const notification = harness.queries.find(call =>
+            call.statement.includes("INSERT INTO dbo.ThongBao"));
+        assert.equal(notification.inputs.MaSuKien, "INVOICE:INV-CASH-NOTICE");
+        assert.match(notification.inputs.NoiDung, /giờ làm việc 08:00-17:00/);
+        assert.match(notification.inputs.NoiDung, /SĐT 0123456789/);
+    } finally {
+        if (previous.phone === undefined) delete process.env.OFFICE_PHONE;
+        else process.env.OFFICE_PHONE = previous.phone;
+        if (previous.hours === undefined) delete process.env.OFFICE_HOURS;
+        else process.env.OFFICE_HOURS = previous.hours;
+    }
+});
+
 test("Yêu cầu khác requires non-empty description and rejects proposed end dates", async () => {
     const harness = fakeApi({
         queryResult: call => call.statement.includes("SELECT sv.TenPhong")
@@ -312,11 +402,101 @@ test("Yêu cầu khác requires non-empty description and rejects proposed end d
     assert.equal(insert.inputs.NgayKetThucDeXuat, null);
 });
 
+test("early checkout request validates reason, active-member date range, and stores only the student's request", async () => {
+    const todayVN = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const proposedDate = new Date(`${todayVN}T00:00:00.000Z`);
+    proposedDate.setUTCDate(proposedDate.getUTCDate() + 2);
+    const endDate = new Date(`${todayVN}T00:00:00.000Z`);
+    endDate.setUTCDate(endDate.getUTCDate() + 20);
+    const isoDate = date => date.toISOString().slice(0, 10);
+    const harness = fakeApi({
+        queryResult: call => call.statement.includes("SELECT TOP (1) c.MaChiTiet")
+            ? { recordset: [{
+                MaChiTiet: 71,
+                NgayVao: todayVN,
+                NgayKetThuc: isoDate(endDate),
+                HomNayVN: todayVN,
+                TenPhong: "A201"
+            }] }
+            : call.statement.includes("SELECT sv.TenPhong")
+                ? { recordset: [{ TenPhong: "A201", NgayKetThuc: isoDate(endDate) }] }
+                : call.statement.includes("INSERT INTO dbo.YeuCauSinhVien")
+                    ? { recordset: [{ MaYeuCau: "YC00001", TrangThai: "Chờ duyệt" }], rowsAffected: [1] }
+                    : { recordset: [] }
+    });
+    const invalidReason = await invoke(harness, "post", "/api/student/requests", {
+        auth: { role: "Sinh viên", studentId: "SV-A" },
+        body: { Loai: "Trả phòng sớm", NoiDung: "Ngắn", NgayKetThucDeXuat: isoDate(proposedDate) }
+    });
+    assert.equal(invalidReason.statusCode, 400);
+    assert.equal(harness.transactions.length, 0);
+
+    const accepted = await invoke(harness, "post", "/api/student/requests", {
+        auth: { role: "Sinh viên", studentId: "SV-A" },
+        body: {
+            Loai: "Trả phòng sớm",
+            NoiDung: "  Xin trả phòng sớm vì chuyển nơi ở.  ",
+            NgayKetThucDeXuat: isoDate(proposedDate)
+        }
+    });
+    assert.equal(accepted.statusCode, 201);
+    const insert = harness.queries.find(call => call.statement.includes("INSERT INTO dbo.YeuCauSinhVien"));
+    assert.equal(insert.inputs.MaSinhVien, "SV-A");
+    assert.equal(insert.inputs.Loai, "Trả phòng sớm");
+    assert.equal(insert.inputs.NoiDung, "Xin trả phòng sớm vì chuyển nơi ở.");
+    assert.equal(insert.inputs.NgayKetThucDeXuat, isoDate(proposedDate));
+    assert.equal(harness.transactions.at(-1).state, "committed");
+});
+
+test("incident cost API requires an explicit valid due date before opening a SQL transaction", async () => {
+    const harness = fakeApi({
+        queryResult: call => call.statement.includes("SELECT hd.MaHopDong")
+            ? { recordset: [{ MaHopDong: "HD1" }] }
+            : call.statement.includes("INSERT INTO dbo.ChiPhiPhatSinh")
+                ? { recordset: [{ MaChiPhi: 1 }] }
+                : { recordset: [], rowsAffected: [1] }
+    });
+    const baseBody = {
+        maHopDong: "HD1", maChiTiet: null, noiDung: "Sửa vòi nước",
+        soTien: 300, ngayPhatSinh: "2026-03-01"
+    };
+    const missingDue = await invoke(harness, "post", "/api/ChiPhiPhatSinh", { body: baseBody });
+    assert.equal(missingDue.statusCode, 400);
+    assert.match(missingDue.body.message, /hạn đóng/i);
+    assert.equal(harness.transactions.length, 0);
+
+    const invalidDue = await invoke(harness, "post", "/api/ChiPhiPhatSinh", {
+        body: { ...baseBody, hanDong: "2026-02-31" }
+    });
+    assert.equal(invalidDue.statusCode, 400);
+    assert.equal(harness.transactions.length, 0);
+
+    const accepted = await invoke(harness, "post", "/api/ChiPhiPhatSinh", {
+        body: { ...baseBody, hanDong: "2026-03-08" }
+    });
+    assert.equal(accepted.statusCode, 201);
+    assert.equal(harness.transactions[0].state, "committed");
+    const insert = harness.queries.find(call => call.statement.includes("INSERT INTO dbo.ChiPhiPhatSinh"));
+    assert.equal(insert.inputs.HanDong, "2026-03-08");
+});
+
 test("contract endpoints validate and create contracts through sp_TaoHopDong", async () => {
     const harness = fakeApi({
         queryResult: call => call.statement.includes("SELECT p.MaHangPhong")
             ? { recordset: [{ MaHangPhong: "HP4" }] }
-            : { recordset: [], rowsAffected: [1] }
+            : call.statement.includes("AS NgayVao")
+                ? { recordset: [{
+                    MaHopDong: "HD00001", TenPhong: "A101",
+                    NgayBatDau: "2026-10-01", NgayKetThuc: "2027-10-01",
+                    MaChiTiet: 45, MaSinhVien: "SV001", KyHanThanhToanPhong: "THANG",
+                    GiaPhongApDung: 1200000, GiaPhongThangApDung: 1200000, NgayVao: "2026-10-01"
+                }] }
+                : call.statement.includes("SELECT @@ROWCOUNT AS RowsAffected")
+                    ? { recordset: [{ RowsAffected: 1 }] }
+                : { recordset: [], rowsAffected: [1] },
+        executeResult: call => call.procedure === "dbo.sp_TaoHopDong"
+            ? { recordset: [{ MaHopDong: "HD00001" }] }
+            : { recordset: [{ MaHoaDon: "INV00001", TongTien: 1200000 }], output: { MaHoaDon: "INV00001" } }
     });
     const badTier = await invoke(harness, "post", "/api/HopDong", {
         body: {
@@ -336,16 +516,669 @@ test("contract endpoints validate and create contracts through sp_TaoHopDong", a
         }
     });
     assert.equal(created.statusCode, 201);
-    assert.equal(harness.executions.at(-1).procedure, "dbo.sp_TaoHopDong");
-    assert.deepEqual(JSON.parse(harness.executions.at(-1).inputs.SinhVienJson), [{
+    assert.equal(created.body.MaHopDong, "HD00001");
+    const createContract = harness.executions.find(call => call.procedure === "dbo.sp_TaoHopDong");
+    assert.ok(createContract);
+    assert.deepEqual(JSON.parse(createContract.inputs.SinhVienJson), [{
         maSinhVien: "SV001", kyHanThanhToanPhong: "THANG", laNguoiDaiDien: true
     }]);
+    const createRentInvoice = harness.executions.find(call => call.procedure === "dbo.sp_TaoHoaDonTienPhong");
+    assert.equal(createRentInvoice.inputs.MaChiTiet, 45);
+    assert.equal(createRentInvoice.inputs.KyThanhToan, "2026-10-01");
+    assert.equal(createRentInvoice.inputs.NgayTao,
+        new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10));
+    const notices = harness.queries.filter(call => call.statement.includes("INSERT INTO dbo.ThongBao"));
+    assert.deepEqual(notices.map(call => call.inputs.MaSuKien), [
+        "CONTRACT:HD00001:SV001", "INVOICE:INV00001"
+    ]);
     assert.equal(harness.transactions.at(-1).state, "committed");
 
     const invalid = await invoke(harness, "post", "/api/HopDong", {
         body: { tenPhong: "A101", sinhVien: [] }
     });
     assert.equal(invalid.statusCode, 400);
+});
+
+test("contract creation warns and skips first invoice when the saved room price is missing", async () => {
+    const harness = fakeApi({
+        queryResult: call => call.statement.includes("SELECT p.MaHangPhong")
+            ? { recordset: [{ MaHangPhong: "HP4" }] }
+            : call.statement.includes("AS NgayVao")
+                ? { recordset: [{
+                    MaHopDong: "HD-MISSING-PRICE", TenPhong: "A101",
+                    NgayBatDau: "2026-10-01", NgayKetThuc: "2027-10-01",
+                    MaChiTiet: 45, MaSinhVien: "SV001", KyHanThanhToanPhong: "THANG",
+                    GiaPhongApDung: null, GiaPhongThangApDung: null, NgayVao: "2026-10-01"
+                }] }
+                : { recordset: [], rowsAffected: [1] },
+        executeResult: () => ({ recordset: [{ MaHopDong: "HD-MISSING-PRICE" }] })
+    });
+    const result = await invoke(harness, "post", "/api/HopDong", {
+        body: {
+            tenPhong: "A101", maHangPhong: "HP4", ngayBatDau: "2026-10-01",
+            ngayKetThuc: "2027-10-01",
+            sinhVien: [{ maSinhVien: "SV001", kyHanThanhToanPhong: "THANG" }]
+        }
+    });
+    assert.equal(result.statusCode, 201);
+    assert.deepEqual(result.body.HoaDonTienPhong, []);
+    assert.match(result.body.CanhBao[0], /chưa có đơn giá hợp lệ/);
+    assert.equal(harness.executions.some(call => call.procedure === "dbo.sp_TaoHoaDonTienPhong"), false);
+    assert(harness.queries.some(call => call.inputs.MaSuKien === "CONTRACT:HD-MISSING-PRICE:SV001"));
+    assert.equal(harness.transactions.at(-1).state, "committed");
+});
+
+test("real SQL Server creates one contract notice and first rent invoice per member atomically", {
+    skip: process.env.DB_NAME !== "KTX_Group3_test"
+        ? "Only runs when DB_NAME is explicitly set to KTX_Group3_test."
+        : false
+}, async t => {
+    require("dotenv").config({ path: require("node:path").join(__dirname, ".env") });
+    assert.equal(process.env.DB_NAME, "KTX_Group3_test");
+    if (!process.env.DB_SERVER || !process.env.DB_USER || !process.env.DB_PASSWORD) {
+        throw new Error("Thiếu cấu hình kết nối SQL Server; không thể chạy kiểm thử hợp đồng thật.");
+    }
+
+    const pool = await new sql.ConnectionPool({
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        server: process.env.DB_SERVER,
+        port: Number(process.env.DB_PORT) || undefined,
+        database: process.env.DB_NAME,
+        options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true, useUTC: true }
+    }).connect();
+    let server;
+    try {
+        const fixture = await createSqlIntegrationFixture(pool, sql, {
+            roomMemberCount: 2,
+            unassignedCount: 1,
+            createOtherRoomStudent: true
+        });
+        const [monthlyStudent, yearlyStudent, midTermStudent, unrelatedStudent] = fixture.studentIds;
+        const today = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const startDateValue = new Date(`${today}T00:00:00.000Z`);
+        startDateValue.setUTCDate(startDateValue.getUTCDate() - 10);
+        const startDate = startDateValue.toISOString().slice(0, 10);
+        const endDateValue = new Date(`${startDate}T00:00:00.000Z`);
+        endDateValue.setUTCFullYear(endDateValue.getUTCFullYear() + 1);
+        const endDate = endDateValue.toISOString().slice(0, 10);
+        const expectedDueDateValue = new Date(`${today}T00:00:00.000Z`);
+        expectedDueDateValue.setUTCDate(expectedDueDateValue.getUTCDate() + 7);
+        const expectedDueDate = expectedDueDateValue.toISOString().slice(0, 10);
+
+        const app = express();
+        app.use(express.json());
+        app.use((req, _res, next) => {
+            if (req.get("x-test-role") === "manager") {
+                req.auth = { accountId: fixture.managerId, role: "Quản lý" };
+            } else if (req.get("x-test-role") === "student") {
+                req.auth = { role: "Sinh viên", studentId: req.get("x-test-student") };
+            }
+            next();
+        });
+        registerApiRoutes(app, {
+            getPool: () => pool,
+            sql,
+            bcrypt: require("bcryptjs"),
+            mapPaymentStatusToDatabase: value => ({
+                PENDING: "PENDING",
+                WAITING_CASH: "Chờ xác nhận",
+                SUCCESS: "SUCCESS",
+                REJECTED: "REJECTED",
+                EXPIRED: "EXPIRED",
+                "Cần đối soát": "RECONCILIATION",
+                "Hợp lệ": "Hợp lệ",
+                "Chờ xác nhận": "Chờ xác nhận",
+                "Đã hủy": "Đã hủy"
+            })[value] || null,
+            mapPaymentMethodToDatabase: value => ({
+                CASH: "CASH", ONLINE: "ONLINE", CHUYEN_DOI: "CHUYEN_DOI"
+            })[value] || null,
+            rollback: async transaction => transaction.rollback()
+        });
+        await new Promise((resolve, reject) => {
+            server = app.listen(0, "127.0.0.1", resolve);
+            server.once("error", reject);
+        });
+
+        const baseUrl = `http://127.0.0.1:${server.address().port}`;
+        const call = async (method, route, role, studentId, body) => {
+            const headers = {};
+            if (body !== undefined) headers["Content-Type"] = "application/json";
+            if (role) headers["x-test-role"] = role;
+            if (studentId) headers["x-test-student"] = studentId;
+            const response = await fetch(`${baseUrl}${route}`, {
+                method,
+                headers,
+                ...(body === undefined ? {} : { body: JSON.stringify(body) })
+            });
+            return { status: response.status, body: await response.json() };
+        };
+        const contractBody = {
+            tenPhong: fixture.roomA,
+            maHangPhong: fixture.tierId,
+            ngayBatDau: startDate,
+            ngayKetThuc: endDate,
+            sinhVien: [
+                { maSinhVien: monthlyStudent, kyHanThanhToanPhong: "THANG", laNguoiDaiDien: true },
+                { maSinhVien: yearlyStudent, kyHanThanhToanPhong: "NAM" }
+            ]
+        };
+        const created = await call("POST", "/api/HopDong", "manager", null, contractBody);
+        assert.equal(created.status, 201, JSON.stringify(created.body));
+        const contractId = created.body.MaHopDong;
+        assert.equal(created.body.HoaDonTienPhong.length, 2);
+
+        const firstInvoices = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .query(`
+                SELECT MaHoaDon, MaSinhVien, MaChiTiet, LoaiHoaDon,
+                       CONVERT(nvarchar(10), NgayLap, 23) AS NgayLap,
+                       CONVERT(nvarchar(10), KyThanhToan, 23) AS KyThanhToan,
+                       CONVERT(nvarchar(10), KyThanhToanDen, 23) AS KyThanhToanDen,
+                       CONVERT(nvarchar(10), HanThanhToan, 23) AS HanThanhToan,
+                       (SELECT SUM(ct.SoTien) FROM dbo.ChiTietHoaDon ct
+                        WHERE ct.MaHoaDon = hd.MaHoaDon) AS TongTien
+                FROM dbo.HoaDon hd
+                WHERE MaHopDong = @MaHopDong AND LoaiHoaDon = N'TIEN_PHONG'
+            `);
+        assert.equal(firstInvoices.recordset.length, 2);
+        const monthlyInvoice = firstInvoices.recordset.find(row => row.MaSinhVien === monthlyStudent);
+        const yearlyInvoice = firstInvoices.recordset.find(row => row.MaSinhVien === yearlyStudent);
+        assert.ok(monthlyInvoice && yearlyInvoice);
+        assert.equal(monthlyInvoice.LoaiHoaDon, "TIEN_PHONG");
+        assert.equal(yearlyInvoice.LoaiHoaDon, "TIEN_PHONG");
+        assert.ok(firstInvoices.recordset.every(row => row.NgayLap === today));
+        assert.equal(Number(monthlyInvoice.TongTien), 1200000);
+        assert.equal(Number(yearlyInvoice.TongTien), 14400000);
+        assert.equal(monthlyInvoice.KyThanhToan, `${startDate.slice(0, 7)}-01`);
+        assert.equal(monthlyInvoice.KyThanhToanDen,
+            new Date(Date.UTC(Number(startDate.slice(0, 4)), Number(startDate.slice(5, 7)), 0))
+                .toISOString().slice(0, 10));
+        assert.equal(yearlyInvoice.KyThanhToanDen,
+            new Date(Date.UTC(Number(startDate.slice(0, 4)), Number(startDate.slice(5, 7)) + 11, 0))
+                .toISOString().slice(0, 10));
+        assert.ok(firstInvoices.recordset.every(row => row.HanThanhToan === expectedDueDate));
+        for (const invoice of firstInvoices.recordset) {
+            const invoiceNotice = await pool.request()
+                .input("MaHoaDon", sql.NVarChar(20), invoice.MaHoaDon)
+                .input("MaSinhVien", sql.NVarChar(30), invoice.MaSinhVien)
+                .query(`
+                    SELECT MaHoaDon, NoiDung, COUNT_BIG(*) OVER () AS NoticeCount
+                    FROM dbo.ThongBao
+                    WHERE MaHoaDon = @MaHoaDon AND MaSinhVien = @MaSinhVien
+                      AND MaSuKien = CONCAT(N'INVOICE:', @MaHoaDon)
+                `);
+            assert.equal(invoiceNotice.recordset.length, 1);
+            assert.equal(Number(invoiceNotice.recordset[0].NoticeCount), 1);
+            assert.match(invoiceNotice.recordset[0].NoiDung, new RegExp(invoice.MaHoaDon));
+            assert.ok(invoiceNotice.recordset[0].NoiDung.includes(expectedDueDate.split("-").reverse().join("/")));
+            assert.match(invoiceNotice.recordset[0].NoiDung,
+                new RegExp(new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 })
+                    .format(Number(invoice.TongTien)).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+        }
+
+        const contractNotices = await pool.request()
+            .input("MonthlyEvent", sql.NVarChar(100), `CONTRACT:${contractId}:${monthlyStudent}`)
+            .input("YearlyEvent", sql.NVarChar(100), `CONTRACT:${contractId}:${yearlyStudent}`)
+            .query(`
+                SELECT MaSuKien, MaSinhVien, COUNT_BIG(*) AS NoticeCount
+                FROM dbo.ThongBao
+                WHERE MaSuKien IN (@MonthlyEvent, @YearlyEvent)
+                GROUP BY MaSuKien, MaSinhVien
+            `);
+        assert.deepEqual(contractNotices.recordset.map(row =>
+            [row.MaSinhVien, Number(row.NoticeCount)]).sort((a, b) => a[0].localeCompare(b[0])), [
+            [monthlyStudent, 1], [yearlyStudent, 1]
+        ].sort((a, b) => a[0].localeCompare(b[0])));
+
+        const monthlyNotices = await call("GET", "/api/student/notifications", "student", monthlyStudent);
+        assert.equal(monthlyNotices.status, 200);
+        assert.equal(monthlyNotices.body.filter(notice =>
+            notice.TieuDe.includes(`Hợp đồng lưu trú ${contractId}`)).length, 1);
+        assert.ok(monthlyNotices.body.some(notice => notice.TieuDe.includes(monthlyInvoice.MaHoaDon)));
+        assert.equal(monthlyNotices.body.some(notice => notice.TieuDe.includes(yearlyInvoice.MaHoaDon)), false);
+        const unrelatedNotices = await call("GET", "/api/student/notifications", "student", unrelatedStudent);
+        assert.equal(unrelatedNotices.status, 200);
+        assert.equal(unrelatedNotices.body.some(notice =>
+            notice.TieuDe.includes(`Hợp đồng lưu trú ${contractId}`)
+            || notice.TieuDe.includes(monthlyInvoice.MaHoaDon)
+            || notice.TieuDe.includes(yearlyInvoice.MaHoaDon)), false);
+
+        const repeatedCreate = await call("POST", "/api/HopDong", "manager", null, contractBody);
+        assert.notEqual(repeatedCreate.status, 201);
+        const afterRepeatedCreate = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .query(`
+                SELECT
+                    (SELECT COUNT_BIG(*) FROM dbo.HoaDon
+                     WHERE MaHopDong = @MaHopDong AND LoaiHoaDon = N'TIEN_PHONG') AS InvoiceCount,
+                    (SELECT COUNT_BIG(*) FROM dbo.ThongBao
+                     WHERE MaSuKien LIKE CONCAT(N'CONTRACT:', @MaHopDong, N':%')) AS ContractNoticeCount,
+                    (SELECT COUNT_BIG(*) FROM dbo.ThongBao tb
+                     INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = tb.MaHoaDon
+                     WHERE hd.MaHopDong = @MaHopDong AND tb.MaSuKien LIKE N'INVOICE:%') AS InvoiceNoticeCount
+            `);
+        assert.equal(Number(afterRepeatedCreate.recordset[0].InvoiceCount), 2);
+        assert.equal(Number(afterRepeatedCreate.recordset[0].ContractNoticeCount), 2);
+        assert.equal(Number(afterRepeatedCreate.recordset[0].InvoiceNoticeCount), 2);
+
+        const beforeFailedContract = Number((await pool.request()
+            .input("StudentA", sql.NVarChar(30), monthlyStudent)
+            .input("StudentB", sql.NVarChar(30), yearlyStudent)
+            .query(`
+                SELECT COUNT_BIG(*) AS NoticeCount FROM dbo.ThongBao
+                WHERE MaSinhVien IN (@StudentA, @StudentB) AND MaSuKien LIKE N'CONTRACT:%'
+            `)).recordset[0].NoticeCount);
+        const failedContract = await call("POST", "/api/HopDong", "manager", null, {
+            ...contractBody,
+            tenPhong: fixture.roomB,
+            sinhVien: [{ maSinhVien: `MISSING${crypto.randomBytes(5).toString("hex").toUpperCase()}`,
+                kyHanThanhToanPhong: "THANG" }]
+        });
+        assert.notEqual(failedContract.status, 201);
+        const failedContractState = await pool.request()
+            .input("TenPhong", sql.NVarChar(50), fixture.roomB)
+            .input("StudentA", sql.NVarChar(30), monthlyStudent)
+            .input("StudentB", sql.NVarChar(30), yearlyStudent)
+            .query(`
+                SELECT
+                    (SELECT COUNT_BIG(*) FROM dbo.HopDong
+                     WHERE TenPhong = @TenPhong AND TrangThaiHopDong = N'Còn hiệu lực') AS ContractCount,
+                    (SELECT COUNT_BIG(*) FROM dbo.ThongBao
+                     WHERE MaSinhVien IN (@StudentA, @StudentB) AND MaSuKien LIKE N'CONTRACT:%') AS NoticeCount
+            `);
+        assert.equal(Number(failedContractState.recordset[0].ContractCount), 0);
+        assert.equal(Number(failedContractState.recordset[0].NoticeCount), beforeFailedContract);
+
+        const futureStartValue = new Date(`${today}T00:00:00.000Z`);
+        futureStartValue.setUTCDate(futureStartValue.getUTCDate() + 3);
+        const futureStart = futureStartValue.toISOString().slice(0, 10);
+        const futureEndValue = new Date(`${futureStart}T00:00:00.000Z`);
+        futureEndValue.setUTCFullYear(futureEndValue.getUTCFullYear() + 1);
+        const futureEnd = futureEndValue.toISOString().slice(0, 10);
+        const futureContract = await call("POST", "/api/HopDong", "manager", null, {
+            ...contractBody,
+            tenPhong: fixture.roomB,
+            ngayBatDau: futureStart,
+            ngayKetThuc: futureEnd,
+            sinhVien: [{ maSinhVien: unrelatedStudent, kyHanThanhToanPhong: "THANG" }]
+        });
+        assert.equal(futureContract.status, 201, JSON.stringify(futureContract.body));
+        const futureInvoice = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), futureContract.body.MaHopDong)
+            .query(`
+                SELECT TOP (1) MaHoaDon, LoaiHoaDon,
+                       CONVERT(nvarchar(10), NgayLap, 23) AS NgayLap,
+                       CONVERT(nvarchar(10), HanThanhToan, 23) AS HanThanhToan
+                FROM dbo.HoaDon
+                WHERE MaHopDong = @MaHopDong
+            `);
+        assert.equal(futureInvoice.recordset.length, 1);
+        assert.equal(futureInvoice.recordset[0].LoaiHoaDon, "TIEN_PHONG");
+        assert.equal(futureInvoice.recordset[0].NgayLap, today);
+        assert.equal(futureInvoice.recordset[0].HanThanhToan, futureStart);
+
+        const addedMember = await call("POST", `/api/HopDong/${contractId}/chitiet`,
+            "manager", null, {
+                maSinhVien: midTermStudent,
+                kyHanThanhToanPhong: "THANG",
+                laNguoiDaiDien: false
+            });
+        assert.equal(addedMember.status, 201, JSON.stringify(addedMember.body));
+        assert.equal(addedMember.body.HoaDonTienPhong.length, 1);
+        const repeatedAdd = await call("POST", `/api/HopDong/${contractId}/chitiet`,
+            "manager", null, {
+                maSinhVien: midTermStudent,
+                kyHanThanhToanPhong: "THANG",
+                laNguoiDaiDien: false
+            });
+        assert.notEqual(repeatedAdd.status, 201);
+
+        const finalState = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .input("MidTermEvent", sql.NVarChar(100), `CONTRACT:${contractId}:${midTermStudent}`)
+            .input("MidTermStudent", sql.NVarChar(30), midTermStudent)
+            .query(`
+                SELECT
+                    (SELECT COUNT_BIG(*) FROM dbo.HoaDon
+                     WHERE MaHopDong = @MaHopDong AND LoaiHoaDon = N'TIEN_PHONG') AS InvoiceCount,
+                    (SELECT COUNT_BIG(*) FROM dbo.ThongBao
+                     WHERE MaSuKien LIKE CONCAT(N'CONTRACT:', @MaHopDong, N':%')) AS ContractNoticeCount,
+                    (SELECT COUNT_BIG(*) FROM dbo.ThongBao tb
+                     INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = tb.MaHoaDon
+                     WHERE hd.MaHopDong = @MaHopDong AND tb.MaSuKien LIKE N'INVOICE:%') AS InvoiceNoticeCount,
+                    (SELECT COUNT_BIG(*) FROM dbo.ThongBao
+                     WHERE MaSuKien = @MidTermEvent AND MaSinhVien = @MidTermStudent) AS NewMemberNoticeCount
+            `);
+        assert.equal(Number(finalState.recordset[0].InvoiceCount), 3);
+        assert.equal(Number(finalState.recordset[0].ContractNoticeCount), 3);
+        assert.equal(Number(finalState.recordset[0].InvoiceNoticeCount), 3);
+        assert.equal(Number(finalState.recordset[0].NewMemberNoticeCount), 1);
+
+        const allInvoices = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .query(`
+                SELECT MaSinhVien, LoaiHoaDon
+                FROM dbo.HoaDon
+                WHERE MaHopDong = @MaHopDong
+            `);
+        assert.equal(allInvoices.recordset.length, 3);
+        assert.ok(allInvoices.recordset.every(row => row.LoaiHoaDon === "TIEN_PHONG"));
+        assert.deepEqual(allInvoices.recordset.map(row => row.MaSinhVien).sort(),
+            [monthlyStudent, yearlyStudent, midTermStudent].sort());
+
+        for (const studentId of [monthlyStudent, yearlyStudent, midTermStudent]) {
+            const notices = await call("GET", "/api/student/notifications", "student", studentId);
+            assert.equal(notices.status, 200);
+            assert.equal(notices.body.filter(notice =>
+                notice.TieuDe.includes(`Hợp đồng lưu trú ${contractId}`)).length, 1);
+        }
+        t.diagnostic("Contract and initial rent notices committed per student; repeat/failure paths added no duplicate rows; monthly, annual, and mid-term rent invoices were TIEN_PHONG.");
+    } finally {
+        if (server) await new Promise(resolve => server.close(resolve));
+        await pool.close();
+    }
+});
+
+test("real SQL early checkout uses day-based refunds, concurrency guards, and per-student membership", {
+    skip: process.env.DB_NAME !== "KTX_Group3_test"
+        ? "Only runs when DB_NAME is explicitly set to KTX_Group3_test."
+        : false
+}, async t => {
+    require("dotenv").config({ path: require("node:path").join(__dirname, ".env") });
+    assert.equal(process.env.DB_NAME, "KTX_Group3_test");
+    if (!process.env.DB_SERVER || !process.env.DB_USER || !process.env.DB_PASSWORD) {
+        throw new Error("Thiếu cấu hình SQL Server cho kiểm thử trả phòng sớm.");
+    }
+    const pool = await new sql.ConnectionPool({
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        server: process.env.DB_SERVER,
+        port: Number(process.env.DB_PORT) || undefined,
+        database: process.env.DB_NAME,
+        options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true, useUTC: true }
+    }).connect();
+    let server;
+    let fixture;
+    let contractId;
+    let studentIds = [];
+    try {
+        assert.equal((await pool.request().query("SELECT DB_NAME() AS DatabaseName"))
+            .recordset[0].DatabaseName, "KTX_Group3_test");
+        fixture = await createSqlIntegrationFixture(pool, sql, {
+            roomMemberCount: 4,
+            createOtherRoomStudent: false
+        });
+        studentIds = fixture.studentIds;
+        const [paidStudent, unpaidStudent, partialStudent, rejectedStudent] = studentIds;
+        const accounts = new Map();
+        for (const studentId of studentIds) {
+            const result = await pool.request()
+                .input("Email", sql.VarChar(100), `${studentId.toLowerCase()}@gmail.com`)
+                .input("TenHienThi", sql.NVarChar(100), `Checkout ${studentId}`)
+                .input("MaSinhVien", sql.NVarChar(30), studentId)
+                .query(`
+                    INSERT INTO dbo.TaiKhoan (Email, MatKhau, TenHienThi, VaiTro, MaSinhVien)
+                    OUTPUT inserted.MaTaiKhoan
+                    VALUES (@Email, 'test-only-not-authenticated', @TenHienThi, N'Sinh viên', @MaSinhVien)
+                `);
+            accounts.set(studentId, result.recordset[0].MaTaiKhoan);
+        }
+        const shift = (iso, amount) => {
+            const date = new Date(`${iso}T00:00:00.000Z`);
+            date.setUTCDate(date.getUTCDate() + amount);
+            return date.toISOString().slice(0, 10);
+        };
+        const todayVN = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const startDate = shift(todayVN, -13);
+        const endDate = shift(startDate, 29);
+        const authSecret = `checkout-${crypto.randomBytes(24).toString("hex")}`;
+        const app = express();
+        app.use(express.json());
+        app.use("/api", createApiAuthenticationMiddleware({ jwt, getSecret: () => authSecret }));
+        registerApiRoutes(app, {
+            getPool: () => pool, sql, bcrypt: require("bcryptjs"),
+            mapPaymentStatusToDatabase: value => value,
+            mapPaymentMethodToDatabase: value => value,
+            rollback: async transaction => transaction.rollback()
+        });
+        await new Promise((resolve, reject) => {
+            server = app.listen(0, "127.0.0.1", resolve);
+            server.once("error", reject);
+        });
+        const baseUrl = `http://127.0.0.1:${server.address().port}`;
+        const call = async (method, route, role, studentId, body) => {
+            const headers = {};
+            if (body !== undefined) headers["Content-Type"] = "application/json";
+            if (role) {
+                const payload = role === "manager"
+                    ? { sub: String(fixture.managerId), role: "Quản lý" }
+                    : role === "admin"
+                        ? { sub: String(fixture.managerId), role: "Admin" }
+                        : { sub: String(accounts.get(studentId)), role: "Sinh viên", studentId };
+                headers.Authorization = `Bearer ${jwt.sign(payload, authSecret)}`;
+            }
+            const response = await fetch(`${baseUrl}${route}`, {
+                method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) })
+            });
+            return { status: response.status, body: await response.json() };
+        };
+        const contract = await call("POST", "/api/HopDong", "manager", null, {
+            tenPhong: fixture.roomA,
+            maHangPhong: fixture.tierId,
+            ngayBatDau: startDate,
+            ngayKetThuc: endDate,
+            sinhVien: studentIds.map((maSinhVien, index) => ({
+                maSinhVien, kyHanThanhToanPhong: "THANG", laNguoiDaiDien: index === 0
+            }))
+        });
+        assert.equal(contract.status, 201, JSON.stringify(contract.body));
+        contractId = contract.body.MaHopDong;
+        const invoiceIds = new Map(contract.body.HoaDonTienPhong.map(item => [item.MaSinhVien, item.MaHoaDon]));
+        assert.equal(invoiceIds.size, 4);
+        await pool.request()
+            .input("MaHoaDon", sql.NVarChar(20), invoiceIds.get(paidStudent))
+            .input("SoTien", sql.Decimal(18, 2), 1200000)
+            .input("PhuongThuc", sql.NVarChar(20), "CASH")
+            .input("MaSinhVienNop", sql.NVarChar(30), paidStudent)
+            .input("NguoiThu", sql.Int, fixture.managerId)
+            .execute("dbo.sp_GhiPhieuThu");
+        await pool.request()
+            .input("MaHoaDon", sql.NVarChar(20), invoiceIds.get(partialStudent))
+            .input("SoTien", sql.Decimal(18, 2), 700000)
+            .input("PhuongThuc", sql.NVarChar(20), "CASH")
+            .input("MaSinhVienNop", sql.NVarChar(30), partialStudent)
+            .input("NguoiThu", sql.Int, fixture.managerId)
+            .execute("dbo.sp_GhiPhieuThu");
+
+        const submit = studentId => call("POST", "/api/student/requests", "student", studentId, {
+            Loai: "Trả phòng sớm",
+            NoiDung: "Xin trả phòng sớm do chuyển nơi ở.",
+            NgayKetThucDeXuat: todayVN
+        });
+        const invalidDate = await call("POST", "/api/student/requests", "student", paidStudent, {
+            Loai: "Trả phòng sớm",
+            NoiDung: "Xin trả phòng sớm do chuyển nơi ở.",
+            NgayKetThucDeXuat: endDate
+        });
+        assert.equal(invalidDate.status, 400);
+        const reqA = await submit(paidStudent);
+        const reqB = await submit(unpaidStudent);
+        const reqC = await submit(partialStudent);
+        const reqD = await submit(rejectedStudent);
+        for (const result of [reqA, reqB, reqC, reqD]) assert.equal(result.status, 201, JSON.stringify(result.body));
+        assert.equal((await submit(unpaidStudent)).status, 409);
+        const ownRequests = await call("GET", "/api/student/requests", "student", unpaidStudent);
+        assert.equal(ownRequests.status, 200);
+        assert.deepEqual(ownRequests.body.map(row => row.MaYeuCau), [reqB.body.MaYeuCau]);
+
+        assert.equal((await call("GET", `/api/requests/${reqA.body.MaYeuCau}/early-checkout`, null, null)).status, 401);
+        assert.equal((await call("GET", `/api/requests/${reqA.body.MaYeuCau}/early-checkout`, "student", paidStudent)).status, 403);
+        assert.equal((await call("PUT", `/api/requests/${reqD.body.MaYeuCau}`, "admin", null, {
+            TrangThai: "Đã duyệt"
+        })).status, 403);
+        assert.equal((await call("PUT", `/api/requests/${reqD.body.MaYeuCau}`, "student", rejectedStudent, {
+            TrangThai: "Đã duyệt"
+        })).status, 403);
+
+        const preview = await call("GET", `/api/requests/${reqA.body.MaYeuCau}/early-checkout`, "manager", null);
+        assert.equal(preview.status, 200, JSON.stringify(preview.body));
+        assert.equal(Number(preview.body.SoNgayHopDong), 30);
+        assert.equal(Number(preview.body.SoNgayDaO), 14);
+        assert.equal(Number(preview.body.TienDaO), 560000);
+        assert.equal(Number(preview.body.SoTienHoan), 640000);
+        const concurrent = await Promise.all([
+            call("PUT", `/api/requests/${reqA.body.MaYeuCau}`, "manager", null, { TrangThai: "Đã duyệt" }),
+            call("PUT", `/api/requests/${reqA.body.MaYeuCau}`, "manager", null, { TrangThai: "Đã duyệt" })
+        ]);
+        assert.deepEqual(concurrent.map(result => result.status).sort(), [200, 409]);
+        assert.equal(Number(concurrent.find(result => result.status === 200).body.SoTienHoan), 640000);
+
+        const unpaidDecision = await call("PUT", `/api/requests/${reqB.body.MaYeuCau}`, "manager", null, {
+            TrangThai: "Đã duyệt"
+        });
+        assert.equal(unpaidDecision.status, 200, JSON.stringify(unpaidDecision.body));
+        assert.equal(Number(unpaidDecision.body.SoTienHoan), 0);
+        const partialDecision = await call("PUT", `/api/requests/${reqC.body.MaYeuCau}`, "manager", null, {
+            TrangThai: "Đã duyệt"
+        });
+        assert.equal(partialDecision.status, 200, JSON.stringify(partialDecision.body));
+        assert.equal(Number(partialDecision.body.SoTienHoan), 140000);
+        assert.ok(Number(partialDecision.body.SoTienHoan) <= 700000);
+        const rejected = await call("PUT", `/api/requests/${reqD.body.MaYeuCau}`, "manager", null, {
+            TrangThai: "Từ chối", PhanHoi: "Vui lòng cung cấp thêm thông tin."
+        });
+        assert.equal(rejected.status, 200, JSON.stringify(rejected.body));
+
+        const state = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .query(`
+                SELECT c.MaSinhVien, c.TrangThai, c.NgayRa,
+                       (SELECT COUNT_BIG(*) FROM dbo.ChiTietHopDong active
+                        WHERE active.MaHopDong = c.MaHopDong AND active.TrangThai = N'Đang ở') AS SoNguoiConO
+                FROM dbo.ChiTietHopDong c
+                WHERE c.MaHopDong = @MaHopDong
+            `);
+        const memberA = state.recordset.find(row => row.MaSinhVien === paidStudent);
+        const memberB = state.recordset.find(row => row.MaSinhVien === unpaidStudent);
+        const memberC = state.recordset.find(row => row.MaSinhVien === partialStudent);
+        const memberD = state.recordset.find(row => row.MaSinhVien === rejectedStudent);
+        assert.equal(memberA.TrangThai, "Đã rời");
+        assert.equal(memberA.NgayRa.toISOString().slice(0, 10), todayVN);
+        assert.equal(memberB.TrangThai, "Đã rời");
+        assert.equal(memberC.TrangThai, "Đã rời");
+        assert.equal(memberD.TrangThai, "Đang ở");
+        assert.equal(memberD.NgayRa, null);
+        assert.equal(Number(memberA.SoNguoiConO), 1);
+        const roomState = await pool.request()
+            .input("TenPhong", sql.NVarChar(50), fixture.roomA)
+            .query("SELECT SoSinhVienHienTai, TrangThaiPhong FROM dbo.Phong WHERE TenPhong = @TenPhong");
+        assert.equal(Number(roomState.recordset[0].SoSinhVienHienTai), 1);
+        assert.equal(roomState.recordset[0].TrangThaiPhong, "Trống");
+
+        const receipts = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .input("MaSinhVien", sql.NVarChar(30), paidStudent)
+            .query(`
+                SELECT COUNT_BIG(*) AS SoPhieuChi, SUM(pc.SoTien) AS TongHoan
+                FROM dbo.PhieuChi pc
+                INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = pc.MaChiTiet
+                WHERE c.MaHopDong = @MaHopDong AND c.MaSinhVien = @MaSinhVien
+                  AND pc.LyDo = N'Trả phòng sớm'
+            `);
+        assert.equal(Number(receipts.recordset[0].SoPhieuChi), 1);
+        assert.equal(Number(receipts.recordset[0].TongHoan), 640000);
+        const noRefund = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .input("MaSinhVien", sql.NVarChar(30), unpaidStudent)
+            .query(`
+                SELECT COUNT_BIG(*) AS SoPhieuChi FROM dbo.PhieuChi pc
+                INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = pc.MaChiTiet
+                WHERE c.MaHopDong = @MaHopDong AND c.MaSinhVien = @MaSinhVien
+                  AND pc.LyDo = N'Trả phòng sớm'
+            `);
+        assert.equal(Number(noRefund.recordset[0].SoPhieuChi), 0);
+        const partialRefund = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .input("MaSinhVien", sql.NVarChar(30), partialStudent)
+            .query(`
+                SELECT COUNT_BIG(*) AS SoPhieuChi, SUM(pc.SoTien) AS TongHoan
+                FROM dbo.PhieuChi pc
+                INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = pc.MaChiTiet
+                WHERE c.MaHopDong = @MaHopDong AND c.MaSinhVien = @MaSinhVien
+                  AND pc.LyDo = N'Trả phòng sớm'
+            `);
+        assert.equal(Number(partialRefund.recordset[0].SoPhieuChi), 1);
+        assert.equal(Number(partialRefund.recordset[0].TongHoan), 140000);
+        assert.ok(Number(partialRefund.recordset[0].TongHoan) <= 700000);
+        const notice = await pool.request()
+            .input("MaSuKien", sql.NVarChar(100), `CHECKOUT:${reqA.body.MaYeuCau}:${paidStudent}`)
+            .query("SELECT COUNT_BIG(*) AS SoThongBao FROM dbo.ThongBao WHERE MaSuKien = @MaSuKien");
+        assert.equal(Number(notice.recordset[0].SoThongBao), 1);
+        t.diagnostic("Early checkout: 30d/14d = 560000 used/640000 refund; unpaid refund=0; concurrent approval creates one refund; only the approved member exits.");
+    } finally {
+        if (server) await new Promise(resolve => server.close(resolve));
+        if (pool.connected && fixture) {
+            const cleanup = new sql.Transaction(pool);
+            await cleanup.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            try {
+                if (contractId) {
+                    await new sql.Request(cleanup).input("MaHopDong", sql.NVarChar(20), contractId)
+                        .query(`
+                            DELETE tb FROM dbo.ThongBao tb WHERE tb.MaSinhVien IN
+                                (SELECT MaSinhVien FROM dbo.ChiTietHopDong WHERE MaHopDong = @MaHopDong);
+                            UPDATE pc SET TrangThai = N'Chờ duyệt'
+                            FROM dbo.PhieuChi pc
+                            INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = pc.MaChiTiet
+                            WHERE c.MaHopDong = @MaHopDong AND pc.TrangThai = N'Hợp lệ';
+                            DELETE pha FROM dbo.PhieuChi_HoaDon pha
+                                INNER JOIN dbo.PhieuChi pc ON pc.MaPhieuChi = pha.MaPhieuChi
+                                INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = pc.MaChiTiet
+                                WHERE c.MaHopDong = @MaHopDong;
+                            DELETE pc FROM dbo.PhieuChi pc
+                                INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = pc.MaChiTiet
+                                WHERE c.MaHopDong = @MaHopDong;
+                            DELETE pt FROM dbo.PhieuThu pt
+                                INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = pt.MaHoaDon
+                                WHERE hd.MaHopDong = @MaHopDong;
+                            DELETE yc FROM dbo.YeuCauSinhVien yc
+                                INNER JOIN dbo.ChiTietHopDong c ON c.MaSinhVien = yc.MaSinhVien
+                                WHERE c.MaHopDong = @MaHopDong;
+                        `);
+                    await deleteContractInvoices(cleanup, sql, contractId);
+                    await new sql.Request(cleanup).input("MaHopDong", sql.NVarChar(20), contractId)
+                        .query("DELETE FROM dbo.ChiTietHopDong WHERE MaHopDong = @MaHopDong; DELETE FROM dbo.HopDong WHERE MaHopDong = @MaHopDong;");
+                }
+                for (const studentId of studentIds) {
+                    await new sql.Request(cleanup).input("MaSinhVien", sql.NVarChar(30), studentId)
+                        .query("DELETE FROM dbo.TaiKhoan WHERE MaSinhVien = @MaSinhVien; DELETE FROM dbo.SinhVien WHERE MaSinhVien = @MaSinhVien;");
+                }
+                await new sql.Request(cleanup)
+                    .input("ManagerId", sql.Int, fixture.managerId)
+                    .input("TierId", sql.NVarChar(20), fixture.tierId)
+                    .input("ServiceId", sql.NVarChar(20), fixture.serviceId)
+                    .input("RoomA", sql.NVarChar(50), fixture.roomA)
+                    .input("RoomB", sql.NVarChar(50), fixture.roomB)
+                    .query(`
+                        DELETE FROM dbo.TaiKhoan WHERE MaTaiKhoan = @ManagerId;
+                        DELETE FROM dbo.Phong WHERE TenPhong IN (@RoomA, @RoomB);
+                        DELETE FROM dbo.HangPhong_DichVu WHERE MaHangPhong = @TierId;
+                        DELETE FROM dbo.DichVu WHERE MaDichVu = @ServiceId;
+                        DELETE FROM dbo.HangPhong WHERE MaHangPhong = @TierId;
+                    `);
+                await cleanup.commit();
+            } catch (error) {
+                try {
+                    await cleanup.rollback();
+                } catch (rollbackError) {
+                    if (rollbackError.code !== "EABORT") throw rollbackError;
+                }
+                throw error;
+            }
+        }
+        await pool.close();
+    }
 });
 
 test("contract list/detail return grouped members and parameterized filters", async () => {
@@ -705,6 +1538,17 @@ test("student creation and room changes assign through contract procedures, neve
                     ? { recordset: [{ MaHopDong: "HD00001", LaNguoiDaiDien: 0 }] }
                     : { recordset: [] };
             }
+            if (call.statement.includes("AS NgayVao")) {
+                return { recordset: [{
+                    MaHopDong: "HD00001", TenPhong: "A101",
+                    NgayBatDau: "2026-10-01", NgayKetThuc: "2027-10-01",
+                    MaChiTiet: 45, MaSinhVien: "012345678901", KyHanThanhToanPhong: "THANG",
+                    GiaPhongApDung: 1200000, GiaPhongThangApDung: 1200000, NgayVao: "2026-10-01"
+                }] };
+            }
+            if (call.statement.includes("SELECT @@ROWCOUNT AS RowsAffected")) {
+                return { recordset: [{ RowsAffected: 1 }], rowsAffected: [1] };
+            }
             if (call.statement.includes("SELECT sv.MaSinhVien, sv.TenPhong")) {
                 return { recordset: [{ MaSinhVien: "SV001", TenPhong: "A101", MaChiTiet: null }] };
             }
@@ -712,7 +1556,10 @@ test("student creation and room changes assign through contract procedures, neve
                 return { recordset: [{ NgayBatDau: new Date("2026-10-01"), NgayKetThuc: new Date("2027-10-01") }] };
             }
             return { recordset: [], rowsAffected: [1] };
-        }
+        },
+        executeResult: call => call.procedure === "dbo.sp_TaoHoaDonTienPhong"
+            ? { recordset: [{ MaHoaDon: "INV00001", TongTien: 1200000 }], output: { MaHoaDon: "INV00001" } }
+            : { recordset: [{ MaHopDong: "HD00001" }] }
     });
     const created = await invoke(harness, "post", "/api/sinhvien", {
         body: {
@@ -722,6 +1569,8 @@ test("student creation and room changes assign through contract procedures, neve
     });
     assert.equal(created.statusCode, 201);
     assert(harness.executions.some(call => call.procedure === "dbo.sp_ThemSinhVienVaoHopDong"));
+    assert(harness.executions.some(call => call.procedure === "dbo.sp_TaoHoaDonTienPhong"));
+    assert(harness.queries.some(call => call.inputs.MaSuKien === "CONTRACT:HD00001:012345678901"));
     const insertStudent = harness.queries.find(call => call.statement.includes("INSERT INTO dbo.SinhVien"));
     assert.doesNotMatch(insertStudent.statement, /TenPhong/);
 
@@ -734,6 +1583,10 @@ test("student creation and room changes assign through contract procedures, neve
         }
     });
     assert.equal(updated.statusCode, 200);
+    assert.equal(updated.body.MaHopDong, "HD00001");
+    assert.equal(updated.body.HoaDonTienPhong.length, 1);
+    assert(harness.queries.some(call => call.inputs.MaSuKien === "CONTRACT:HD00001:012345678901"));
+    assert.equal(harness.transactions.at(-1).state, "committed");
     const profileUpdate = harness.queries.find(call => call.statement.includes("UPDATE dbo.SinhVien"));
     assert.doesNotMatch(profileUpdate.statement, /TenPhong\s*=/);
     assert(harness.executions.some(call => call.procedure === "dbo.sp_TaoHopDong"));
@@ -764,6 +1617,8 @@ test("money invoice APIs enforce student ownership and return invoice aggregates
     });
     assert.equal(list.statusCode, 200);
     assert.match(harness.queries[0].statement, /ChiTietHopDong/);
+    assert.match(harness.queries[0].statement, /CONVERT\(nvarchar\(10\), hd\.NgayLap, 23\) AS NgayLap/);
+    assert.match(harness.queries[0].statement, /CONVERT\(nvarchar\(10\), hd\.HanThanhToan, 23\) AS HanThanhToan/);
     assert.equal(harness.queries[0].inputs.MaSinhVien, "SV001");
     assert.match(harness.queries[0].statement, /hd\.LoaiHoaDon = N'CU' AND hd\.MaSinhVien = @MaSinhVien/);
     assert.match(harness.queries[0].statement, /ChiTietHopDong c[\s\S]*c\.MaSinhVien = @MaSinhVien/);
@@ -791,8 +1646,22 @@ test("money invoice APIs enforce student ownership and return invoice aggregates
 test("money receipt endpoints call procedures and reject non-integer VND", async () => {
     const harness = fakeApi({
         queryResult: call => {
-            if (call.statement.includes("SELECT MaHoaDon FROM dbo.HoaDon")) {
+            if (call.statement.includes("SELECT MaHoaDon, MaGiaoDich")
+                && call.statement.includes("dbo.PhieuThu")) {
+                return { recordset: [{ MaHoaDon: "INV2026100011", MaGiaoDich: null }] };
+            }
+            if (call.statement.includes("SELECT MaPhieuThu")
+                && call.statement.includes("dbo.PhieuThu")) {
+                return { recordset: [{ MaPhieuThu: 93 }] };
+            }
+            if (call.statement.includes("FROM dbo.HoaDon WITH (UPDLOCK, HOLDLOCK)")) {
                 return { recordset: [{ MaHoaDon: "INV2026100011" }] };
+            }
+            if (call.statement.includes("SELECT MaHopDong, MaChiTiet FROM dbo.HoaDon")) {
+                return { recordset: [{ MaHopDong: "HD-1", MaChiTiet: 1 }] };
+            }
+            if (call.statement.includes("SELECT DISTINCT c.MaSinhVien")) {
+                return { recordset: [{ MaSinhVien: "SV-1" }] };
             }
             return { recordset: [], rowsAffected: [1] };
         },
@@ -815,6 +1684,9 @@ test("money receipt endpoints call procedures and reject non-integer VND", async
     assert.equal(harness.executions.at(-1).procedure, "dbo.sp_GhiPhieuThu");
     assert.equal(harness.executions.at(-1).inputs.SoTien, 100);
     assert.equal(harness.transactions.at(-1).state, "committed");
+    const paymentNotice = harness.queries.find(call =>
+        call.statement.includes("INSERT INTO dbo.ThongBao"));
+    assert.equal(paymentNotice.inputs.MaSuKien, "PAYMENT:93");
 
     const confirmation = await invoke(harness, "put", "/api/phieuthu/:id/xac-nhan", {
         params: { id: "93" }, body: {}
@@ -823,7 +1695,7 @@ test("money receipt endpoints call procedures and reject non-integer VND", async
     assert.equal(harness.executions.at(-1).procedure, "dbo.sp_XacNhanPhieuThu");
 });
 
-test("student payment requests are scoped to their contract and reject invalid or foreign invoices", async () => {
+test("student payment requests reject cash at the office and validate invoice ownership", async () => {
     const harness = fakeApi({
         queryResult: call => call.statement.includes("SELECT hd.MaHoaDon, hd.TrangThaiThanhToan")
             ? { recordset: [] }
@@ -836,14 +1708,96 @@ test("student payment requests are scoped to their contract and reject invalid o
     assert.equal(invalid.statusCode, 400);
     assert.equal(harness.transactions.length, 0);
 
-    const foreign = await invoke(harness, "post", "/api/payments/create", {
+    const cash = await invoke(harness, "post", "/api/payments/create", {
         auth: { role: "Sinh viên", studentId: "SV001" },
         body: { MaHoaDon: "INV2026100011", SoTien: 100, PhuongThuc: "CASH" }
     });
+    assert.equal(cash.statusCode, 400);
+    assert.match(cash.body.message, /nộp tiền mặt tại văn phòng ký túc xá/i);
+    assert.equal(harness.transactions.length, 0);
+    assert.equal(harness.queries.length, 0);
+
+    const previousBankConfig = {
+        bin: process.env.PAYMENT_BANK_BIN,
+        account: process.env.PAYMENT_BANK_ACCOUNT_NO,
+        name: process.env.PAYMENT_BANK_ACCOUNT_NAME
+    };
+    process.env.PAYMENT_BANK_BIN = "970415";
+    process.env.PAYMENT_BANK_ACCOUNT_NO = "1234567890";
+    process.env.PAYMENT_BANK_ACCOUNT_NAME = "TEST ACCOUNT";
+    let foreign;
+    try {
+        foreign = await invoke(harness, "post", "/api/payments/create", {
+            auth: { role: "Sinh viên", studentId: "SV001" },
+            body: { MaHoaDon: "INV2026100011", SoTien: 100, PhuongThuc: "ONLINE" }
+        });
+    } finally {
+        if (previousBankConfig.bin === undefined) delete process.env.PAYMENT_BANK_BIN;
+        else process.env.PAYMENT_BANK_BIN = previousBankConfig.bin;
+        if (previousBankConfig.account === undefined) delete process.env.PAYMENT_BANK_ACCOUNT_NO;
+        else process.env.PAYMENT_BANK_ACCOUNT_NO = previousBankConfig.account;
+        if (previousBankConfig.name === undefined) delete process.env.PAYMENT_BANK_ACCOUNT_NAME;
+        else process.env.PAYMENT_BANK_ACCOUNT_NAME = previousBankConfig.name;
+    }
     assert.equal(foreign.statusCode, 404);
-    assert.equal(harness.queries[0].inputs.MaSinhVien, "SV001");
-    assert.match(harness.queries[0].statement, /ChiTietHopDong/);
+    const ownerLookup = harness.queries.find(call =>
+        call.statement.includes("SELECT hd.MaHoaDon, hd.TrangThaiThanhToan"));
+    assert.equal(ownerLookup.inputs.MaSinhVien, "SV001");
+    assert.match(ownerLookup.statement, /ChiTietHopDong/);
     assert.equal(harness.executions.length, 0);
+});
+
+test("student payment request reports an existing payment as processing", async () => {
+    const config = {
+        bin: process.env.PAYMENT_BANK_BIN,
+        account: process.env.PAYMENT_BANK_ACCOUNT_NO,
+        name: process.env.PAYMENT_BANK_ACCOUNT_NAME
+    };
+    Object.assign(process.env, {
+        PAYMENT_BANK_BIN: "970415",
+        PAYMENT_BANK_ACCOUNT_NO: "1234567890",
+        PAYMENT_BANK_ACCOUNT_NAME: "TEST ACCOUNT"
+    });
+    const harness = fakeApi({
+        queryResult: call => {
+            if (call.statement.includes("FROM dbo.GiaoDichThanhToan WITH (UPDLOCK, HOLDLOCK)")) {
+                return { recordset: [] };
+            }
+            if (call.statement.includes("SELECT MaGiaoDich")
+                && call.statement.includes("FROM dbo.PhieuThu WITH (READCOMMITTED)")) {
+                return { recordset: [{ MaGiaoDich: "PAY-EXISTING" }] };
+            }
+            if (call.statement.includes("SELECT hd.MaHoaDon, hd.TrangThaiThanhToan")) {
+                return { recordset: [{
+                    MaHoaDon: "INV2026100011", TrangThaiThanhToan: "Chưa thanh toán", ConNo: 200
+                }] };
+            }
+            if (call.statement.includes("SELECT TOP (1) gd.MaGiaoDich")) {
+                return { recordset: [{
+                    MaGiaoDich: "PAY-EXISTING", TongTien: 100, PhuongThuc: "ONLINE",
+                    TrangThai: "PENDING", NoiDungCK: "KTXEXISTING", MaPhieuThu: 12
+                }] };
+            }
+            return { recordset: [] };
+        }
+    });
+    try {
+        const result = await invoke(harness, "post", "/api/payments/create", {
+            auth: { role: "Sinh viên", studentId: "SV001" },
+            body: { MaHoaDon: "INV2026100011", SoTien: 200, PhuongThuc: "ONLINE" }
+        });
+        assert.equal(result.statusCode, 409);
+        assert.equal(result.body.message, "Hóa đơn đã có yêu cầu thanh toán đang xử lý.");
+    } finally {
+        for (const [key, value] of Object.entries({
+            PAYMENT_BANK_BIN: config.bin,
+            PAYMENT_BANK_ACCOUNT_NO: config.account,
+            PAYMENT_BANK_ACCOUNT_NAME: config.name
+        })) {
+            if (value === undefined) delete process.env[key];
+            else process.env[key] = value;
+        }
+    }
 });
 
 test("duplicate signed bank webhook is acknowledged without creating another receipt", async () => {
@@ -862,7 +1816,7 @@ test("duplicate signed bank webhook is acknowledged without creating another rec
             recordset: [{
                 MaGiaoDich: "PAY-TEST", TrangThai: "SUCCESS", PhuongThuc: "ONLINE",
                 TongTien: 100, NoiDungCK: payload.NoiDungCK, MaHoaDon: payload.MaHoaDon,
-                SoTien: 100, TrangThaiPhieuThu: "Hợp lệ"
+                SoTien: 100, SoTienThucNhan: 100, TrangThaiPhieuThu: "Hợp lệ"
             }]
         })
     });
@@ -928,6 +1882,7 @@ test("financial list, report, and legacy routes enforce their intended access", 
         "post /api/payments/bank-transfer/notify",
         "post /api/payments/confirm/:transactionId",
         "post /api/payments/reject/:transactionId",
+        "post /api/payments/surplus/:transactionId/return",
         "post /api/HoaDon",
         "put /api/HoaDon/:id",
         "put /api/HoaDon/:id/thanhtoan"
@@ -1020,7 +1975,10 @@ test("non-representative room member can pay a service invoice and QR uses injec
         assert.equal(payment.statusCode, 201);
         assert.equal(harness.executions.at(-1).procedure, "dbo.sp_GhiPhieuThu");
         assert.equal(harness.executions.at(-1).inputs.MaSinhVienNop, "SV002");
-        assert.match(harness.queries[0].statement, /ownerDetail\.MaSinhVien = @MaSinhVien/);
+        const ownerLookup = harness.queries.find(call =>
+            call.statement.includes("ownerDetail.MaSinhVien = @MaSinhVien"));
+        assert(ownerLookup);
+        assert.match(ownerLookup.statement, /ownerDetail\.MaSinhVien = @MaSinhVien/);
 
         const qr = await invoke(harness, "get", "/api/payments/qr", {
             auth: { role: "Sinh viên", studentId: "SV002" },
@@ -1232,6 +2190,7 @@ test("real SQL Server concurrency: two HTTP membership requests compete for one 
             await cleanup.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
             try {
                 if (contractId) {
+                    await deleteContractInvoices(cleanup, sql, contractId);
                     await new sql.Request(cleanup)
                         .input("MaHopDong", sql.NVarChar(20), contractId)
                         .query("DELETE FROM dbo.ChiTietHopDong WHERE MaHopDong = @MaHopDong");
@@ -1415,6 +2374,7 @@ test("real SQL registration, login, room-gender contracts and wrong-gender rejec
             await cleanup.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
             try {
                 for (const contractId of contractIds) {
+                    await deleteContractInvoices(cleanup, sql, contractId);
                     await new sql.Request(cleanup).input("MaHopDong", sql.NVarChar(20), contractId)
                         .query("DELETE FROM dbo.ChiTietHopDong WHERE MaHopDong = @MaHopDong");
                     await new sql.Request(cleanup).input("MaHopDong", sql.NVarChar(20), contractId)
@@ -1572,6 +2532,7 @@ test("real SQL Server contract APIs distinguish missing, wrong-gender, occupied,
             await cleanup.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
             try {
                 if (contractId) {
+                    await deleteContractInvoices(cleanup, sql, contractId);
                     await new sql.Request(cleanup).input("MaHopDong", sql.NVarChar(20), contractId)
                         .query("DELETE FROM dbo.ChiTietHopDong WHERE MaHopDong = @MaHopDong");
                     await new sql.Request(cleanup).input("MaHopDong", sql.NVarChar(20), contractId)
@@ -1613,7 +2574,7 @@ test("real SQL Server contract APIs distinguish missing, wrong-gender, occupied,
     }
 });
 
-test("real SQL Server money APIs enforce room ownership, webhook idempotency, and concurrent receipts", {
+test("real SQL Server money APIs enforce room ownership and webhook idempotency", {
     skip: process.env.DB_NAME !== "KTX_Group3_test"
         ? "Only runs when DB_NAME is explicitly set to KTX_Group3_test."
         : false
@@ -1721,12 +2682,12 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
         };
 
         const { createPaymentWebhookSignature } = require("./payment-webhook");
-        const webhookCall = async payload => {
+        const webhookCall = async (payload, signature) => {
             const response = await fetch(`${baseUrl}/api/payments/bank-transfer/notify`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    "x-payment-signature": createPaymentWebhookSignature(secret, payload)
+                    "x-payment-signature": signature || createPaymentWebhookSignature(secret, payload)
                 },
                 body: JSON.stringify(payload)
             });
@@ -1746,6 +2707,9 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
         });
         assert.equal(contractResponse.status, 201, JSON.stringify(contractResponse.body));
         const contractId = contractResponse.body.MaHopDong;
+        const rentInvoicesByStudent = new Map((contractResponse.body.HoaDonTienPhong || [])
+            .map(invoice => [invoice.MaSinhVien, invoice.MaHoaDon]));
+        assert.equal(rentInvoicesByStudent.size, 3);
         const otherContractResponse = await call("POST", "/api/HopDong", "manager", null, {
             tenPhong: fixture.roomB,
             maHangPhong: fixture.tierId,
@@ -1757,6 +2721,9 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
         });
         assert.equal(otherContractResponse.status, 201, JSON.stringify(otherContractResponse.body));
         const otherContractId = otherContractResponse.body.MaHopDong;
+        const otherRoomInvoiceId = (otherContractResponse.body.HoaDonTienPhong || [])
+            .find(invoice => invoice.MaSinhVien === otherRoomStudent)?.MaHoaDon;
+        assert.ok(otherRoomInvoiceId);
         const memberResult = await pool.request()
             .input("MaHopDong", sql.NVarChar(20), contractId)
             .query(`
@@ -1770,25 +2737,8 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
         assert(departingMember && payerMember);
         assert.equal(payerMember.LaNguoiDaiDienThanhToanDichVu, false);
 
-        const postRentInvoice = async member => call("POST", "/api/HoaDon/xuat-ky", "manager", null, {
-            loaiHoaDon: "TIEN_PHONG",
-            maChiTiet: member.MaChiTiet,
-            kyThanhToan: periodText
-        });
-        const rentInvoiceResponse = await postRentInvoice(departingMember);
-        assert.equal(rentInvoiceResponse.status, 201, JSON.stringify(rentInvoiceResponse.body));
-        const rentInvoiceId = rentInvoiceResponse.body.MaHoaDon;
-        const otherRoomRentResponse = await postRentInvoice({
-            MaChiTiet: (await pool.request()
-                .input("MaHopDong", sql.NVarChar(20), otherContractId)
-                .query(`
-                    SELECT TOP (1) MaChiTiet
-                    FROM dbo.ChiTietHopDong
-                    WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
-                `)).recordset[0].MaChiTiet
-        });
-        assert.equal(otherRoomRentResponse.status, 201, JSON.stringify(otherRoomRentResponse.body));
-        const otherRoomInvoiceId = otherRoomRentResponse.body.MaHoaDon;
+        const rentInvoiceId = rentInvoicesByStudent.get(departingStudent);
+        assert.ok(rentInvoiceId);
 
         const leaveResponse = await call(
             "PUT",
@@ -1830,9 +2780,20 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
             maChiTiet: payerMember.MaChiTiet,
             noiDung: `B5 isolated incident ${fixture.tierId}`,
             soTien: 200,
-            ngayPhatSinh: periodText
+            ngayPhatSinh: periodText,
+            hanDong: periodText
         });
         assert.equal(expenseResponse.status, 201, JSON.stringify(expenseResponse.body));
+        const expenseNotices = await pool.request()
+            .input("MaSuKien", sql.NVarChar(100), `EXPENSE:${expenseResponse.body.MaChiPhi}`)
+            .query("SELECT MaSinhVien, TieuDe FROM dbo.ThongBao WHERE MaSuKien = @MaSuKien");
+        assert.deepEqual(expenseNotices.recordset.map(row => row.MaSinhVien), [payer]);
+        const anotherRoomMemberNotices = await call(
+            "GET", "/api/student/notifications", "student", departingStudent
+        );
+        assert.equal(anotherRoomMemberNotices.status, 200);
+        assert.equal(anotherRoomMemberNotices.body.some(row =>
+            row.TieuDe.includes(`B5 isolated incident ${fixture.tierId}`)), false);
         const incidentInvoiceResponse = await call(
             "POST",
             `/api/ChiPhiPhatSinh/${expenseResponse.body.MaChiPhi}/tao-hoa-don`,
@@ -1842,6 +2803,11 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
         );
         assert.equal(incidentInvoiceResponse.status, 201, JSON.stringify(incidentInvoiceResponse.body));
         const incidentInvoiceId = incidentInvoiceResponse.body.MaHoaDon;
+        const invoiceNotices = await pool.request()
+            .input("MaSuKien", sql.NVarChar(100), `INVOICE:${incidentInvoiceId}`)
+            .query("SELECT MaSinhVien, MaHoaDon FROM dbo.ThongBao WHERE MaSuKien = @MaSuKien");
+        assert.deepEqual(invoiceNotices.recordset.map(row => row.MaSinhVien), [payer]);
+        assert(invoiceNotices.recordset.every(row => row.MaHoaDon === incidentInvoiceId));
         const formerMemberCannotViewIncident = await call(
             "GET", `/api/HoaDon/${incidentInvoiceId}`, "student", departingStudent
         );
@@ -1854,19 +2820,23 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
             departingStudent, {
                 MaHoaDon: otherRoomInvoiceId, SoTien: 1, PhuongThuc: "CASH"
             });
-        assert.equal(otherRoomCannotPay.status, 404);
+        assert.equal(otherRoomCannotPay.status, 400);
+        assert.match(otherRoomCannotPay.body.message, /nộp tiền mặt tại văn phòng ký túc xá/i);
 
         const firstPayment = Math.min(100, total - 1);
+        const firstActualReceived = Math.max(1, firstPayment - 1);
         const paymentRequest = await call("POST", "/api/payments/create", "student", payer, {
             MaHoaDon: serviceInvoiceId, SoTien: firstPayment, PhuongThuc: "ONLINE"
         });
         assert.equal(paymentRequest.status, 201, JSON.stringify(paymentRequest.body));
         const webhookPayload = {
             MaHoaDon: serviceInvoiceId,
-            SoTien: firstPayment,
+            SoTien: firstActualReceived,
             MaThamChieuNgoai: `B5-${crypto.randomBytes(10).toString("hex").toUpperCase()}`,
             NoiDungCK: paymentRequest.body.NoiDungCK
         };
+        const invalidSignatureWebhook = await webhookCall(webhookPayload, "0".repeat(64));
+        assert.equal(invalidSignatureWebhook.status, 401);
         const qrResponse = await call(
             "GET",
             `/api/payments/qr?MaHoaDon=${encodeURIComponent(serviceInvoiceId)}&SoTien=${firstPayment}`,
@@ -1888,8 +2858,31 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
         const firstWebhook = await webhookCall(webhookPayload);
         const duplicateWebhook = await webhookCall(webhookPayload);
         assert.equal(firstWebhook.status, 200, JSON.stringify(firstWebhook.body));
+        assert.equal(firstWebhook.body.allocated, firstActualReceived);
+        assert.equal(firstWebhook.body.surplus, 0);
         assert.equal(duplicateWebhook.status, 200, JSON.stringify(duplicateWebhook.body));
         assert.equal(duplicateWebhook.body.alreadyProcessed, true);
+        const reusedReferenceWithDifferentPayload = await webhookCall({
+            ...webhookPayload, SoTien: firstActualReceived + 1
+        });
+        assert.equal(reusedReferenceWithDifferentPayload.status, 409);
+        const nonPendingWebhook = await webhookCall({
+            ...webhookPayload,
+            MaThamChieuNgoai: `B5-NON-PENDING-${crypto.randomBytes(10).toString("hex").toUpperCase()}`
+        });
+        assert.equal(nonPendingWebhook.status, 404);
+        const paymentNotices = await pool.request()
+            .input("MaGiaoDich", sql.NVarChar(60), paymentRequest.body.MaGiaoDich)
+            .query(`
+                SELECT tb.MaSinhVien, tb.MaHoaDon, tb.MaSuKien, tb.NoiDung
+                FROM dbo.ThongBao tb
+                WHERE tb.MaSuKien = CONCAT(N'BANK_RECEIVED:', @MaGiaoDich)
+            `);
+        assert.deepEqual(paymentNotices.recordset.map(row => row.MaSinhVien), [payer]);
+        assert(paymentNotices.recordset.every(row =>
+            row.MaHoaDon === serviceInvoiceId && row.MaSuKien === `BANK_RECEIVED:${paymentRequest.body.MaGiaoDich}`));
+        assert.match(paymentNotices.recordset[0].NoiDung, /còn thiếu/);
+        assert.match(paymentNotices.recordset[0].NoiDung, /hạn đóng/);
         const receiptCountAfterDuplicateWebhook = await pool.request()
             .input("MaGiaoDich", sql.NVarChar(60), paymentRequest.body.MaGiaoDich)
             .query(`
@@ -1899,7 +2892,7 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
             `);
         assert.equal(Number(receiptCountAfterDuplicateWebhook.recordset[0].SoPhieuThu), 1);
 
-        const remaining = total - firstPayment;
+        const remaining = total - firstActualReceived;
         const competingReceipts = await Promise.all([1, 2].map(() => call(
             "POST", `/api/HoaDon/${serviceInvoiceId}/phieuthu`, "manager", null, {
                 soTien: remaining,
@@ -1920,6 +2913,175 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
         assert.equal(Number(paidServiceInvoice.recordset[0].DaThu), total);
         assert.equal(Number(paidServiceInvoice.recordset[0].ConNo), 0);
         assert.equal(paidServiceInvoice.recordset[0].TrangThaiThanhToan, "Đã thanh toán");
+
+        const exactInvoiceTotal = await pool.request()
+            .input("MaHoaDon", sql.NVarChar(20), otherRoomInvoiceId)
+            .query("SELECT TongThuc FROM dbo.vw_HoaDonTongHop WHERE MaHoaDon = @MaHoaDon");
+        const exactAmount = Number(exactInvoiceTotal.recordset[0].TongThuc);
+        const exactPayment = await call("POST", "/api/payments/create", "student", otherRoomStudent, {
+            MaHoaDon: otherRoomInvoiceId, SoTien: exactAmount, PhuongThuc: "ONLINE"
+        });
+        assert.equal(exactPayment.status, 201, JSON.stringify(exactPayment.body));
+        const exactPayload = {
+            MaHoaDon: otherRoomInvoiceId,
+            SoTien: exactAmount,
+            MaThamChieuNgoai: `B5-EXACT-${crypto.randomBytes(10).toString("hex").toUpperCase()}`,
+            NoiDungCK: exactPayment.body.NoiDungCK
+        };
+        const exactWebhook = await webhookCall(exactPayload);
+        assert.equal(exactWebhook.status, 200, JSON.stringify(exactWebhook.body));
+        assert.equal(exactWebhook.body.allocated, exactAmount);
+        assert.equal(exactWebhook.body.surplus, 0);
+        const exactState = await pool.request()
+            .input("MaHoaDon", sql.NVarChar(20), otherRoomInvoiceId)
+            .input("MaGiaoDich", sql.NVarChar(60), exactPayment.body.MaGiaoDich)
+            .query(`
+                SELECT gd.SoTienThucNhan, gd.TrangThai, v.DaThu, v.ConNo,
+                       (SELECT COUNT_BIG(*) FROM dbo.HoanTienChuyenKhoanDu h
+                        WHERE h.MaGiaoDich = @MaGiaoDich) AS SoKhoanDu,
+                       (SELECT COUNT_BIG(*) FROM dbo.ThongBao tb
+                        WHERE tb.MaSuKien = CONCAT(N'BANK_RECEIVED:', @MaGiaoDich)) AS SoThongBao
+                FROM dbo.GiaoDichThanhToan gd
+                INNER JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
+                INNER JOIN dbo.vw_HoaDonTongHop v ON v.MaHoaDon = pt.MaHoaDon
+                WHERE gd.MaGiaoDich = @MaGiaoDich AND v.MaHoaDon = @MaHoaDon
+            `);
+        assert.equal(Number(exactState.recordset[0].SoTienThucNhan), exactAmount);
+        assert.equal(exactState.recordset[0].TrangThai, "SUCCESS");
+        assert.equal(Number(exactState.recordset[0].DaThu), exactAmount);
+        assert.equal(Number(exactState.recordset[0].ConNo), 0);
+        assert.equal(Number(exactState.recordset[0].SoKhoanDu), 0);
+        assert.equal(Number(exactState.recordset[0].SoThongBao), 1);
+        const exactPaymentHistory = await call(
+            "GET", `/api/payments/history?MaHoaDon=${encodeURIComponent(otherRoomInvoiceId)}`,
+            "manager", null
+        );
+        assert.equal(exactPaymentHistory.status, 200);
+        const exactHistoryRow = exactPaymentHistory.body.find(row => row.MaGiaoDich === exactPayment.body.MaGiaoDich);
+        assert.equal(Number(exactHistoryRow.SoTienThucNhan), exactAmount);
+        assert.equal(Number(exactHistoryRow.SoTienYeuCau), exactAmount);
+        assert.equal(exactHistoryRow.SoTienDu, null);
+
+        const concurrentPeriodDate = new Date(`${periodText}T00:00:00.000Z`);
+        concurrentPeriodDate.setUTCDate(1);
+        concurrentPeriodDate.setUTCMonth(concurrentPeriodDate.getUTCMonth() + 1);
+        const concurrentPeriodText = concurrentPeriodDate.toISOString().slice(0, 10);
+        const concurrentQrInvoiceResponse = await call("POST", "/api/HoaDon/xuat-ky", "manager", null, {
+            loaiHoaDon: "DICH_VU_PHONG", maHopDong: contractId, kyThanhToan: concurrentPeriodText
+        });
+        assert.equal(concurrentQrInvoiceResponse.status, 201, JSON.stringify(concurrentQrInvoiceResponse.body));
+        const concurrentQrInvoiceId = concurrentQrInvoiceResponse.body.MaHoaDon;
+        const concurrentInvoiceTotalResult = await pool.request()
+            .input("MaHoaDon", sql.NVarChar(20), concurrentQrInvoiceId)
+            .query("SELECT TongThuc FROM dbo.vw_HoaDonTongHop WHERE MaHoaDon = @MaHoaDon");
+        const concurrentInvoiceTotal = Number(concurrentInvoiceTotalResult.recordset[0].TongThuc);
+        const concurrentRequestAmount = concurrentInvoiceTotal;
+        const mismatchPayment = await call("POST", "/api/payments/create", "student", nextRepresentative, {
+            MaHoaDon: concurrentQrInvoiceId, SoTien: 1, PhuongThuc: "ONLINE"
+        });
+        assert.equal(mismatchPayment.status, 201, JSON.stringify(mismatchPayment.body));
+        const mismatchPayload = {
+            MaHoaDon: concurrentQrInvoiceId,
+            SoTien: 1,
+            MaThamChieuNgoai: `B5-MISMATCH-${crypto.randomBytes(10).toString("hex").toUpperCase()}`,
+            NoiDungCK: `${mismatchPayment.body.NoiDungCK}-SAI`
+        };
+        const reconciliationWebhook = await webhookCall(mismatchPayload);
+        assert.equal(reconciliationWebhook.status, 200, JSON.stringify(reconciliationWebhook.body));
+        assert.equal(reconciliationWebhook.body.needsReconciliation, true);
+        const reconciliation = await pool.request()
+            .input("MaHoaDon", sql.NVarChar(20), concurrentQrInvoiceId)
+            .input("MaThamChieuNgoai", sql.NVarChar(100), mismatchPayload.MaThamChieuNgoai)
+            .query(`
+                SELECT pt.MaPhieuThu, gd.MaGiaoDich, gd.TrangThai, gd.LyDoDoiSoat,
+                       gd.SoTienThucNhan, h.SoTien AS SoTienDu, h.TrangThai AS TrangThaiHoanDu
+                FROM dbo.GiaoDichThanhToan gd
+                INNER JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
+                INNER JOIN dbo.HoanTienChuyenKhoanDu h ON h.MaGiaoDich = gd.MaGiaoDich
+                WHERE pt.MaHoaDon = @MaHoaDon AND gd.MaThamChieuNgoai = @MaThamChieuNgoai
+            `);
+        assert.equal(reconciliation.recordset[0].TrangThai, "RECONCILIATION");
+        assert.match(reconciliation.recordset[0].LyDoDoiSoat, /Nội dung chuyển khoản không khớp/);
+        assert.equal(Number(reconciliation.recordset[0].SoTienThucNhan), 1);
+        assert.equal(Number(reconciliation.recordset[0].SoTienDu), 1);
+        assert.equal(reconciliation.recordset[0].TrangThaiHoanDu, "CHO_HOAN");
+        const mismatchNotice = await pool.request()
+            .input("MaSuKien", sql.NVarChar(100), `BANK_RECEIVED:${reconciliation.recordset[0].MaGiaoDich}`)
+            .query("SELECT MaSinhVien, MaHoaDon, NoiDung FROM dbo.ThongBao WHERE MaSuKien = @MaSuKien");
+        assert.deepEqual(mismatchNotice.recordset.map(row => row.MaSinhVien), [nextRepresentative]);
+        assert.equal(mismatchNotice.recordset[0].MaHoaDon, concurrentQrInvoiceId);
+        assert.match(mismatchNotice.recordset[0].NoiDung, /nội dung chuyển khoản không khớp/i);
+        const reconciliationReceiptId = reconciliation.recordset[0].MaPhieuThu;
+        const blockedReconciliationConfirmation = await call(
+            "PUT", `/api/phieuthu/${reconciliationReceiptId}/xac-nhan`, "manager", null, {}
+        );
+        assert.equal(blockedReconciliationConfirmation.status, 409);
+        const rejectedReconciliation = await call(
+            "PUT", `/api/phieuthu/${reconciliationReceiptId}/huy`, "manager", null,
+            { lyDo: "Ngân hàng báo số tiền khác với yêu cầu. Đã kiểm tra sao kê." }
+        );
+        assert.equal(rejectedReconciliation.status, 200, JSON.stringify(rejectedReconciliation.body));
+        const repeatedRejection = await call(
+            "PUT", `/api/phieuthu/${reconciliationReceiptId}/huy`, "manager", null,
+            { lyDo: "Ngân hàng báo số tiền khác với yêu cầu. Đã kiểm tra sao kê." }
+        );
+        const rejectionNotices = await pool.request()
+            .input("MaSuKien", sql.NVarChar(100), `REJECTION:${reconciliationReceiptId}`)
+            .query("SELECT MaSinhVien, MaHoaDon, NoiDung FROM dbo.ThongBao WHERE MaSuKien = @MaSuKien");
+        assert.equal(rejectionNotices.recordset.length, 1);
+        assert.equal(rejectionNotices.recordset[0].MaSinhVien, nextRepresentative);
+        assert.equal(rejectionNotices.recordset[0].MaHoaDon, concurrentQrInvoiceId);
+        assert.match(rejectionNotices.recordset[0].NoiDung, /Ngân hàng báo số tiền khác/);
+        assert.notEqual(repeatedRejection.status, 200);
+        const nonRecipientCannotReadRejection = await call(
+            "GET", "/api/student/notifications", "student", otherRoomStudent
+        );
+        assert.equal(nonRecipientCannotReadRejection.status, 200);
+        assert.equal(nonRecipientCannotReadRejection.body.some(row =>
+            row.TieuDe.includes(`Phiếu thu ${reconciliationReceiptId} đã bị từ chối`)), false);
+
+        const concurrentQrPayments = await Promise.all([payer, nextRepresentative].map(studentId => call(
+            "POST", "/api/payments/create", "student", studentId, {
+                MaHoaDon: concurrentQrInvoiceId, SoTien: concurrentRequestAmount, PhuongThuc: "ONLINE"
+            }
+        )));
+        assert.deepEqual(concurrentQrPayments.map(result => result.status).sort(), [200, 201]);
+        assert.equal(concurrentQrPayments[0].body.MaGiaoDich, concurrentQrPayments[1].body.MaGiaoDich);
+        const concurrentPayload = {
+            MaHoaDon: concurrentQrInvoiceId,
+            SoTien: concurrentRequestAmount,
+            MaThamChieuNgoai: `B5-CONCURRENT-${crypto.randomBytes(10).toString("hex").toUpperCase()}`,
+            NoiDungCK: concurrentQrPayments[0].body.NoiDungCK
+        };
+        const concurrentWebhooks = await Promise.all([
+            webhookCall(concurrentPayload),
+            webhookCall(concurrentPayload)
+        ]);
+        assert.deepEqual(concurrentWebhooks.map(result => result.status), [200, 200]);
+        assert.equal(concurrentWebhooks.filter(result => result.body.alreadyProcessed).length, 1);
+        const concurrentTotals = await pool.request()
+            .input("MaHoaDon", sql.NVarChar(20), concurrentQrInvoiceId)
+            .query(`
+                SELECT v.TongThuc, v.DaThu, v.ConNo,
+                       (SELECT ISNULL(SUM(gd.SoTienThucNhan), 0)
+                        FROM dbo.GiaoDichThanhToan gd
+                        INNER JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
+                        WHERE pt.MaHoaDon = @MaHoaDon AND gd.TrangThai = N'SUCCESS') AS TongThucNhan,
+                       (SELECT ISNULL(SUM(h.SoTien), 0)
+                        FROM dbo.HoanTienChuyenKhoanDu h
+                        INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = h.MaGiaoDich
+                        WHERE h.MaHoaDon = @MaHoaDon AND gd.TrangThai = N'SUCCESS') AS TongTienDu,
+                       (SELECT COUNT_BIG(*) FROM dbo.HoanTienChuyenKhoanDu h
+                        INNER JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = h.MaGiaoDich
+                        WHERE h.MaHoaDon = @MaHoaDon AND gd.TrangThai = N'SUCCESS') AS SoKhoanDu
+                FROM dbo.vw_HoaDonTongHop v WHERE v.MaHoaDon = @MaHoaDon
+            `);
+        assert.equal(Number(concurrentTotals.recordset[0].TongThuc), concurrentInvoiceTotal);
+        assert.equal(Number(concurrentTotals.recordset[0].DaThu), concurrentInvoiceTotal);
+        assert.equal(Number(concurrentTotals.recordset[0].ConNo), 0);
+        assert.equal(Number(concurrentTotals.recordset[0].TongThucNhan), concurrentInvoiceTotal);
+        assert.equal(Number(concurrentTotals.recordset[0].TongTienDu), 0);
+        assert.equal(Number(concurrentTotals.recordset[0].SoKhoanDu), 0);
 
         const incidentTotal = await pool.request()
             .input("MaHoaDon", sql.NVarChar(20), incidentInvoiceId)
@@ -1942,49 +3104,434 @@ test("real SQL Server money APIs enforce room ownership, webhook idempotency, an
             }
         );
         assert.equal(cashPaidIncident.status, 201, JSON.stringify(cashPaidIncident.body));
+        const lateActualReceived = lateWebhookAmount + 17;
         const lateWebhookPayload = {
             MaHoaDon: incidentInvoiceId,
-            SoTien: lateWebhookAmount,
+            SoTien: lateActualReceived,
             MaThamChieuNgoai: `B5-LATE-${crypto.randomBytes(10).toString("hex").toUpperCase()}`,
             NoiDungCK: pendingLateWebhook.body.NoiDungCK
         };
+        const revenueBeforeLateWebhook = await pool.request()
+            .query("SELECT ISNULL(SUM(TongThu), 0) AS TongThu FROM dbo.vw_DoanhThuThang");
         const lateWebhook = await webhookCall(lateWebhookPayload);
         assert.equal(lateWebhook.status, 200, JSON.stringify(lateWebhook.body));
-        assert.equal(lateWebhook.body.needsReconciliation, true);
-        const reconciliation = await pool.request()
+        assert.equal(lateWebhook.body.allocated, 0);
+        assert.equal(lateWebhook.body.surplus, lateActualReceived);
+        const revenueAfterLateWebhook = await pool.request()
+            .query("SELECT ISNULL(SUM(TongThu), 0) AS TongThu FROM dbo.vw_DoanhThuThang");
+        assert.equal(Number(revenueAfterLateWebhook.recordset[0].TongThu),
+            Number(revenueBeforeLateWebhook.recordset[0].TongThu));
+        const lateWebhookState = await pool.request()
             .input("MaHoaDon", sql.NVarChar(20), incidentInvoiceId)
             .input("MaThamChieuNgoai", sql.NVarChar(100), lateWebhookPayload.MaThamChieuNgoai)
             .query(`
-                SELECT gd.TrangThai, gd.LyDoDoiSoat, v.TongThuc, v.DaThu, v.ConNo,
-                       receipts.ThuHopLe, receipts.SoPhieuThu, receipts.SoChoXacNhan
+                SELECT pt.MaPhieuThu, pt.TrangThai AS TrangThaiPhieuThu,
+                       gd.MaGiaoDich, gd.TrangThai, gd.SoTienThucNhan,
+                       v.TongThuc, v.DaThu, v.ConNo,
+                       surplus.SoTien AS SoTienDu, surplus.TrangThai AS TrangThaiHoanDu,
+                       (SELECT COUNT_BIG(*) FROM dbo.PhieuChi_HoaDon pha
+                        INNER JOIN dbo.PhieuChi pc ON pc.MaPhieuChi = pha.MaPhieuChi
+                        WHERE pha.MaHoaDon = @MaHoaDon) AS SoDongPhieuChi
                 FROM dbo.GiaoDichThanhToan gd
                 INNER JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
                 INNER JOIN dbo.vw_HoaDonTongHop v ON v.MaHoaDon = pt.MaHoaDon
-                CROSS APPLY (
-                    SELECT SUM(CASE WHEN allReceipts.TrangThai = N'Hợp lệ'
-                                    THEN allReceipts.SoTien ELSE 0 END) AS ThuHopLe,
-                           COUNT_BIG(*) AS SoPhieuThu,
-                           SUM(CASE WHEN allReceipts.TrangThai = N'Chờ xác nhận'
-                                    THEN 1 ELSE 0 END) AS SoChoXacNhan
-                    FROM dbo.PhieuThu allReceipts
-                    WHERE allReceipts.MaHoaDon = @MaHoaDon
-                ) receipts
+                INNER JOIN dbo.HoanTienChuyenKhoanDu surplus ON surplus.MaGiaoDich = gd.MaGiaoDich
                 WHERE pt.MaHoaDon = @MaHoaDon AND gd.MaThamChieuNgoai = @MaThamChieuNgoai
             `);
-        assert.equal(reconciliation.recordset[0].TrangThai, "RECONCILIATION");
-        assert.match(reconciliation.recordset[0].LyDoDoiSoat, /vượt tổng hóa đơn/);
-        assert.equal(Number(reconciliation.recordset[0].TongThuc), lateWebhookAmount);
-        assert.equal(Number(reconciliation.recordset[0].DaThu), lateWebhookAmount);
-        assert.equal(Number(reconciliation.recordset[0].ConNo), 0);
-        assert.equal(Number(reconciliation.recordset[0].ThuHopLe), lateWebhookAmount);
-        assert.equal(Number(reconciliation.recordset[0].SoPhieuThu), 2);
-        assert.equal(Number(reconciliation.recordset[0].SoChoXacNhan), 1);
+        const surplusState = lateWebhookState.recordset[0];
+        assert.equal(surplusState.TrangThai, "SUCCESS");
+        assert.equal(surplusState.TrangThaiPhieuThu, "Đã hủy");
+        assert.equal(Number(surplusState.SoTienThucNhan), lateActualReceived);
+        assert.equal(Number(surplusState.TongThuc), lateWebhookAmount);
+        assert.equal(Number(surplusState.DaThu), lateWebhookAmount);
+        assert.equal(Number(surplusState.ConNo), 0);
+        assert.equal(Number(surplusState.SoTienDu), lateActualReceived);
+        assert.equal(surplusState.TrangThaiHoanDu, "CHO_HOAN");
+        const debtSurplus = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .query(`
+                SELECT TongCongNo, TienDuChoHoan
+                FROM dbo.vw_CongNo
+                WHERE MaHopDong = @MaHopDong AND LoaiHoaDon = N'PHAT_SINH'
+            `);
+        assert.equal(Number(debtSurplus.recordset[0].TongCongNo), 0);
+        assert.equal(Number(debtSurplus.recordset[0].TienDuChoHoan), lateActualReceived);
+        const surplusTransactionId = surplusState.MaGiaoDich;
+        const revenueBeforeSurplusReturn = await pool.request()
+            .query("SELECT ISNULL(SUM(TongThu), 0) AS TongThu FROM dbo.vw_DoanhThuThang");
+        const expensesBeforeSurplusReturn = await pool.request()
+            .query("SELECT COUNT_BIG(*) AS SoDong FROM dbo.PhieuChi_HoaDon");
+        const paymentExpensesBeforeSurplusReturn = await pool.request()
+            .query("SELECT COUNT_BIG(*) AS SoDong FROM dbo.PhieuChi");
+        const studentCannotReturnSurplus = await call(
+            "POST", `/api/payments/surplus/${surplusTransactionId}/return`, "student", payer, {}
+        );
+        assert.equal(studentCannotReturnSurplus.status, 403);
+        const surplusReturn = await call(
+            "POST", `/api/payments/surplus/${surplusTransactionId}/return`, "manager", null, {}
+        );
+        assert.equal(surplusReturn.status, 200, JSON.stringify(surplusReturn.body));
+        assert.equal(surplusReturn.body.alreadyProcessed, false);
+        assert.equal(Number(surplusReturn.body.SoTien), lateActualReceived);
+        const repeatedSurplusReturn = await call(
+            "POST", `/api/payments/surplus/${surplusTransactionId}/return`, "manager", null, {}
+        );
+        assert.equal(repeatedSurplusReturn.status, 200, JSON.stringify(repeatedSurplusReturn.body));
+        assert.equal(repeatedSurplusReturn.body.alreadyProcessed, true);
+        const returnedSurplus = await pool.request()
+            .input("MaGiaoDich", sql.NVarChar(60), surplusTransactionId)
+            .query(`
+                SELECT h.TrangThai, h.NguoiTra, COUNT_BIG(*) OVER() AS SoKhoan,
+                       (SELECT COUNT_BIG(*) FROM dbo.ThongBao tb
+                        WHERE tb.MaSuKien = CONCAT(N'SURPLUS_REFUNDED:', h.MaGiaoDich)) AS SoThongBao,
+                       (SELECT COUNT_BIG(*) FROM dbo.NhatKyHeThong nk
+                        WHERE nk.DoiTuong = N'HoanTienChuyenKhoanDu'
+                          AND nk.MaDoiTuong = h.MaGiaoDich) AS SoAudit
+                FROM dbo.HoanTienChuyenKhoanDu h WHERE h.MaGiaoDich = @MaGiaoDich
+            `);
+        assert.equal(returnedSurplus.recordset[0].TrangThai, "DA_HOAN");
+        assert.equal(Number(returnedSurplus.recordset[0].SoKhoan), 1);
+        assert.equal(Number(returnedSurplus.recordset[0].SoThongBao), 1);
+        assert.equal(Number(returnedSurplus.recordset[0].SoAudit), 1);
+        await assert.rejects(
+            pool.request()
+                .input("MaGiaoDich", sql.NVarChar(60), surplusTransactionId)
+                .query(`
+                    UPDATE dbo.HoanTienChuyenKhoanDu
+                    SET TrangThai = N'CHO_HOAN', NguoiTra = NULL, ThoiDiemTra = NULL
+                    WHERE MaGiaoDich = @MaGiaoDich
+                `),
+            error => error.number === 52703
+        );
+        const revenueAfterSurplusReturn = await pool.request()
+            .query("SELECT ISNULL(SUM(TongThu), 0) AS TongThu FROM dbo.vw_DoanhThuThang");
+        const expensesAfterSurplusReturn = await pool.request()
+            .query("SELECT COUNT_BIG(*) AS SoDong FROM dbo.PhieuChi_HoaDon");
+        const paymentExpensesAfterSurplusReturn = await pool.request()
+            .query("SELECT COUNT_BIG(*) AS SoDong FROM dbo.PhieuChi");
+        assert.equal(Number(revenueAfterSurplusReturn.recordset[0].TongThu),
+            Number(revenueBeforeSurplusReturn.recordset[0].TongThu));
+        assert.equal(Number(expensesAfterSurplusReturn.recordset[0].SoDong),
+            Number(expensesBeforeSurplusReturn.recordset[0].SoDong));
+        assert.equal(Number(paymentExpensesAfterSurplusReturn.recordset[0].SoDong),
+            Number(paymentExpensesBeforeSurplusReturn.recordset[0].SoDong));
+        const refundedNotice = await pool.request()
+            .input("MaSuKien", sql.NVarChar(100), `SURPLUS_REFUNDED:${surplusTransactionId}`)
+            .query("SELECT MaSinhVien, MaHoaDon FROM dbo.ThongBao WHERE MaSuKien = @MaSuKien");
+        assert.deepEqual(refundedNotice.recordset.map(row => row.MaSinhVien), [payer]);
+
+        const adminQrInvoiceId = rentInvoicesByStudent.get(payer);
+        assert.ok(adminQrInvoiceId);
+        await pool.request()
+            .input("MaHoaDon", sql.NVarChar(20), adminQrInvoiceId)
+            .query("UPDATE dbo.ChiTietHoaDon SET SoTien = 300, DonGia = 300 WHERE MaHoaDon = @MaHoaDon");
+        const adminQrPayment = await call("POST", "/api/payments/create", "student", payer, {
+            MaHoaDon: adminQrInvoiceId, SoTien: 100, PhuongThuc: "ONLINE"
+        });
+        assert.equal(adminQrPayment.status, 201, JSON.stringify(adminQrPayment.body));
+        const pendingReceipt = await pool.request()
+            .input("MaGiaoDich", sql.NVarChar(60), adminQrPayment.body.MaGiaoDich)
+            .query("SELECT MaPhieuThu FROM dbo.PhieuThu WHERE MaGiaoDich = @MaGiaoDich");
+        const pendingReceiptId = pendingReceipt.recordset[0].MaPhieuThu;
+        const nonManagerConfirmation = await call(
+            "PUT", `/api/phieuthu/${pendingReceiptId}/xac-nhan`, "student", payer, {}
+        );
+        assert.equal(nonManagerConfirmation.status, 403);
+        const managerConfirmation = await call(
+            "PUT", `/api/phieuthu/${pendingReceiptId}/xac-nhan`, "manager", null, {}
+        );
+        assert.equal(managerConfirmation.status, 200, JSON.stringify(managerConfirmation.body));
+        const repeatedAdminConfirmation = await call(
+            "PUT", `/api/phieuthu/${pendingReceiptId}/xac-nhan`, "manager", null, {}
+        );
+        assert.equal(repeatedAdminConfirmation.status, 409);
+        const overpayment = await call(
+            "POST", `/api/HoaDon/${adminQrInvoiceId}/phieuthu`, "manager", null, {
+                soTien: 201, phuongThuc: "CASH", trangThai: "Hợp lệ", maSinhVienNop: payer
+            }
+        );
+        assert.equal(overpayment.status, 409);
+        const adminQrTotals = await pool.request()
+            .input("MaHoaDon", sql.NVarChar(20), adminQrInvoiceId)
+            .input("MaPhieuThu", sql.BigInt, pendingReceiptId)
+            .input("MaSinhVien", sql.NVarChar(30), payer)
+            .query(`
+                SELECT v.TongThuc, v.DaThu, v.ConNo,
+                       (SELECT COUNT_BIG(*) FROM dbo.PhieuThu pt
+                        WHERE pt.MaHoaDon = @MaHoaDon AND pt.TrangThai = N'Hợp lệ') AS ValidReceiptCount,
+                       (SELECT COUNT_BIG(*) FROM dbo.ThongBao tb
+                        WHERE tb.MaSuKien = CONCAT(N'PAYMENT:', @MaPhieuThu)
+                          AND tb.MaSinhVien = @MaSinhVien) AS PaymentNoticeCount
+                FROM dbo.vw_HoaDonTongHop v WHERE v.MaHoaDon = @MaHoaDon
+            `);
+        assert.equal(Number(adminQrTotals.recordset[0].TongThuc), 300);
+        assert.equal(Number(adminQrTotals.recordset[0].DaThu), 100);
+        assert.equal(Number(adminQrTotals.recordset[0].ConNo), 200);
+        assert.equal(Number(adminQrTotals.recordset[0].ValidReceiptCount), 1);
+        assert.equal(Number(adminQrTotals.recordset[0].PaymentNoticeCount), 1);
+        const cashReceipt = await call(
+            "POST", `/api/HoaDon/${adminQrInvoiceId}/phieuthu`, "manager", null, {
+                soTien: 50, phuongThuc: "CASH", trangThai: "Hợp lệ", maSinhVienNop: payer
+            }
+        );
+        assert.equal(cashReceipt.status, 201, JSON.stringify(cashReceipt.body));
+        const cashReceiptId = cashReceipt.body.PhieuThu.MaPhieuThu;
+        const cashNotification = await pool.request()
+            .input("MaSuKien", sql.NVarChar(100), `PAYMENT:${cashReceiptId}`)
+            .query("SELECT MaSinhVien, COUNT_BIG(*) AS NoticeCount FROM dbo.ThongBao WHERE MaSuKien = @MaSuKien GROUP BY MaSinhVien");
+        assert.equal(cashNotification.recordset.length, 1);
+        assert.equal(cashNotification.recordset[0].MaSinhVien, payer);
+        assert.equal(Number(cashNotification.recordset[0].NoticeCount), 1);
+        const remainingRentReceipt = await call(
+            "POST", `/api/HoaDon/${adminQrInvoiceId}/phieuthu`, "manager", null, {
+                soTien: 150, phuongThuc: "CASH", trangThai: "Hợp lệ", maSinhVienNop: payer
+            }
+        );
+        assert.equal(remainingRentReceipt.status, 201, JSON.stringify(remainingRentReceipt.body));
+        const refundResponse = await call("POST", "/api/phieuchi", "manager", null, {
+            maChiTiet: payerMember.MaChiTiet,
+            ngayRa: periodText,
+            lyDo: "Khác",
+            khauTru: 0
+        });
+        assert.equal(refundResponse.status, 201, JSON.stringify(refundResponse.body));
+        const refundNotice = await pool.request()
+            .input("MaSuKien", sql.NVarChar(100), `REFUND:${refundResponse.body.MaPhieuChi}`)
+            .query("SELECT MaSinhVien, COUNT_BIG(*) AS NoticeCount FROM dbo.ThongBao WHERE MaSuKien = @MaSuKien GROUP BY MaSinhVien");
+        assert.equal(refundNotice.recordset.length, 1);
+        assert.equal(refundNotice.recordset[0].MaSinhVien, payer);
+        assert.equal(Number(refundNotice.recordset[0].NoticeCount), 1);
+        const repeatedRefund = await call("POST", "/api/phieuchi", "manager", null, {
+            maChiTiet: payerMember.MaChiTiet,
+            ngayRa: periodText,
+            lyDo: "Khác",
+            khauTru: 0
+        });
+        const refundNoticeAfterRetry = await pool.request()
+            .input("MaSuKien", sql.NVarChar(100), `REFUND:${refundResponse.body.MaPhieuChi}`)
+            .query("SELECT COUNT_BIG(*) AS NoticeCount FROM dbo.ThongBao WHERE MaSuKien = @MaSuKien");
+        assert.notEqual(repeatedRefund.status, 201);
+        assert.equal(Number(refundNoticeAfterRetry.recordset[0].NoticeCount), 1);
         t.diagnostic(
-            `Self-seeded fixture ${fixture.tierId}: departed member retained rent access and lost room invoice access; other-room access denied; duplicate webhook idempotent; concurrent receipts ${JSON.stringify(competingReceipts.map(result => result.status))}; late webhook returned 200 and was marked RECONCILIATION without extra valid receipts.`
+            `Manager QR confirmation ${pendingReceiptId}: non-manager 403; first confirm 200; repeat 409; overpayment 409; one valid receipt and one payer notification. Refund ${refundResponse.body.MaPhieuChi} created one notification for its student.`
+        );
+        t.diagnostic(
+            `Self-seeded fixture ${fixture.tierId}: short QR allocated ${firstActualReceived}; exact QR paid ${exactAmount}; repeated QR creation reused one pending transaction; overpayment ${lateActualReceived} waited for refund, repeat return was idempotent and revenue unchanged; content mismatch was rejected with one private notice.`
         );
     } finally {
         if (server) await new Promise(resolve => server.close(resolve));
         restoreEnvironment();
+        await pool.close();
+    }
+});
+
+test("real SQL Server allocates two distinct concurrent QR transfers on one invoice in five rounds", {
+    skip: process.env.DB_NAME !== "KTX_Group3_test"
+        ? "Only runs when DB_NAME is explicitly set to KTX_Group3_test."
+        : false
+}, async t => {
+    require("dotenv").config({ path: require("node:path").join(__dirname, ".env") });
+    assert.equal(process.env.DB_NAME, "KTX_Group3_test");
+    if (!process.env.DB_SERVER || !process.env.DB_USER || !process.env.DB_PASSWORD) {
+        throw new Error("Thiếu cấu hình kết nối SQL Server; không thể chạy kiểm thử QR đồng thời.");
+    }
+
+    const pool = await new sql.ConnectionPool({
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        server: process.env.DB_SERVER,
+        port: Number(process.env.DB_PORT) || undefined,
+        database: process.env.DB_NAME,
+        options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true, useUTC: true }
+    }).connect();
+    let server;
+    const previousSecret = process.env.PAYMENT_WEBHOOK_SECRET;
+    const secret = `test-${crypto.randomBytes(24).toString("hex")}`;
+    process.env.PAYMENT_WEBHOOK_SECRET = secret;
+
+    try {
+        const fixture = await createSqlIntegrationFixture(pool, sql, {
+            roomMemberCount: 2,
+            createOtherRoomStudent: false
+        });
+        const [studentA, studentB] = fixture.studentIds;
+        const period = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1))
+            .toISOString().slice(0, 10);
+        const contractEnd = new Date(Date.UTC(
+            Number(period.slice(0, 4)) + 3, Number(period.slice(5, 7)) - 1, 1
+        )).toISOString().slice(0, 10);
+
+        const app = express();
+        app.use(express.json());
+        app.use((req, _res, next) => {
+            if (req.get("x-test-role") === "manager") {
+                req.auth = { accountId: fixture.managerId, role: "Quản lý" };
+            } else if (req.get("x-test-role") === "student") {
+                req.auth = { role: "Sinh viên", studentId: req.get("x-test-student") };
+            }
+            next();
+        });
+        registerApiRoutes(app, {
+            getPool: () => pool,
+            sql,
+            bcrypt: require("bcryptjs"),
+            mapPaymentStatusToDatabase: value => ({
+                PENDING: "PENDING",
+                WAITING_CASH: "Chờ xác nhận",
+                SUCCESS: "SUCCESS",
+                REJECTED: "REJECTED",
+                EXPIRED: "EXPIRED",
+                "Cần đối soát": "RECONCILIATION",
+                "Hợp lệ": "Hợp lệ",
+                "Chờ xác nhận": "Chờ xác nhận",
+                "Đã hủy": "Đã hủy"
+            })[value] || null,
+            mapPaymentMethodToDatabase: value => ({
+                CASH: "CASH", ONLINE: "ONLINE", CHUYEN_DOI: "CHUYEN_DOI"
+            })[value] || null,
+            rollback: async transaction => transaction.rollback()
+        });
+        await new Promise((resolve, reject) => {
+            server = app.listen(0, "127.0.0.1", resolve);
+            server.once("error", reject);
+        });
+
+        const baseUrl = `http://127.0.0.1:${server.address().port}`;
+        const call = async (method, route, role, studentId, body) => {
+            const headers = {};
+            if (body !== undefined) headers["Content-Type"] = "application/json";
+            if (role) headers["x-test-role"] = role;
+            if (studentId) headers["x-test-student"] = studentId;
+            const response = await fetch(`${baseUrl}${route}`, {
+                method,
+                headers,
+                ...(body === undefined ? {} : { body: JSON.stringify(body) })
+            });
+            return { status: response.status, body: await response.json() };
+        };
+        const { createPaymentWebhookSignature } = require("./payment-webhook");
+        const webhookCall = async payload => {
+            const response = await fetch(`${baseUrl}/api/payments/bank-transfer/notify`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-payment-signature": createPaymentWebhookSignature(secret, payload)
+                },
+                body: JSON.stringify(payload)
+            });
+            return { status: response.status, body: await response.json() };
+        };
+
+        const contract = await call("POST", "/api/HopDong", "manager", null, {
+            tenPhong: fixture.roomA,
+            maHangPhong: fixture.tierId,
+            ngayBatDau: period,
+            ngayKetThuc: contractEnd,
+            sinhVien: [studentA, studentB].map((maSinhVien, index) => ({
+                maSinhVien,
+                kyHanThanhToanPhong: "THANG",
+                laNguoiDaiDien: index === 0
+            }))
+        });
+        assert.equal(contract.status, 201, JSON.stringify(contract.body));
+        const roundResults = [];
+
+        for (let round = 0; round < 5; round += 1) {
+            const invoicePeriodDate = new Date(`${period}T00:00:00.000Z`);
+            invoicePeriodDate.setUTCMonth(invoicePeriodDate.getUTCMonth() + round + 2);
+            const invoicePeriod = invoicePeriodDate.toISOString().slice(0, 10);
+            const invoiceResponse = await call("POST", "/api/HoaDon/xuat-ky", "manager", null, {
+                loaiHoaDon: "DICH_VU_PHONG",
+                maHopDong: contract.body.MaHopDong,
+                kyThanhToan: invoicePeriod
+            });
+            assert.equal(invoiceResponse.status, 201,
+                `Round ${round + 1} invoice: ${JSON.stringify(invoiceResponse.body)}`);
+            const invoiceId = invoiceResponse.body.MaHoaDon;
+            const invoiceTotalResult = await pool.request()
+                .input("MaHoaDon", sql.NVarChar(20), invoiceId)
+                .query("SELECT TongThuc FROM dbo.vw_HoaDonTongHop WHERE MaHoaDon = @MaHoaDon");
+            const invoiceTotal = Number(invoiceTotalResult.recordset[0]?.TongThuc);
+            assert(Number.isSafeInteger(invoiceTotal) && invoiceTotal > 1);
+            const requestedAmount = Math.ceil(invoiceTotal * 0.75);
+            const payments = [studentA, studentB].map((studentId, index) => ({
+                studentId,
+                transactionId: `PAY-${crypto.randomBytes(16).toString("hex").toUpperCase()}`,
+                content: `KTX${crypto.randomBytes(10).toString("hex").toUpperCase()}`,
+                reference: `B5-ISOLATED-${round}-${index}-${crypto.randomBytes(8).toString("hex").toUpperCase()}`
+            }));
+
+            for (const payment of payments) {
+                await pool.request()
+                    .input("MaGiaoDich", sql.NVarChar(60), payment.transactionId)
+                    .input("MaSinhVien", sql.NVarChar(30), payment.studentId)
+                    .input("TongTien", sql.Decimal(18, 2), requestedAmount)
+                    .input("NoiDungCK", sql.NVarChar(100), payment.content)
+                    .query(`
+                        INSERT INTO dbo.GiaoDichThanhToan
+                            (MaGiaoDich, MaSinhVien, TongTien, PhuongThuc, TrangThai, NoiDungCK)
+                        VALUES (@MaGiaoDich, @MaSinhVien, @TongTien, N'ONLINE', N'PENDING', @NoiDungCK)
+                    `);
+                await pool.request()
+                    .input("MaHoaDon", sql.NVarChar(20), invoiceId)
+                    .input("SoTien", sql.Decimal(18, 2), requestedAmount)
+                    .input("PhuongThuc", sql.NVarChar(20), "ONLINE")
+                    .input("MaSinhVienNop", sql.NVarChar(30), payment.studentId)
+                    .input("TrangThai", sql.NVarChar(20), "Chờ xác nhận")
+                    .input("MaGiaoDich", sql.NVarChar(60), payment.transactionId)
+                    .input("GhiChu", sql.NVarChar(255), "Fixture hai giao dịch QR đồng thời.")
+                    .execute("dbo.sp_GhiPhieuThu");
+            }
+            assert.notEqual(payments[0].transactionId, payments[1].transactionId);
+
+            const webhookResults = await Promise.all(payments.map(payment => webhookCall({
+                MaHoaDon: invoiceId,
+                SoTien: requestedAmount,
+                MaThamChieuNgoai: payment.reference,
+                NoiDungCK: payment.content
+            })));
+            assert.deepEqual(webhookResults.map(result => result.status), [200, 200],
+                `Round ${round + 1} webhook responses: ${JSON.stringify(webhookResults)}`);
+
+            const stateResult = await pool.request()
+                .input("MaHoaDon", sql.NVarChar(20), invoiceId)
+                .query(`
+                    SELECT v.TongThuc, v.DaThu, v.ConNo,
+                           (SELECT COUNT_BIG(*) FROM dbo.GiaoDichThanhToan gd
+                            INNER JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
+                            WHERE pt.MaHoaDon = @MaHoaDon AND gd.TrangThai = N'SUCCESS') AS SuccessfulPayments,
+                           (SELECT ISNULL(SUM(gd.SoTienThucNhan), 0) FROM dbo.GiaoDichThanhToan gd
+                            INNER JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
+                            WHERE pt.MaHoaDon = @MaHoaDon AND gd.TrangThai = N'SUCCESS') AS ActualReceived,
+                           (SELECT ISNULL(SUM(h.SoTien), 0) FROM dbo.HoanTienChuyenKhoanDu h
+                            WHERE h.MaHoaDon = @MaHoaDon AND h.TrangThai = N'CHO_HOAN') AS PendingSurplus,
+                           (SELECT COUNT_BIG(*) FROM dbo.ThongBao tb
+                            WHERE tb.MaSuKien IN (
+                                SELECT CONCAT(N'BANK_RECEIVED:', gd.MaGiaoDich)
+                                FROM dbo.GiaoDichThanhToan gd
+                                INNER JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
+                                WHERE pt.MaHoaDon = @MaHoaDon AND gd.TrangThai = N'SUCCESS'
+                            )) AS PaymentNotices
+                    FROM dbo.vw_HoaDonTongHop v WHERE v.MaHoaDon = @MaHoaDon
+                `);
+            const state = stateResult.recordset[0];
+            assert.equal(Number(state.SuccessfulPayments), 2);
+            assert.equal(Number(state.ActualReceived), requestedAmount * 2);
+            assert.equal(Number(state.DaThu), invoiceTotal);
+            assert.equal(Number(state.ConNo), 0);
+            assert.equal(Number(state.PendingSurplus), requestedAmount * 2 - invoiceTotal);
+            assert.equal(Number(state.PaymentNotices), 2);
+            roundResults.push(`round ${round + 1}: pass`);
+        }
+
+        assert.deepEqual(roundResults, [
+            "round 1: pass", "round 2: pass", "round 3: pass", "round 4: pass", "round 5: pass"
+        ]);
+        t.diagnostic("5/5 independent invoice rounds passed; no Msg 1205.");
+    } finally {
+        if (server) await new Promise(resolve => server.close(resolve));
+        if (previousSecret === undefined) delete process.env.PAYMENT_WEBHOOK_SECRET;
+        else process.env.PAYMENT_WEBHOOK_SECRET = previousSecret;
         await pool.close();
     }
 });
@@ -2069,6 +3616,9 @@ test("real SQL Server overdue reminders use invoice scope, audit sender, recheck
         });
         assert.equal(contractResponse.status, 201, JSON.stringify(contractResponse.body));
         const contractId = contractResponse.body.MaHopDong;
+        const rentInvoicesByStudent = new Map((contractResponse.body.HoaDonTienPhong || [])
+            .map(invoice => [invoice.MaSinhVien, invoice.MaHoaDon]));
+        assert.equal(rentInvoicesByStudent.size, 3);
         const otherContractResponse = await call("POST", "/api/HopDong", "manager", null, {
             tenPhong: fixture.roomB,
             maHangPhong: fixture.tierId,
@@ -2077,6 +3627,9 @@ test("real SQL Server overdue reminders use invoice scope, audit sender, recheck
             sinhVien: [{ maSinhVien: otherRoomStudent, kyHanThanhToanPhong: "THANG", laNguoiDaiDien: true }]
         });
         assert.equal(otherContractResponse.status, 201, JSON.stringify(otherContractResponse.body));
+        const otherRentInvoiceId = (otherContractResponse.body.HoaDonTienPhong || [])
+            .find(invoice => invoice.MaSinhVien === otherRoomStudent)?.MaHoaDon;
+        assert.ok(otherRentInvoiceId);
         const detailsResult = await pool.request()
             .input("MaHopDong", sql.NVarChar(20), contractId)
             .query(`
@@ -2094,17 +3647,13 @@ test("real SQL Server overdue reminders use invoice scope, audit sender, recheck
             `);
         const otherDetails = new Map(otherDetailsResult.recordset.map(row => [row.MaSinhVien, row.MaChiTiet]));
         const overdueInvoice = async studentId => {
-            const result = await call("POST", "/api/HoaDon/xuat-ky", "manager", null, {
-                loaiHoaDon: "TIEN_PHONG",
-                maChiTiet: details.get(studentId) || otherDetails.get(studentId),
-                kyThanhToan: periodText
-            });
-            assert.equal(result.status, 201, JSON.stringify(result.body));
-            invoiceIds.add(result.body.MaHoaDon);
+            const invoiceId = rentInvoicesByStudent.get(studentId) || otherRentInvoiceId;
+            assert.ok(invoiceId, `No initial rent invoice for ${studentId}`);
+            invoiceIds.add(invoiceId);
             await pool.request()
-                .input("MaHoaDon", sql.NVarChar(20), result.body.MaHoaDon)
+                .input("MaHoaDon", sql.NVarChar(20), invoiceId)
                 .query("UPDATE dbo.HoaDon SET HanThanhToan = DATEADD(day, -1, CONVERT(date, SYSDATETIME())) WHERE MaHoaDon = @MaHoaDon");
-            return result.body.MaHoaDon;
+            return invoiceId;
         };
         const rentInvoice = await overdueInvoice(departedStudent);
         const concurrencyInvoice = await overdueInvoice(activeStudentA);
@@ -2125,7 +3674,8 @@ test("real SQL Server overdue reminders use invoice scope, audit sender, recheck
             maChiTiet: details.get(activeStudentB),
             noiDung: `Reminder test ${fixture.tierId}`,
             soTien: 250,
-            ngayPhatSinh: periodText
+            ngayPhatSinh: periodText,
+            hanDong: periodText
         });
         assert.equal(expenseResult.status, 201, JSON.stringify(expenseResult.body));
         const incidentResult = await call(
@@ -2164,13 +3714,21 @@ test("real SQL Server overdue reminders use invoice scope, audit sender, recheck
             const notices = await pool.request()
                 .input("MaHoaDon", sql.NVarChar(20), invoiceId)
                 .query(`
-                    SELECT MaSinhVien, NguoiTao, NgayTao, TieuDe, NoiDung, DaXoa
+                    SELECT MaSinhVien, NguoiTao, NgayTao, TieuDe, NoiDung, DaXoa, MaSuKien
                     FROM dbo.ThongBao
                     WHERE MaHoaDon = @MaHoaDon
                 `);
-            assert.deepEqual(notices.recordset.map(row => row.MaSinhVien).sort(), [...expected].sort());
+            const reminders = notices.recordset.filter(row =>
+                row.MaSuKien?.startsWith(`REMINDER:${invoiceId}:`));
+            assert.deepEqual(reminders.map(row => row.MaSinhVien).sort(), [...expected].sort());
+            const invoiceNoticeRecipients = invoiceId === incidentInvoice
+                ? [activeStudentB] : expected;
+            const invoiceNotices = notices.recordset.filter(row => row.MaSuKien === `INVOICE:${invoiceId}`);
+            assert.deepEqual(invoiceNotices.map(row => row.MaSinhVien).sort(), [...invoiceNoticeRecipients].sort());
             assert(notices.recordset.every(row => row.NguoiTao === fixture.managerId && row.NgayTao && row.DaXoa === false));
-            assert(notices.recordset.every(row => row.NoiDung.includes(invoiceId)));
+            assert(reminders.every(row => row.NoiDung.includes(invoiceId)));
+            assert(invoiceNotices.every(row =>
+                row.TieuDe.includes(invoiceId) || row.NoiDung.includes(invoiceId)));
             assert.equal(notices.recordset.some(row => row.MaSinhVien === otherRoomStudent), false);
         }
 
@@ -2193,7 +3751,7 @@ test("real SQL Server overdue reminders use invoice scope, audit sender, recheck
         assert.deepEqual(concurrent.map(result => result.status).sort(), [201, 409]);
         const concurrentCount = await pool.request()
             .input("MaHoaDon", sql.NVarChar(20), concurrencyInvoice)
-            .query("SELECT COUNT_BIG(*) AS ReminderCount FROM dbo.ThongBao WHERE MaHoaDon = @MaHoaDon");
+            .query("SELECT COUNT_BIG(*) AS ReminderCount FROM dbo.ThongBao WHERE MaHoaDon = @MaHoaDon AND MaSuKien LIKE CONCAT(N'REMINDER:', @MaHoaDon, N':%')");
         assert.equal(Number(concurrentCount.recordset[0].ReminderCount), 1);
 
         const paidAmount = await pool.request()
@@ -2214,13 +3772,15 @@ test("real SQL Server overdue reminders use invoice scope, audit sender, recheck
         assert.equal(paidReminder.status, 409);
         const noPaidReminder = await pool.request()
             .input("MaHoaDon", sql.NVarChar(20), paidInvoice)
-            .query("SELECT COUNT_BIG(*) AS ReminderCount FROM dbo.ThongBao WHERE MaHoaDon = @MaHoaDon");
+            .query("SELECT COUNT_BIG(*) AS ReminderCount FROM dbo.ThongBao WHERE MaHoaDon = @MaHoaDon AND MaSuKien LIKE CONCAT(N'REMINDER:', @MaHoaDon, N':%')");
         assert.equal(Number(noPaidReminder.recordset[0].ReminderCount), 0);
 
         const otherRoomNotices = await call("GET", "/api/student/notifications", "student", otherRoomStudent);
         assert.equal(otherRoomNotices.status, 200);
+        assert(otherRoomNotices.body.some(row => row.TieuDe.includes(paidInvoice)));
         assert.equal(otherRoomNotices.body.some(row =>
-            [...invoiceIds].some(invoiceId => row.TieuDe.includes(invoiceId))), false);
+            [...invoiceIds].filter(invoiceId => invoiceId !== paidInvoice)
+                .some(invoiceId => row.TieuDe.includes(invoiceId))), false);
 
         t.diagnostic(
             `Real SQL reminders on ${fixture.tierId}: TIEN_PHONG -> departed member only; DICH_VU_PHONG/PHAT_SINH -> current room members; other room excluded; duplicate blocked; concurrent result ${JSON.stringify(concurrent.map(result => result.status))}; fully paid invoice blocked; sender/time audited.`
@@ -2299,19 +3859,8 @@ test("real SQL Server QR demo records one valid receipt, blocks repeats, and rec
         )).toISOString().slice(0, 10);
         const app = express();
         app.use(express.json());
-        app.use((req, _res, next) => {
-            if (req.get("x-test-role") === "manager") {
-                req.auth = { accountId: fixture.managerId, role: "Quản lý" };
-            } else if (req.get("x-test-role") === "student") {
-                const studentId = req.get("x-test-student");
-                req.auth = {
-                    accountId: studentAccounts.get(studentId),
-                    role: "Sinh viên",
-                    studentId
-                };
-            }
-            next();
-        });
+        const authSecret = `integration-${crypto.randomBytes(24).toString("hex")}`;
+        app.use("/api", createApiAuthenticationMiddleware({ jwt, getSecret: () => authSecret }));
         registerApiRoutes(app, {
             getPool: () => pool,
             sql,
@@ -2340,8 +3889,18 @@ test("real SQL Server QR demo records one valid receipt, blocks repeats, and rec
         const call = async (method, route, role, studentId, body) => {
             const headers = {};
             if (body !== undefined) headers["Content-Type"] = "application/json";
-            if (role) headers["x-test-role"] = role;
-            if (studentId) headers["x-test-student"] = studentId;
+            if (role) {
+                const payload = role === "manager"
+                    ? { sub: String(fixture.managerId), role: "Quản lý" }
+                    : role === "admin"
+                        ? { sub: String(fixture.managerId), role: "Admin" }
+                        : {
+                            sub: String(studentAccounts.get(studentId)),
+                            role: "Sinh viên",
+                            studentId
+                        };
+                headers.Authorization = `Bearer ${jwt.sign(payload, authSecret)}`;
+            }
             const response = await fetch(`${baseUrl}${route}`, {
                 method,
                 headers,
@@ -2349,6 +3908,15 @@ test("real SQL Server QR demo records one valid receipt, blocks repeats, and rec
             });
             return { status: response.status, body: await response.json() };
         };
+        const invalidContractDates = await call("POST", "/api/HopDong", "manager", null, {
+            tenPhong: fixture.roomA,
+            maHangPhong: fixture.tierId,
+            ngayBatDau: periodText,
+            ngayKetThuc: periodText,
+            sinhVien: [{ maSinhVien: studentA, kyHanThanhToanPhong: "THANG" }]
+        });
+        assert.equal(invalidContractDates.status, 400);
+        assert.equal(invalidContractDates.body.message, "Ngày kết thúc phải sau ngày bắt đầu.");
         const contract = await call("POST", "/api/HopDong", "manager", null, {
             tenPhong: fixture.roomA,
             maHangPhong: fixture.tierId,
@@ -2359,25 +3927,13 @@ test("real SQL Server QR demo records one valid receipt, blocks repeats, and rec
             }))
         });
         assert.equal(contract.status, 201, JSON.stringify(contract.body));
-        const members = await pool.request()
-            .input("MaHopDong", sql.NVarChar(20), contract.body.MaHopDong)
-            .query(`
-                SELECT MaChiTiet, MaSinhVien
-                FROM dbo.ChiTietHopDong
-                WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
-            `);
-        const memberDetails = new Map(members.recordset.map(row => [row.MaSinhVien, row.MaChiTiet]));
-        const invoiceIds = new Map();
+        const invoiceIds = new Map((contract.body.HoaDonTienPhong || [])
+            .map(invoice => [invoice.MaSinhVien, invoice.MaHoaDon]));
+        assert.equal(invoiceIds.size, 2);
         for (const studentId of [studentA, studentB]) {
-            const invoice = await call("POST", "/api/HoaDon/xuat-ky", "manager", null, {
-                loaiHoaDon: "TIEN_PHONG",
-                maChiTiet: memberDetails.get(studentId),
-                kyThanhToan: periodText
-            });
-            assert.equal(invoice.status, 201, JSON.stringify(invoice.body));
-            invoiceIds.set(studentId, invoice.body.MaHoaDon);
+            const invoiceId = invoiceIds.get(studentId);
             await pool.request()
-                .input("MaHoaDon", sql.NVarChar(20), invoice.body.MaHoaDon)
+                .input("MaHoaDon", sql.NVarChar(20), invoiceId)
                 .query(`
                     UPDATE dbo.ChiTietHoaDon
                     SET SoTien = 300, DonGia = 300
@@ -2401,6 +3957,7 @@ test("real SQL Server QR demo records one valid receipt, blocks repeats, and rec
             MaHoaDon: invoiceA, MaGiaoDich: requestA.body.MaGiaoDich
         });
         assert.equal(disabledDemo.status, 503);
+        assert.equal(disabledDemo.body.message, "Thanh toán QR demo đang tắt.");
         const qrOff = await call("GET", `/api/payments/qr?MaHoaDon=${invoiceA}`, "student", studentA);
         assert.equal(qrOff.status, 200);
         assert.equal(qrOff.body.DemoPaymentEnabled, false);
@@ -2413,12 +3970,36 @@ test("real SQL Server QR demo records one valid receipt, blocks repeats, and rec
         assert.equal(qrOn.status, 200);
         assert.equal(qrOn.body.DemoPaymentEnabled, true);
         assert.equal(qrOn.body.NoiDungCK, requestA.body.NoiDungCK);
+        const wrongOwnerDemo = await call("POST", "/api/payments/demo-confirm", "student", studentB, {
+            MaHoaDon: invoiceA, MaGiaoDich: requestA.body.MaGiaoDich
+        });
+        assert.equal(wrongOwnerDemo.status, 403);
         const confirmedA = await call("POST", "/api/payments/demo-confirm", "student", studentA, {
             MaHoaDon: invoiceA, MaGiaoDich: requestA.body.MaGiaoDich
         });
         assert.equal(confirmedA.status, 200, JSON.stringify(confirmedA.body));
         assert.equal(confirmedA.body.PhuongThuc, "QR_DEMO");
         assert.equal(confirmedA.body.SoTien, 300);
+        const invoiceListA = await call("GET", "/api/HoaDon", "student", studentA);
+        assert.equal(invoiceListA.status, 200);
+        assert.equal(invoiceListA.body.find(invoice => invoice.MaHoaDon === invoiceA)?.TrangThaiThanhToan,
+            "Đã thanh toán");
+        const historyA = await call("GET", `/api/payments/history?MaHoaDon=${invoiceA}`, "student", studentA);
+        assert.equal(historyA.status, 200);
+        assert.equal(historyA.body.some(payment =>
+            payment.MaGiaoDich === requestA.body.MaGiaoDich && payment.TrangThai === "SUCCESS"), true);
+        const adminDemo = await call("POST", "/api/payments/demo-confirm", "admin", null, {
+            MaHoaDon: invoiceA, MaGiaoDich: requestA.body.MaGiaoDich
+        });
+        assert.equal(adminDemo.status, 403);
+        const anonymousDemo = await call("POST", "/api/payments/demo-confirm", null, null, {
+            MaHoaDon: invoiceA, MaGiaoDich: requestA.body.MaGiaoDich
+        });
+        assert.equal(anonymousDemo.status, 401);
+        const managerRequests = await call("GET", "/api/requests", "manager", null);
+        assert.equal(managerRequests.status, 200);
+        const studentRequests = await call("GET", "/api/requests", "student", studentA);
+        assert.equal(studentRequests.status, 403);
         const repeatedA = await call("POST", "/api/payments/demo-confirm", "student", studentA, {
             MaHoaDon: invoiceA, MaGiaoDich: requestA.body.MaGiaoDich
         });

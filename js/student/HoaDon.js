@@ -6,20 +6,22 @@
     const { esc, money, date, fields, card, table, maskStudentId, maskReference, paymentMethodLabel } = ui.helpers;
     const labels = { UNPAID: 'Còn nợ', OVERDUE: 'Còn nợ', WAITING_CASH: 'Còn nợ', PARTIAL: 'Còn nợ', PAID: 'Đã thanh toán' };
     const itemLabels = { UNPAID: 'Còn nợ', WAITING_CASH: 'Còn nợ', PAID: 'Đã thanh toán' };
-    const method = value => value === 'CASH' ? 'Tiền mặt' : value ? 'Chuyển khoản QR' : '—';
-    const invoiceStatus = invoice => window.AdminWorkflowUtils?.invoicePaymentLabel(invoice)
+    let officeContact = {};
+    const method = value => value === 'CASH' ? 'Tiền mặt' : value ? 'Chuyển khoản QR' : 'Chưa xác định';
+    const invoiceStatus = invoice => window.AdminWorkflowUtils?.invoicePaymentDisplayLabel?.(invoice)
+        || window.AdminWorkflowUtils?.invoicePaymentLabel(invoice)
         || (Number(invoice?.ConNo) > 0 ? 'Còn nợ' : 'Đã thanh toán');
     const backendStudent = () => window.StudentAuth?.session()?.isBackend === true;
     const time = value => {
         const formatted = window.AdminWorkflowUtils?.dateTime(String(value ?? ''));
-        if (formatted && formatted !== '—') return formatted;
+        if (formatted && /^\d{2}\/\d{2}\/\d{4}$/.test(formatted)) return formatted;
         const source = String(value ?? '');
         const day = date(source.slice(0, 10));
         const hour = /[T ](\d{2}:\d{2})/.exec(source)?.[1];
-        return day === '—' ? '—' : `${hour ? `${hour} ` : ''}${day}`;
+        return /^\d{2}\/\d{2}\/\d{4}$/.test(day) ? `${hour ? `${hour} ` : ''}${day}` : 'Chưa có';
     };
     const badgeClass = value => value === 'PAID' || value === 'Đã thanh toán' ? 'st-success' : 'st-danger';
-    const badge = value => `<span class="st-badge ${badgeClass(value)}">${esc(labels[value] || value || '—')}</span>`;
+    const badge = value => `<span class="st-badge ${badgeClass(value)}">${esc(labels[value] || value || 'Chưa có')}</span>`;
     const itemBadge = value => `<span class="st-badge ${badgeClass(value)}">${esc(itemLabels[value] || value)}</span>`;
     const token = (invoiceId, itemId) => `${invoiceId}\0${itemId}`;
     const selected = new Map();
@@ -72,7 +74,7 @@
         return { count: selected.size, amount };
     }
     function itemNames(items) {
-        return (items || []).map(item => item.name).filter(Boolean).join(', ') || '—';
+        return (items || []).map(item => item.name).filter(Boolean).join(', ') || 'Chưa có';
     }
     function groupedHtml(selection) {
         return selection.map(group => {
@@ -182,11 +184,6 @@
                 ['Mã giao dịch', payment.transactionId], ['Hạng mục', itemNames(payment.items)]
             ]) + (groups.length ? `<div class="st-pay-items">${groupedHtml(groups)}</div>` : '');
         },
-        cashModal(selection) {
-            const totals = selectedTotals();
-            return groupedHtml(selection) + fields([['Số hạng mục', String(totals.count)], ['Tổng tiền', money(totals.amount)]]) +
-                '<p class="st-notice">Vui lòng đến Ban quản lý KTX để thanh toán các hạng mục đã chọn. Công nợ chưa thay đổi cho đến khi Ban quản lý xác nhận đã thu tiền.</p>';
-        },
         detail(invoice) {
             return fields([['Mã hóa đơn', invoice.id], ['Tháng', invoice.month], ['Phòng', data.room.number], ['Hạn thanh toán', date(invoice.due)],
                 ...((invoice.items || []).filter(item => Number(item.amount) > 0).map(item => [item.name + (item.note ? ` (${item.note})` : ''), money(item.amount)])),
@@ -220,6 +217,22 @@
         }
     };
     ui.backendPayments = Object.freeze({
+        setOfficeContact(contact) {
+            officeContact = contact && typeof contact === 'object' ? contact : {};
+        },
+        getOfficeContact() {
+            return officeContact;
+        },
+        statusLabel(status) {
+            return ({
+                SUCCESS: 'Thành công',
+                PENDING: 'Đang xử lý',
+                REJECTED: 'Thất bại',
+                FAILED: 'Thất bại',
+                EXPIRED: 'Thất bại',
+                RECONCILIATION: 'Thất bại',
+            })[status] || 'Thất bại';
+        },
         parseAmount(value, balance) {
             const input = String(value ?? '');
             const amount = Number(input);
@@ -232,7 +245,7 @@
         },
         qrModal(payment) {
             const svg = encodeQrText(payment.QrPayload);
-            return '<p class="st-notice">QR được tạo đúng số tiền bạn chọn. Hóa đơn chỉ được ghi nhận đã thanh toán khi hệ thống nhận xác minh ngân hàng với đúng số tiền và nội dung; bấm nút bên dưới không phải bằng chứng thanh toán.</p>' +
+            return '<p class="st-notice">QR được tạo đúng số tiền còn nợ của hóa đơn. Hóa đơn chỉ được ghi nhận đã thanh toán khi hệ thống nhận xác minh ngân hàng với đúng số tiền và nội dung; bấm nút bên dưới không phải bằng chứng thanh toán.</p>' +
                 fields([
                     ['Ngân hàng', payment.NganHang],
                     ['Chủ tài khoản', payment.TenTaiKhoan],
@@ -247,7 +260,7 @@
             if (!receipt || receipt.TrangThai !== 'Hợp lệ') throw new Error('Chỉ có thể in phiếu thu hợp lệ.');
             const paymentMethod = paymentMethodLabel(receipt.PhuongThuc);
             return `<article class="student-receipt-paper">
-                <header class="text-center"><h2>PHIẾU THU</h2><p>Mã phiếu: ${esc(receipt.MaPhieuThu || '—')}</p></header>
+                <header class="text-center"><h2>PHIẾU THU</h2><p>Mã phiếu: ${esc(receipt.MaPhieuThu || 'Chưa có')}</p></header>
                 ${fields([
                     ['Mã hóa đơn', receipt.MaHoaDon],
                     ['Ngày thu', time(receipt.NgayThu)],
@@ -266,6 +279,16 @@
                 window.ApiClient.fetch('/api/HoaDon'),
                 window.ApiClient.fetch('/api/payments/history')
             ]);
+            let contact = {};
+            try {
+                const contactResponse = await window.ApiClient.fetch('/api/lien-he');
+                const contactResult = await contactResponse.json();
+                if (!contactResponse.ok) throw new Error(contactResult.message || 'Không thể tải thông tin văn phòng.');
+                contact = contactResult;
+            } catch {
+                contact = {};
+            }
+            ui.backendPayments.setOfficeContact(contact);
             const [invoices, payments] = await Promise.all([
                 invoiceResponse.json(),
                 historyResponse.json()
@@ -280,41 +303,22 @@
                 if (!historyByInvoice.has(payment.MaHoaDon)) historyByInvoice.set(payment.MaHoaDon, []);
                 historyByInvoice.get(payment.MaHoaDon).push(payment);
             }
-            const statusLabel = payment => {
-                if (['Cần đối soát', 'Không ghi nhận', 'RECONCILIATION'].includes(payment.TrangThai)) {
-                    return /vượt tổng|đã thanh toán đủ/i.test(payment.LyDoDoiSoat || '')
-                        ? 'Hóa đơn đã thanh toán đủ, không ghi nhận thêm'
-                        : 'Cần xác minh';
-                }
-                return ({
-                SUCCESS: 'Hợp lệ',
-                PENDING: 'Đang chờ xác minh',
-                REJECTED: 'Từ chối',
-                EXPIRED: 'Hết hạn'
-                }[payment.TrangThai] || payment.TrangThai || '—');
-            };
+            const statusLabel = payment => ui.backendPayments.statusLabel(payment.TrangThai);
             const methodLabel = payment => paymentMethodLabel(payment.PhuongThuc);
-            const confirmationSource = payment => {
-                if (payment.TrangThai === 'PENDING') {
-                    return payment.PhuongThuc === 'ONLINE' ? 'Đang chờ ngân hàng' : 'Chờ Quản lý xác nhận';
-                }
-                if (payment.TrangThai !== 'SUCCESS') return '—';
-                return payment.PhuongThuc === 'ONLINE'
-                    ? 'Ngân hàng (tự động)'
-                    : `Quản lý${payment.TenNguoiXacNhan ? `: ${payment.TenNguoiXacNhan}` : ' xác nhận'}`;
-            };
-            const historyRows = rows => rows.length
+            const historyRows = (rows, invoiceId) => rows.length
                 ? table(
-                    ['Mã giao dịch', 'Khoản thanh toán', 'Số tiền', 'Thời gian', 'Phương thức', 'Trạng thái', 'Nguồn xác nhận'],
+                    ['Mã giao dịch', 'Người nộp', 'Khoản thanh toán', 'Số tiền', 'Thời gian', 'Phương thức', 'Trạng thái'],
                     rows.map(payment => `<tr>
-                        <td>${esc(payment.MaGiaoDich || '—')}</td>
-                        <td>${esc(payment.TenKhoan || '—')}</td>
+                        <td class="st-transaction-id"><button type="button" class="st-transaction-detail"
+                            data-action="backend-payment-detail" data-id="${esc(invoiceId)}"
+                            data-transaction-id="${esc(payment.MaGiaoDich || '')}">${esc(payment.MaGiaoDich || 'Chưa có')}</button></td>
+                        <td class="st-transaction-payer">${esc(payment.HoTen || '')}</td>
+                        <td>${esc(payment.TenKhoan || 'Chưa có')}</td>
                         <td class="st-amount">${money(payment.SoTien)}</td>
                         <td>${esc(time(payment.NgayThanhToan || payment.NgayTao))}</td>
-                        <td>${esc(methodLabel(payment) || '—')}</td>
-                        <td>${esc(statusLabel(payment) || '—')}${payment.LyDoTuChoi || payment.LyDoDoiSoat
+                        <td>${esc(methodLabel(payment) || 'Chưa xác định')}</td>
+                        <td>${esc(statusLabel(payment))}${payment.LyDoTuChoi || payment.LyDoDoiSoat
                             ? `<small>${esc(payment.LyDoTuChoi || payment.LyDoDoiSoat)}</small>` : ''}</td>
-                        <td>${esc(confirmationSource(payment) || '—')}</td>
                     </tr>`).join('')
                 ).replace('class="st-table-wrap"', 'class="st-table-wrap st-payment-history"')
                 : '<p class="st-muted">Chưa có giao dịch thanh toán cho hóa đơn này.</p>';
@@ -326,41 +330,36 @@
             };
             const invoiceCards = invoices.map(invoice => {
                 const invoiceId = invoice.MaHoaDon;
-                const amount = Number(invoice.TongTien || 0);
                 const status = invoiceStatus(invoice);
                 const overdue = window.AdminWorkflowUtils?.isOverdueInvoice(invoice) === true;
                 const invoiceHistory = historyByInvoice.get(invoiceId) || [];
-                const pending = invoiceHistory.find(payment => payment.TrangThai === 'PENDING');
                 const balance = Number(invoice.ConNo || 0);
-                const period = invoice.KyThanhToan
-                    ? date(invoice.KyThanhToan)
+                const period = invoice.NgayLap
+                    ? date(invoice.NgayLap)
+                    : invoice.KyThanhToan
+                        ? date(invoice.KyThanhToan)
                     : invoice.Thang !== null && invoice.Thang !== undefined
                         && invoice.Nam !== null && invoice.Nam !== undefined
-                        ? `${invoice.Thang}/${invoice.Nam}` : '—';
+                        ? `${invoice.Thang}/${invoice.Nam}` : 'Chưa có';
                 const paymentControls = balance > 0
-                    ? `<div class="st-actions mt-3">
-                        ${pending?.PhuongThuc === 'ONLINE'
-                            ? `<button type="button" class="st-button st-primary" data-action="backend-payment-qr"
-                                data-id="${esc(invoiceId)}" data-amount="${esc(pending.SoTien)}" data-max="${esc(balance)}">Hiển thị lại mã QR</button>`
-                            : pending
-                                ? ''
-                                : `<label class="st-payment-amount-control">Số tiền thanh toán (tối đa ${money(balance)})
-                                    <input type="number" inputmode="numeric" min="1" max="${esc(balance)}" step="1"
-                                        value="${esc(balance)}" data-payment-amount aria-label="Số tiền thanh toán cho hóa đơn ${esc(invoiceId)}">
-                                </label>
-                                <button type="button" class="st-button st-primary" data-action="backend-payment-qr"
-                                    data-id="${esc(invoiceId)}" data-max="${esc(balance)}">Thanh toán chuyển khoản QR</button>
-                                <button type="button" class="st-button" data-action="backend-payment-cash"
-                                    data-id="${esc(invoiceId)}" data-max="${esc(balance)}">Đăng ký thanh toán tiền mặt</button>`}
+                    ? `<div class="st-payment-controls">
+                        <label class="st-payment-method-control">Phương thức thanh toán
+                            <select data-payment-method aria-label="Phương thức thanh toán cho hóa đơn ${esc(invoiceId)}">
+                                <option value="ONLINE">Chuyển khoản QR</option>
+                                <option value="CASH">Tiền mặt tại văn phòng</option>
+                            </select>
+                        </label>
+                        <button type="button" class="st-button st-primary" data-action="backend-invoice-pay"
+                            data-id="${esc(invoiceId)}" data-max="${esc(balance)}">Thanh toán</button>
                     </div>`
                     : '';
                 return `<details class="st-invoice">
-                    <summary><span>${esc(invoiceId || '—')}</span>${badge(status)}
+                    <summary><span>${esc(invoiceId || 'Chưa có')}</span>${badge(status)}
                         <span>${esc(period)}</span><span>${money(invoice.TongTien)}</span></summary>
                     <div class="st-invoice-items">
                         ${fields([
                             ['Mã hóa đơn', invoiceId],
-                            ['Loại hóa đơn', invoiceType[invoice.LoaiHoaDon] || invoice.LoaiHoaDon || '—'],
+                            ['Loại hóa đơn', invoiceType[invoice.LoaiHoaDon] || invoice.LoaiHoaDon || 'Chưa có'],
                             ['Phòng', invoice.TenPhong],
                             ['Ngày lập', date(invoice.NgayLap)],
                             ['Hạn thanh toán', date(invoice.HanThanhToan)],
@@ -371,18 +370,17 @@
                         ])}
                         ${overdue ? `<p class="text-sm text-red-700">Trễ hạn ${window.AdminWorkflowUtils?.overdueDays(invoice) || 0} ngày</p>` : ''}
                     </div>
-                    ${pending ? `<p class="st-notice" role="status">${pending.PhuongThuc === 'ONLINE'
-                        ? 'Đang chờ ngân hàng xác minh đúng số tiền chuyển khoản.'
-                        : 'Chờ Quản lý xác nhận đã nhận tiền mặt.'}</p>` : ''}
-                    ${paymentControls}
-                    <div class="st-actions"><button type="button" class="st-button" data-action="backend-receipts"
-                        data-id="${esc(invoiceId)}">Xem phiếu thu</button></div>
-                    <h3 class="font-semibold mt-4 mb-2">Lịch sử thanh toán</h3>
-                    ${historyRows(invoiceHistory)}
+                    <div class="st-invoice-payment-section">
+                        ${paymentControls}
+                        <div class="st-actions"><button type="button" class="st-button" data-action="backend-receipts"
+                            data-id="${esc(invoiceId)}">Xem phiếu thu</button></div>
+                        <h3 class="font-semibold">Lịch sử thanh toán</h3>
+                        ${historyRows(invoiceHistory, invoiceId)}
+                    </div>
                 </details>`;
             }).join('');
             root.innerHTML = invoices.length
-                ? `<p class="st-notice">Dữ liệu hóa đơn và lịch sử được tải trực tiếp từ máy chủ.</p><div class="st-invoice-list">${invoiceCards}</div>`
+                ? `<div class="st-invoice-list">${invoiceCards}</div>`
                 : '<article class="st-card"><h2>Hóa đơn</h2><p class="st-empty-state" role="status">Chưa có hóa đơn.</p><p class="st-muted">Hóa đơn sẽ hiển thị tại đây khi được Ban quản lý tạo. Nếu bạn cần kiểm tra khoản thu, vui lòng liên hệ quản lý ký túc xá.</p></article>';
         } catch (error) {
             if (root.isConnected) root.innerHTML = `<p class="st-notice" role="alert">${esc(error.message || 'Không thể tải hóa đơn và lịch sử thanh toán.')}</p>`;
@@ -421,10 +419,9 @@
                     <button type="button" class="st-button" data-action="invoice" data-id="${esc(invoice.id)}">Xem chi tiết</button></summary>
                 ${invoicePayable.length ? `<label class="st-check-all"><input type="checkbox" data-select-invoice="${esc(invoice.id)}" ${selectedCount === invoicePayable.length && invoicePayable.length ? 'checked' : ''}> Chọn tất cả hạng mục còn thanh toán được</label>` : ''}
                 <ul class="st-invoice-items">${items}</ul>
-                ${state === 'WAITING_CASH' ? '<p class="st-muted">Vui lòng đến Ban quản lý KTX để hoàn tất thanh toán tiền mặt.</p>' : ''}
             </details>`;
         }).join('');
-        return `<p class="st-demo">DEMO / SANDBOX — không giao dịch tiền thật. Dữ liệu được lưu trên trình duyệt này và dùng chung với màn hình Admin cùng địa chỉ website.</p>
+        return `<p class="st-demo">DEMO / SANDBOX · không giao dịch tiền thật. Dữ liệu được lưu trên trình duyệt này và dùng chung với màn hình Admin cùng địa chỉ website.</p>
         <div class="st-invoice-page">
         <div class="st-summary">${[['Tổng số tiền còn nợ', money(summary.debt)], ['Hóa đơn còn nợ', summary.unpaid]].map(([title, value]) => `<article class="st-card"><span>${title}</span><strong>${value}</strong></article>`).join('')}</div>
         <label class="st-check-all st-check-all-page"><input type="checkbox" data-select-all ${payable.length && totals.count === payable.length ? 'checked' : ''}> Chọn tất cả hạng mục còn nợ</label>
@@ -433,7 +430,7 @@
             <p data-pay-summary aria-live="polite">Đã chọn ${totals.count} hạng mục – Tổng: ${money(totals.amount)}</p>
             <div class="st-actions">
                 <button type="button" class="st-button st-primary" data-action="online-step" data-pay-action ${totals.count ? '' : 'disabled'}><i class="fa-solid fa-qrcode" aria-hidden="true"></i> Thanh toán chuyển khoản QR</button>
-                <button type="button" class="st-button" data-action="cash-step" data-pay-action ${totals.count ? '' : 'disabled'}><i class="fa-solid fa-money-bill" aria-hidden="true"></i> Thanh toán tiền mặt</button>
+                <p class="st-muted">Nộp tiền mặt tại văn phòng.</p>
             </div>
         </div>
         </div>` +

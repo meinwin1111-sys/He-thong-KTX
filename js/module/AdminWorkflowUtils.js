@@ -89,32 +89,41 @@
         return mode === "parse" ? apiDate : `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${String(year).padStart(4, "0")}`;
     }
 
-    function sanitizeDateInput(value, caretPosition = String(value ?? "").length) {
-        const source = String(value ?? "");
-        const isoPaste = /^(\d{4})-(\d{2})-(\d{2})$/.exec(source.trim());
-        if (isoPaste) {
-            const formatted = `${isoPaste[3]}/${isoPaste[2]}/${isoPaste[1]}`;
-            return { value: formatted, caret: formatted.length };
-        }
-        let caret = 0;
-        const limit = Math.max(0, Math.min(Number(caretPosition) || 0, source.length));
-        const before = source.slice(0, limit).replace(/[^\d/]/g, "");
-        const cleaned = source.replace(/[^\d/]/g, "").slice(0, 10);
-        caret = Math.min(before.length, cleaned.length);
-        return { value: cleaned, caret };
+    function filterDateInput(value) {
+        return String(value ?? "").replace(/[^\d/]/g, "").slice(0, 10);
     }
 
     function normalizeDateInput(value) {
-        const parsed = date(String(value ?? ""), "parse");
-        return parsed ? date(parsed, "format") : null;
+        const source = String(value ?? "").trim();
+        let day;
+        let month;
+        let year;
+        if (/^\d{8}$/.test(source)) {
+            day = source.slice(0, 2);
+            month = source.slice(2, 4);
+            year = source.slice(4);
+        } else if (source.includes("/")) {
+            const parts = source.split("/");
+            if (parts.length !== 3 || !/^\d{1,2}$/.test(parts[0])
+                || !/^\d{1,2}$/.test(parts[1]) || !/^\d{4}$/.test(parts[2])) return null;
+            [day, month, year] = parts;
+        } else {
+            return null;
+        }
+        const normalized = `${day.padStart(2, "0")}/${month.padStart(2, "0")}/${year}`;
+        const parts = parseDateParts(normalized);
+        if (!parts || parts.year < 1900 || parts.year > 2100) return null;
+        return normalized;
     }
 
     function validateDateInput(value, { minYear, maxDate } = {}) {
         if (!String(value ?? "").trim()) return "Vui lòng nhập ngày.";
-        const parsed = date(String(value), "parse");
-        if (!parsed) return "Ngày không hợp lệ. Nhập theo dd/mm/yyyy.";
+        const normalized = normalizeDateInput(value);
+        const parsed = normalized && date(normalized, "parse");
+        if (!parsed) return "Ngày không hợp lệ";
         const year = Number(parsed.slice(0, 4));
-        if (minYear && year < minYear) return `Năm phải từ ${minYear} trở lên.`;
+        if (year < 1900 || year > 2100) return "Ngày không hợp lệ";
+        if (minYear && year < minYear) return `Ngày không hợp lệ. Năm phải từ ${minYear} trở lên.`;
         if (maxDate && parsed > maxDate) return "Ngày không được ở tương lai.";
         return "";
     }
@@ -161,12 +170,12 @@
 
     function statusClass(value) {
         const label = displayLabel(value).trim().toLocaleLowerCase("vi");
-        if (["chờ xác nhận", "cần xác minh", "còn nợ", "chưa thanh toán", "thanh toán một phần",
+        if (["chờ xác nhận", "cần xác minh", "cần đối soát", "còn nợ", "chưa thanh toán", "thanh toán một phần",
             "chưa xếp phòng", "chờ duyệt", "chờ xử lý", "sắp hết hạn"].includes(label)) {
             return "admin-status--warning";
         }
         if (["đang ở", "còn hiệu lực", "đã thanh toán", "hợp lệ", "thành công",
-            "đang áp dụng"].includes(label)) {
+            "đang áp dụng", "đã xác nhận", "đã xác nhận (tự động)"].includes(label)) {
             return "admin-status--success";
         }
         if (["đã rời", "đã rời khỏi", "trễ hạn", "quá hạn", "thất bại", "từ chối"].includes(label)) {
@@ -195,6 +204,12 @@
         return String(invoice?.TrangThaiThanhToan || "").trim() === "Đã thanh toán"
             || (invoice?.ConNo !== undefined && Number(invoice.ConNo) <= 0)
             ? "Đã thanh toán" : "Còn nợ";
+    }
+
+    function invoicePaymentDisplayLabel(invoice) {
+        return invoicePaymentLabel(invoice) === "Đã thanh toán"
+            && (invoice?.DaXacNhanQR === true || Number(invoice?.DaXacNhanQR) === 1)
+            ? "Đã xác nhận thanh toán" : invoicePaymentLabel(invoice);
     }
 
     function overdueDays(invoice, today = "") {
@@ -237,17 +252,31 @@
     }
 
     function renderTable(columns, rows, emptyText = "Không có dữ liệu phù hợp", rowAttributes = () => "", tableClass = "") {
-        const header = columns.map(column =>
-            `<th scope="col" ${column.align === "right" || column.width ? `style="width:${Number(column.width) || 140}px"` : ""} class="whitespace-nowrap p-3 align-middle ${column.align === "right" ? "text-right tabular-nums" : "text-left"}">${escapeHtml(column.label)}</th>`
-        ).join("");
+        const fixedLayout = tableClass.includes("admin-table--fixed");
+        const header = columns.map(column => {
+            const widthStyle = `width:${Number(column.width) || 140}px`;
+            const wrapStyle = fixedLayout ? ";overflow-wrap:anywhere" : "";
+            const style = fixedLayout ? `style="${widthStyle}${wrapStyle}"`
+                : column.align === "right" || column.width ? `style="width:${Number(column.width) || 140}px"` : "";
+            return `<th scope="col" ${style} class="whitespace-normal p-3 align-middle ${column.code ? "admin-code-cell" : ""} ${column.align === "right" ? "text-right tabular-nums" : "text-left"}">${escapeHtml(column.label)}</th>`;
+        }).join("");
         const body = rows.length ? rows.map((row, index) => `<tr class="border-t" ${rowAttributes(row, index)}>${columns.map(column => {
             const value = column.render(row, index);
             const title = column.title ? ` title="${escapeHtml(column.title(row, index))}"` : "";
             const longText = column.longText ? " admin-cell-truncate" : "";
+            const wrapText = column.wrap ? " admin-wrap-cell whitespace-normal break-words" : "";
             const width = Number(column.width) || (column.align === "right" ? 140 : 0);
-            return `<td ${Number.isFinite(width) && width > 0 ? `style="width:${width}px;max-width:${width}px"` : ""} class="whitespace-nowrap p-3 align-middle${longText} ${column.align === "right" ? "text-right tabular-nums" : "text-left"}"${title}>${value}</td>`;
+            const nowrap = column.nowrap || column.align === "right";
+            const widthStyle = Number.isFinite(width) && width > 0 ? `width:${width}px;max-width:${width}px` : "";
+            const wrapStyle = fixedLayout ? `${widthStyle ? ";" : ""}overflow-wrap:anywhere` : "";
+            const cellWhiteSpace = nowrap && column.align === "right" ? "whitespace-nowrap" : "whitespace-normal";
+            return `<td ${widthStyle || fixedLayout ? `style="${widthStyle}${wrapStyle}"` : ""} class="${cellWhiteSpace} ${column.code ? "admin-code-cell" : ""} p-3 align-middle${longText}${wrapText} ${column.align === "right" ? "text-right tabular-nums" : "text-left"}"${title}>${value}</td>`;
         }).join("")}</tr>`).join("") : `<tr><td colspan="${columns.length}" class="p-5 text-center text-slate-500">${escapeHtml(emptyText)}</td></tr>`;
-        return `<table class="admin-data-table min-w-max w-full text-sm text-left ${escapeHtml(tableClass)}"><thead class="bg-slate-100"><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
+        const tableWidth = columns.every(column => Number(column.width) > 0) ? "w-full" : "min-w-max w-full";
+        const colgroup = fixedLayout
+            ? `<colgroup>${columns.map(column => `<col style="width:${Number(column.width) || 140}px">`).join("")}</colgroup>`
+            : "";
+        return `<table ${fixedLayout ? 'style="table-layout:fixed;width:100%"' : ""} class="admin-data-table ${tableWidth} text-sm text-left ${escapeHtml(tableClass)}">${colgroup}<thead class="bg-slate-100"><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
     }
 
     function enhanceAdminTables(container) {
@@ -388,7 +417,8 @@
     }
 
     function dateField(label, name, value = "", { required = false, birthDate = false } = {}) {
-        const displayValue = normalizeDateInput(String(value ?? "")) || "";
+        const sourceValue = String(value ?? "");
+        const displayValue = normalizeDateInput(sourceValue) || date(sourceValue, "format") || "";
         return `<div class="grid grid-cols-[160px_minmax(0,1fr)] items-start gap-3 text-[13px] font-semibold text-[#0f172a]">
             <label class="pt-2" for="date-${escapeHtml(name)}">${escapeHtml(label)}${required ? ' <span class="text-red-500">*</span>' : ""}</label>
             <div>
@@ -504,18 +534,30 @@
         );
     }
 
-    function contractMemberRowHtml(students, member = {}) {
-        const options = (students || []).map(student =>
-            `<option value="${escapeHtml(student.value)}" ${student.value === member.MaSinhVien ? "selected" : ""}>${escapeHtml(student.label)}</option>`
-        ).join("");
-        return `<div class="member-row grid gap-2 rounded-lg border p-3 md:grid-cols-[1fr_130px_1fr_auto]">
-            <select name="maSinhVien" required class="rounded border p-2">
-                <option value="">Chọn sinh viên</option>${options}
-            </select>
-            <div data-student-conflict class="md:col-span-4"></div>
-            <select name="kyHanThanhToanPhong" class="rounded border p-2"><option value="THANG">Theo tháng</option><option value="NAM">Theo năm</option></select>
-            <label class="flex items-center gap-2 text-sm"><input name="laNguoiDaiDien" type="checkbox"> Đại diện dịch vụ</label>
-            <button type="button" data-action="remove-member-row" class="rounded bg-red-100 px-3 py-2 text-red-800">Bỏ</button>
+    let contractMemberSearchSequence = 0;
+    function contractMemberRowHtml(_students, member = {}, excludedIds = []) {
+        const listId = `contract-student-options-${++contractMemberSearchSequence}`;
+        return `<div class="member-row min-w-0 rounded-lg border p-3" data-excluded-ids="${escapeHtml(JSON.stringify(excludedIds))}">
+            <div class="grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-2 md:grid-cols-[minmax(0,1fr)_140px_auto_auto]">
+                <div class="relative col-span-3 min-w-0 md:col-span-1">
+                    <label class="block text-sm font-semibold">Sinh viên
+                        <input type="hidden" name="maSinhVien" value="${escapeHtml(member.MaSinhVien || "")}" required>
+                        <input type="search" data-student-search role="combobox" aria-autocomplete="list"
+                            aria-expanded="false" aria-controls="${listId}" aria-label="Tìm sinh viên theo họ tên, Số CCCD hoặc hộ chiếu"
+                            autocomplete="off" placeholder="Tìm theo họ tên, Số CCCD hoặc hộ chiếu"
+                            class="mt-1 h-10 w-full min-w-0 rounded border px-3 font-normal">
+                    </label>
+                    <div id="${listId}" data-student-options role="listbox" class="absolute z-30 mt-1 hidden max-h-60 w-full overflow-y-auto rounded-lg border bg-white shadow-lg"></div>
+                </div>
+                <label class="block min-w-0 text-sm font-semibold">Kỳ hạn
+                    <select name="kyHanThanhToanPhong" class="mt-1 h-10 w-full rounded border px-2 font-normal">
+                        <option value="THANG">Theo tháng</option><option value="NAM">Theo năm</option>
+                    </select>
+                </label>
+                <label class="flex min-h-10 items-center gap-2 whitespace-nowrap text-sm"><input name="laNguoiDaiDien" type="checkbox"> Đại diện dịch vụ</label>
+                <button type="button" data-action="remove-member-row" class="min-h-10 shrink-0 whitespace-nowrap rounded bg-red-100 px-3 py-2 text-red-800">Bỏ</button>
+            </div>
+            <div data-student-conflict class="mt-2"></div>
         </div>`;
     }
 
@@ -567,7 +609,7 @@
         CO_DINH_KY: "Cố định theo kỳ",
         PHONG: "Cả phòng",
         CA_NHAN: "Từng người",
-        RECONCILIATION: "Cần xác minh",
+        RECONCILIATION: "Cần đối soát",
         VALID: "Hợp lệ",
         SUCCESS: "Hợp lệ",
         PENDING: "Chờ xác nhận",
@@ -606,7 +648,7 @@
         "ĐÃ KẾT THÚC": "Đã kết thúc",
         "CÒN HIỆU LỰC": "Còn hiệu lực",
         "CHỜ XÁC NHẬN": "Chờ xác nhận",
-        "CẦN ĐỐI SOÁT": "Cần xác minh",
+        "CẦN ĐỐI SOÁT": "Cần đối soát",
         "KHÔNG GHI NHẬN": "Cần xác minh",
         "ĐÃ THANH TOÁN": "Đã thanh toán",
         "HỢP LỆ": "Hợp lệ",
@@ -641,21 +683,23 @@
 
     function filterFinancialRows(rows, type, filters = {}) {
         const search = String(filters.search || "").trim().toLocaleLowerCase("vi");
-        const status = String(filters.status || "ACTION_REQUIRED");
+        const status = String(filters.status || (type === "receipts" ? "ALL" : "ACTION_REQUIRED"));
+        const receiptStatuses = ["Đã xác nhận", "Thiếu tiền", "Dư tiền (chờ hoàn)", "Đã hoàn tiền dư"];
         const method = String(filters.method || "ALL");
         const from = String(filters.from || "");
         const to = String(filters.to || "");
         return rows.filter(row => {
-            const rowStatus = String(row.TrangThaiThanhToan || row.TrangThai || "");
+            const rowStatus = String(row.TrangThaiDanhSach || row.TrangThaiThanhToan || row.TrangThai || "");
             const normalizedStatus = displayLabel(rowStatus, "");
             if (type === "invoices" && ["Đã hủy", "Đã huỷ"].includes(normalizedStatus)) return false;
+            if (type === "receipts" && !receiptStatuses.includes(normalizedStatus)) return false;
             if (filters.invoiceType && filters.invoiceType !== "ALL" && row.LoaiHoaDon !== filters.invoiceType) return false;
             const isActionRequired = type === "invoices"
                 ? invoicePaymentLabel(row) === "Còn nợ"
                 : type === "receipts"
-                    ? normalizedStatus === "Chờ xác nhận"
+                    ? false
                     : type === "payments"
-                        ? ["Cần xác minh", "Chờ xác nhận"].includes(normalizedStatus)
+                            ? ["Cần đối soát", "Cần xác minh", "Chờ xác nhận"].includes(normalizedStatus)
                         : type === "expenses"
                             ? normalizedStatus === "Chưa lập hóa đơn"
                         : ["Chờ xác nhận", "Cần xử lý"].includes(normalizedStatus);
@@ -683,25 +727,19 @@
     function bindDateInputs(rootElement) {
         if (!rootElement || rootElement.dataset.dateInputsBound) return;
         rootElement.dataset.dateInputsBound = "true";
-        rootElement.addEventListener("input", event => {
-            const input = event.target.closest("[data-admin-date]");
-            if (!input) return;
-            const result = sanitizeDateInput(input.value, input.selectionStart);
-            if (input.value !== result.value) {
-                input.value = result.value;
-                input.setSelectionRange(result.caret, result.caret);
-            }
-            const error = input.closest("div")?.parentElement?.querySelector("[data-date-error]");
-            if (error && !input.value) error.textContent = "";
-        });
-        rootElement.addEventListener("focusout", event => {
-            const input = event.target.closest("[data-admin-date]");
-            if (!input) return;
-            const error = input.closest("div")?.parentElement?.querySelector("[data-date-error]");
+        const getError = input => {
+            const id = input.getAttribute("aria-describedby");
+            return (id && input.ownerDocument.getElementById(id))
+                || input.closest("label")?.querySelector("[data-date-error]")
+                || input.closest("div")?.parentElement?.querySelector("[data-date-error]");
+        };
+        const commit = input => {
             const value = input.value.trim();
+            const error = getError(input);
             if (!value && !input.required) {
                 if (error) error.textContent = "";
-                return;
+                input.setCustomValidity("");
+                return "";
             }
             const today = new Date();
             const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
@@ -709,6 +747,30 @@
                 ? { minYear: 1900, maxDate: todayIso } : {});
             if (!message) input.value = normalizeDateInput(value);
             if (error) error.textContent = message;
+            input.setCustomValidity(message);
+            if (!message) {
+                const InputEvent = input.ownerDocument.defaultView?.Event || Event;
+                input.dispatchEvent(new InputEvent("admin-date-input", { bubbles: true }));
+            }
+            return message;
+        };
+        rootElement.addEventListener("input", event => {
+            const input = event.target.closest("[data-admin-date]");
+            if (!input) return;
+            const filtered = filterDateInput(input.value);
+            if (filtered !== input.value) {
+                input.setRangeText(filtered, 0, input.value.length, "end");
+            }
+        });
+        rootElement.addEventListener("focusout", event => {
+            const input = event.target.closest("[data-admin-date]");
+            if (!input) return;
+            commit(input);
+        });
+        rootElement.addEventListener("keydown", event => {
+            const input = event.target.closest("[data-admin-date]");
+            if (!input || event.key !== "Enter") return;
+            if (commit(input)) event.preventDefault();
         });
         rootElement.addEventListener("click", event => {
             const button = event.target.closest('[data-action="date-picker-open"]');
@@ -718,10 +780,11 @@
             else picker.click();
             picker.onchange = () => {
                 const input = button.parentElement.querySelector("[data-admin-date]");
-                input.value = normalizeDateInput(picker.value) || "";
-                input.dispatchEvent(new Event("focusout", { bubbles: true }));
+                input.value = date(picker.value);
+                commit(input);
             };
         });
+        return Object.freeze({ commit });
     }
 
     function threeDigitsToWords(value) {
@@ -772,10 +835,11 @@
     const utils = Object.freeze({
         escapeHtml, parseVnd, parseVndNonNegative, formatVnd, exceedsBalance,
         refundReasonRequired, invoicePersonLabel, amountInWords, date, dateTime, tierForRoom,
-        displayLabel, statusClass, statusBadge, genderBadge, paymentMethodLabel, maskPaymentReference, invoicePaymentLabel, overdueDays,
+        displayLabel, statusClass, statusBadge, genderBadge, paymentMethodLabel, maskPaymentReference,
+        invoicePaymentLabel, invoicePaymentDisplayLabel, overdueDays,
         maskStudentId, maskStudentIdsInText, filterFinancialRows, isOverdueInvoice, serviceCanBeActive, canChangeRoomTier,
         roomGender, roomLabel, filterRoomsByGender, filterStudentsByRoomGender,
-        contractRoomAvailability, contractRoomSelection, contractRoomsForStudents, contractMemberRowHtml, memberAddRequest, hasTierDraftChanges, sanitizeDateInput, normalizeDateInput,
+        contractRoomAvailability, contractRoomSelection, contractRoomsForStudents, contractMemberRowHtml, memberAddRequest, hasTierDraftChanges, filterDateInput, normalizeDateInput,
         validateDateInput, filterRows, paginateRows, groupContractDetails, renderTable, dateField, bindDateInputs,
         listSummary, serviceEditMode
         , enhanceAdminTables

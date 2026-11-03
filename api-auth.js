@@ -32,6 +32,7 @@ function createApiAuthenticationMiddleware({ jwt, getSecret }) {
                         || /^\/student\/(?:profile|room|contracts|requests)$/.test(req.path)
                         || req.path === "/student/notifications"))
                     || (req.method === "POST" && (req.path === "/payments/create"
+                        || req.path === "/payments/demo-confirm"
                         || req.path === "/student/requests"
                         || req.path === "/change-password"));
                 if (!studentId || studentId.length > 20) {

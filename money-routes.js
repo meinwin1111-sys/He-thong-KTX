@@ -113,6 +113,19 @@ function getBankTransferConfig(stringValue) {
     return { bankBin, accountNumber, accountName };
 }
 
+async function getCashPaymentNotice(sql, transaction) {
+    const result = await new sql.Request(transaction).query(`
+        SELECT Khoa, GiaTri
+        FROM dbo.CauHinhHeThong
+        WHERE Khoa IN (N'SUPPORT_PHONE', N'SUPPORT_HOURS')
+    `);
+    const values = Object.fromEntries((result.recordset || []).map(row => [row.Khoa, row.GiaTri]));
+    const phone = String(process.env.OFFICE_PHONE || "").trim() || String(values.SUPPORT_PHONE || "").trim();
+    const hours = String(process.env.OFFICE_HOURS || "").trim() || String(values.SUPPORT_HOURS || "").trim();
+    if (!phone && !hours) return "Nếu nộp tiền mặt, vui lòng liên hệ Ban quản lý KTX.";
+    return `Nếu nộp tiền mặt, vui lòng đến văn phòng Ban quản lý KTX, giờ làm việc ${hours || "liên hệ Ban quản lý KTX"}, SĐT ${phone || "liên hệ Ban quản lý KTX"}.`;
+}
+
 function routeManager(req, res, respondRequestError) {
     if (req.auth?.role === "Quản lý") return true;
     respondRequestError(res, req.auth ? 403 : 401,
@@ -134,6 +147,140 @@ function auditRequest(sql, transaction, req, action, object, id, detail) {
         `);
 }
 
+async function insertStudentNotifications(sql, transaction, {
+    contractId, detailId = null, title, content, eventKey, invoiceId = null, creatorId
+}) {
+    let senderId = creatorId;
+    if (!senderId) {
+        const sender = await new sql.Request(transaction).query(`
+            SELECT TOP (1) MaTaiKhoan
+            FROM dbo.TaiKhoan
+            WHERE VaiTro = N'Quản lý'
+            ORDER BY MaTaiKhoan
+        `);
+        senderId = sender.recordset?.[0]?.MaTaiKhoan;
+    }
+    if (!senderId) throw new Error("Không tìm thấy tài khoản Quản lý để ghi thông báo nghiệp vụ.");
+    const recipients = await new sql.Request(transaction)
+        .input("MaHopDong", sql.NVarChar(20), contractId)
+        .input("MaChiTiet", sql.Int, detailId)
+        .query(`
+            SELECT DISTINCT c.MaSinhVien
+            FROM dbo.ChiTietHopDong c
+            INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+            WHERE c.MaHopDong = @MaHopDong
+              AND
+              (
+                  (@MaChiTiet IS NOT NULL AND c.MaChiTiet = @MaChiTiet)
+                  OR (@MaChiTiet IS NULL AND c.TrangThai = N'Đang ở'
+                      AND hd.TrangThaiHopDong = N'Còn hiệu lực')
+              )
+        `);
+    for (const recipient of recipients.recordset) {
+        await new sql.Request(transaction)
+            .input("TieuDe", sql.NVarChar(200), title)
+            .input("NoiDung", sql.NVarChar(2000), content)
+            .input("MaSinhVien", sql.NVarChar(30), recipient.MaSinhVien)
+            .input("NguoiTao", sql.Int, senderId)
+            .input("MaHoaDon", sql.NVarChar(20), invoiceId)
+            .input("MaSuKien", sql.NVarChar(100), eventKey)
+            .query(`
+                INSERT INTO dbo.ThongBao
+                    (TieuDe, NoiDung, PhamViNhan, MaSinhVien, NguoiTao, MaHoaDon, MaSuKien)
+                SELECT @TieuDe, @NoiDung, N'SINH_VIEN', @MaSinhVien, @NguoiTao, @MaHoaDon, @MaSuKien
+                WHERE NOT EXISTS
+                (
+                    SELECT 1 FROM dbo.ThongBao WITH (UPDLOCK, HOLDLOCK)
+                    WHERE MaSuKien = @MaSuKien AND MaSinhVien = @MaSinhVien
+                )
+            `);
+    }
+}
+
+async function notifyReceiptRejected(sql, transaction, receiptId, reason, creatorId) {
+    const receiptResult = await new sql.Request(transaction)
+        .input("MaPhieuThu", sql.BigInt, receiptId)
+        .query(`
+            SELECT pt.MaHoaDon, pt.MaSinhVienNop, hd.MaHopDong, hd.MaChiTiet,
+                   gd.MaSinhVien AS MaSinhVienGiaoDich
+            FROM dbo.PhieuThu pt
+            INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = pt.MaHoaDon
+            LEFT JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = pt.MaGiaoDich
+            WHERE pt.MaPhieuThu = @MaPhieuThu AND pt.TrangThai = N'Đã hủy'
+        `);
+    const receipt = receiptResult.recordset?.[0];
+    if (!receipt) return;
+    const studentId = receipt.MaSinhVienNop || receipt.MaSinhVienGiaoDich;
+    let detailId = receipt.MaChiTiet;
+    if (studentId) {
+        const selected = await new sql.Request(transaction)
+            .input("MaHopDong", sql.NVarChar(20), receipt.MaHopDong)
+            .input("MaSinhVien", sql.NVarChar(30), studentId)
+            .query(`
+                SELECT TOP (1) MaChiTiet
+                FROM dbo.ChiTietHopDong
+                WHERE MaHopDong = @MaHopDong AND MaSinhVien = @MaSinhVien
+                ORDER BY MaChiTiet DESC
+            `);
+        detailId = selected.recordset?.[0]?.MaChiTiet || detailId;
+    }
+    await insertStudentNotifications(sql, transaction, {
+        contractId: receipt.MaHopDong,
+        detailId,
+        title: `Phiếu thu ${receiptId} đã bị từ chối`,
+        content: `Phiếu thu ${receiptId} cho hóa đơn ${receipt.MaHoaDon} đã bị từ chối. Lý do: ${reason || "Vui lòng liên hệ Ban quản lý KTX để biết thêm chi tiết."}`,
+        eventKey: `REJECTION:${receiptId}`,
+        invoiceId: receipt.MaHoaDon,
+        creatorId
+    });
+}
+
+async function notifyReceiptConfirmed(sql, transaction, receiptId, creatorId) {
+    const receiptResult = await new sql.Request(transaction)
+        .input("MaPhieuThu", sql.BigInt, receiptId)
+        .query(`
+            SELECT pt.MaHoaDon, pt.SoTien, pt.PhuongThuc, pt.MaSinhVienNop,
+                   gd.MaSinhVien AS MaSinhVienGiaoDich,
+                   hd.MaHopDong, hd.MaChiTiet
+            FROM dbo.PhieuThu pt
+            INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = pt.MaHoaDon
+            LEFT JOIN dbo.GiaoDichThanhToan gd ON gd.MaGiaoDich = pt.MaGiaoDich
+            WHERE pt.MaPhieuThu = @MaPhieuThu AND pt.TrangThai = N'Hợp lệ'
+        `);
+    const receipt = receiptResult.recordset?.[0];
+    if (!receipt) throw new Error("Không tìm thấy hóa đơn của phiếu thu vừa xác nhận.");
+    const studentId = receipt.MaSinhVienNop || receipt.MaSinhVienGiaoDich;
+    let detailId = receipt.MaChiTiet;
+    if (studentId) {
+        const selected = await new sql.Request(transaction)
+            .input("MaHopDong", sql.NVarChar(20), receipt.MaHopDong)
+            .input("MaSinhVien", sql.NVarChar(30), studentId)
+            .query(`
+                SELECT TOP (1) MaChiTiet
+                FROM dbo.ChiTietHopDong
+                WHERE MaHopDong = @MaHopDong AND MaSinhVien = @MaSinhVien
+                ORDER BY MaChiTiet DESC
+            `);
+        detailId = selected.recordset?.[0]?.MaChiTiet || detailId;
+    }
+    const paymentType = receipt.PhuongThuc === "CASH" ? "tiền mặt" : "chuyển khoản QR";
+    await insertStudentNotifications(sql, transaction, {
+        contractId: receipt.MaHopDong,
+        detailId,
+        title: `Đã nhận thanh toán hóa đơn ${receipt.MaHoaDon}`,
+        content: `Khoản thanh toán ${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(Number(receipt.SoTien))} đ bằng ${paymentType} cho hóa đơn ${receipt.MaHoaDon} đã được xác nhận.`,
+        eventKey: `PAYMENT:${receiptId}`,
+        invoiceId: receipt.MaHoaDon,
+        creatorId
+    });
+}
+
+function dateForMessage(value) {
+    const raw = value instanceof Date ? value.toISOString().slice(0, 10) : String(value || "").slice(0, 10);
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    return match ? `${match[3]}/${match[2]}/${match[1]}` : "—";
+}
+
 function studentCanViewInvoice(req) {
     return req.auth?.role === "Sinh viên";
 }
@@ -144,6 +291,87 @@ function registerMoneyRoutes(app, {
     stringValue, respondRequestError, respondDatabaseError, logDatabaseError, rollback
 }) {
     const errorContext = { logDatabaseError, respondDatabaseError, respondRequestError };
+
+    async function lockInvoice(transaction, invoiceId) {
+        return new sql.Request(transaction)
+            .input("MaHoaDon", sql.NVarChar(20), invoiceId)
+            .query(`
+                SELECT MaHoaDon
+                FROM dbo.HoaDon WITH (UPDLOCK, HOLDLOCK)
+                WHERE MaHoaDon = @MaHoaDon
+            `);
+    }
+
+    async function lockPayment(transaction, transactionId) {
+        if (!transactionId) return;
+        await new sql.Request(transaction)
+            .input("MaGiaoDich", sql.NVarChar(60), transactionId)
+            .query(`
+                SELECT MaGiaoDich
+                FROM dbo.GiaoDichThanhToan WITH (UPDLOCK, HOLDLOCK)
+                WHERE MaGiaoDich = @MaGiaoDich
+            `);
+    }
+
+    async function lockReceipt(transaction, receiptId) {
+        return new sql.Request(transaction)
+            .input("MaPhieuThu", sql.BigInt, receiptId)
+            .query(`
+                SELECT MaPhieuThu
+                FROM dbo.PhieuThu WITH (UPDLOCK, HOLDLOCK)
+                WHERE MaPhieuThu = @MaPhieuThu
+            `);
+    }
+
+    async function findReceiptIdentity(transaction, receiptId) {
+        const result = await new sql.Request(transaction)
+            .input("MaPhieuThu", sql.BigInt, receiptId)
+            .query(`
+                SELECT MaHoaDon, MaGiaoDich
+                FROM dbo.PhieuThu WITH (READCOMMITTED)
+                WHERE MaPhieuThu = @MaPhieuThu
+            `);
+        return result.recordset[0] || null;
+    }
+
+    async function lockReceiptContext(transaction, receiptId) {
+        const identity = await findReceiptIdentity(transaction, receiptId);
+        if (!identity) return null;
+        await lockInvoice(transaction, identity.MaHoaDon);
+        await lockPayment(transaction, identity.MaGiaoDich);
+        const receipt = await lockReceipt(transaction, receiptId);
+        if (!receipt.recordset.length) return null;
+        return identity;
+    }
+
+    async function findPaymentIdentity(transaction, transactionId) {
+        const result = await new sql.Request(transaction)
+            .input("MaGiaoDich", sql.NVarChar(60), transactionId)
+            .query(`
+                SELECT pt.MaHoaDon
+                FROM dbo.GiaoDichThanhToan gd WITH (READCOMMITTED)
+                INNER JOIN dbo.PhieuThu pt WITH (READCOMMITTED)
+                    ON pt.MaGiaoDich = gd.MaGiaoDich
+                WHERE gd.MaGiaoDich = @MaGiaoDich
+            `);
+        return result.recordset[0] || null;
+    }
+
+    async function lockPaymentContext(transaction, transactionId) {
+        const identity = await findPaymentIdentity(transaction, transactionId);
+        if (!identity) return null;
+        await lockInvoice(transaction, identity.MaHoaDon);
+        await lockPayment(transaction, transactionId);
+        const receipt = await new sql.Request(transaction)
+            .input("MaGiaoDich", sql.NVarChar(60), transactionId)
+            .query(`
+                SELECT MaPhieuThu
+                FROM dbo.PhieuThu WITH (UPDLOCK, HOLDLOCK)
+                WHERE MaGiaoDich = @MaGiaoDich
+            `);
+        if (!receipt.recordset.length) return null;
+        return identity;
+    }
 
     app.get("/api/HoaDon", async (req, res) => {
         if (!req.auth) return respondRequestError(res, 401, "Vui lòng đăng nhập để xem hóa đơn.");
@@ -195,19 +423,59 @@ function registerMoneyRoutes(app, {
             }
             const result = await request.query(`
                 SELECT hd.MaHoaDon, hd.MaSinhVien, hd.MaHopDong, hd.MaChiTiet,
-                       hd.KyThanhToan, hd.KyThanhToanDen, hd.LoaiHoaDon,
-                       sv.HoTen, hd.TenPhong, hd.NgayLap, hd.HanThanhToan,
+                       CONVERT(nvarchar(10), hd.KyThanhToan, 23) AS KyThanhToan,
+                       CONVERT(nvarchar(10), hd.KyThanhToanDen, 23) AS KyThanhToanDen,
+                       hd.LoaiHoaDon, sv.HoTen, hd.TenPhong,
+                       CONVERT(nvarchar(10), hd.NgayLap, 23) AS NgayLap,
+                       CONVERT(nvarchar(10), hd.HanThanhToan, 23) AS HanThanhToan,
+                       CONVERT(nvarchar(10), COALESCE(hd.HanThanhToan, incidentDue.HanDong), 23) AS HanThanhToanApDung,
                        hd.TrangThaiThanhToan, hd.NgayThanhToan,
+                       representative.MaSinhVien AS MaDaiDienDichVu,
+                       representative.HoTen AS TenDaiDienDichVu,
                        v.TongThuc AS TongTien, v.DaThu, v.ConNo, v.TrangThaiSuyRa,
+                       CASE WHEN EXISTS (
+                           SELECT 1
+                           FROM dbo.PhieuThu qrReceipt
+                           INNER JOIN dbo.GiaoDichThanhToan qrPayment
+                               ON qrPayment.MaGiaoDich = qrReceipt.MaGiaoDich
+                           WHERE qrReceipt.MaHoaDon = hd.MaHoaDon
+                             AND qrReceipt.TrangThai = N'Hợp lệ'
+                             AND qrReceipt.PhuongThuc = N'ONLINE'
+                             AND qrPayment.PhuongThuc = N'ONLINE'
+                             AND qrPayment.TrangThai = N'SUCCESS'
+                       ) THEN CAST(1 AS bit) ELSE CAST(0 AS bit) END AS DaXacNhanQR,
                        (SELECT COUNT_BIG(*) FROM dbo.ChiTietHoaDon c
                         WHERE c.MaHoaDon = hd.MaHoaDon) AS SoDong
                 FROM dbo.HoaDon hd
                 INNER JOIN dbo.vw_HoaDonTongHop v ON v.MaHoaDon = hd.MaHoaDon
                 LEFT JOIN dbo.SinhVien sv ON sv.MaSinhVien = hd.MaSinhVien
+                OUTER APPLY
+                (
+                    SELECT TOP (1) representativeMember.MaSinhVien, representativeStudent.HoTen
+                    FROM dbo.ChiTietHopDong representativeMember
+                    INNER JOIN dbo.SinhVien representativeStudent
+                        ON representativeStudent.MaSinhVien = representativeMember.MaSinhVien
+                    WHERE representativeMember.MaHopDong = hd.MaHopDong
+                      AND representativeMember.LaNguoiDaiDienThanhToanDichVu = 1
+                      AND representativeMember.TrangThai = N'Đang ở'
+                    ORDER BY representativeMember.MaChiTiet
+                ) representative
+                OUTER APPLY
+                (
+                    SELECT TOP (1) incident.HanDong
+                    FROM dbo.ChiTietHoaDon line
+                    INNER JOIN dbo.ChiPhiPhatSinh incident
+                        ON incident.MaChiTietHoaDon = line.MaChiTiet
+                    WHERE line.MaHoaDon = hd.MaHoaDon AND line.MaKhoan = N'INCIDENT'
+                    ORDER BY incident.MaChiPhi DESC
+                ) incidentDue
                 ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""}
                 ORDER BY hd.NgayLap DESC, hd.MaHoaDon DESC
             `);
-            return res.json(result.recordset);
+            return res.json(result.recordset.map(row => ({
+                ...row,
+                HanThanhToan: row.HanThanhToanApDung || row.HanThanhToan || null
+            })));
         } catch (error) {
             return respondDatabaseError(res, "LỖI LẤY HÓA ĐƠN", error, "Không thể lấy danh sách hóa đơn.");
         }
@@ -222,16 +490,51 @@ function registerMoneyRoutes(app, {
             const studentFilter = studentCanViewInvoice(req);
             if (studentFilter) request.input("MaSinhVien", sql.NVarChar(30), req.auth.studentId);
             const result = await request.query(`
-                SELECT hd.*, sv.HoTen, v.TongThuc AS TongTien,
-                       v.DaThu, v.ConNo, v.TrangThaiSuyRa
+                SELECT hd.*, COALESCE(hd.HanThanhToan, cp.HanDong) AS HanThanhToanApDung,
+                       sv.HoTen, v.TongThuc AS TongTien,
+                       v.DaThu, v.ConNo, v.TrangThaiSuyRa,
+                       CASE WHEN EXISTS (
+                           SELECT 1
+                           FROM dbo.PhieuThu qrReceipt
+                           INNER JOIN dbo.GiaoDichThanhToan qrPayment
+                               ON qrPayment.MaGiaoDich = qrReceipt.MaGiaoDich
+                           WHERE qrReceipt.MaHoaDon = hd.MaHoaDon
+                             AND qrReceipt.TrangThai = N'Hợp lệ'
+                             AND qrReceipt.PhuongThuc = N'ONLINE'
+                             AND qrPayment.PhuongThuc = N'ONLINE'
+                             AND qrPayment.TrangThai = N'SUCCESS'
+                       ) THEN CAST(1 AS bit) ELSE CAST(0 AS bit) END AS DaXacNhanQR,
+                       representative.MaSinhVien AS MaDaiDienDichVu,
+                       representative.HoTen AS TenDaiDienDichVu
                 FROM dbo.HoaDon hd
                 INNER JOIN dbo.vw_HoaDonTongHop v ON v.MaHoaDon = hd.MaHoaDon
                 LEFT JOIN dbo.SinhVien sv ON sv.MaSinhVien = hd.MaSinhVien
+                OUTER APPLY
+                (
+                    SELECT TOP (1) representativeMember.MaSinhVien, representativeStudent.HoTen
+                    FROM dbo.ChiTietHopDong representativeMember
+                    INNER JOIN dbo.SinhVien representativeStudent
+                        ON representativeStudent.MaSinhVien = representativeMember.MaSinhVien
+                    WHERE representativeMember.MaHopDong = hd.MaHopDong
+                      AND representativeMember.LaNguoiDaiDienThanhToanDichVu = 1
+                      AND representativeMember.TrangThai = N'Đang ở'
+                    ORDER BY representativeMember.MaChiTiet
+                ) representative
+                OUTER APPLY
+                (
+                    SELECT TOP (1) incident.HanDong
+                    FROM dbo.ChiTietHoaDon line
+                    INNER JOIN dbo.ChiPhiPhatSinh incident
+                        ON incident.MaChiTietHoaDon = line.MaChiTiet
+                    WHERE line.MaHoaDon = hd.MaHoaDon AND line.MaKhoan = N'INCIDENT'
+                    ORDER BY incident.MaChiPhi DESC
+                ) cp
                 WHERE hd.MaHoaDon = @MaHoaDon
                   ${studentFilter ? `AND ${INVOICE_OWNER}` : ""}
             `);
             const invoice = result.recordset[0];
             if (!invoice) return respondRequestError(res, 404, "Không tìm thấy hóa đơn.");
+            invoice.HanThanhToan = invoice.HanThanhToanApDung || invoice.HanThanhToan || null;
 
             const lines = await getPool().request()
                 .input("MaHoaDon", sql.NVarChar(20), req.params.id)
@@ -279,6 +582,7 @@ function registerMoneyRoutes(app, {
                 .query(`
                     SELECT hd.MaHoaDon, hd.LoaiHoaDon, hd.MaChiTiet, hd.MaHopDong,
                            hd.HanThanhToan,
+                           CONVERT(char(8), SYSDATETIME(), 112) AS NgayNhac,
                            CASE WHEN hd.HanThanhToan < CONVERT(date, SYSDATETIME()) THEN 1 ELSE 0 END AS IsOverdue,
                            v.ConNo,
                            CONVERT(nvarchar(10), hd.HanThanhToan, 103) AS HanHienThi
@@ -306,10 +610,12 @@ function registerMoneyRoutes(app, {
 
             const recentReminder = await new sql.Request(transaction)
                 .input("MaHoaDon", sql.NVarChar(20), invoice.MaHoaDon)
+                .input("MaSuKien", sql.NVarChar(100), `REMINDER:${invoice.MaHoaDon}:${invoice.NgayNhac}`)
                 .query(`
                     SELECT TOP (1) MaThongBao
                     FROM dbo.ThongBao WITH (UPDLOCK, HOLDLOCK)
                     WHERE MaHoaDon = @MaHoaDon
+                      AND MaSuKien = @MaSuKien
                       AND NgayTao >= DATEADD(hour, -24, SYSDATETIME())
                 `);
             if (recentReminder.recordset.length) {
@@ -354,11 +660,12 @@ function registerMoneyRoutes(app, {
                     .input("MaSinhVien", sql.NVarChar(30), recipient.MaSinhVien)
                     .input("NguoiTao", sql.Int, req.auth.accountId)
                     .input("MaHoaDon", sql.NVarChar(20), invoice.MaHoaDon)
+                    .input("MaSuKien", sql.NVarChar(100), `REMINDER:${invoice.MaHoaDon}:${invoice.NgayNhac}`)
                     .query(`
                         INSERT INTO dbo.ThongBao
-                            (TieuDe, NoiDung, PhamViNhan, MaSinhVien, NguoiTao, MaHoaDon)
+                            (TieuDe, NoiDung, PhamViNhan, MaSinhVien, NguoiTao, MaHoaDon, MaSuKien)
                         VALUES
-                            (@TieuDe, @NoiDung, N'SINH_VIEN', @MaSinhVien, @NguoiTao, @MaHoaDon)
+                            (@TieuDe, @NoiDung, N'SINH_VIEN', @MaSinhVien, @NguoiTao, @MaHoaDon, @MaSuKien)
                     `);
             }
             await transaction.commit();
@@ -449,6 +756,43 @@ function registerMoneyRoutes(app, {
                 result = await request.execute("dbo.sp_TaoHoaDonDichVuPhong");
             }
             const invoiceId = result.output?.MaHoaDon || result.recordset?.[0]?.MaHoaDon;
+            if (invoiceId) {
+                const invoiceNotice = await new sql.Request(transaction)
+                    .input("MaHoaDon", sql.NVarChar(20), invoiceId)
+                    .query(`
+                        SELECT hd.MaHopDong, hd.LoaiHoaDon, total.TongThuc,
+                               CONVERT(nvarchar(10), hd.HanThanhToan, 23) AS HanThanhToan
+                        FROM dbo.HoaDon hd
+                        INNER JOIN dbo.vw_HoaDonTongHop total ON total.MaHoaDon = hd.MaHoaDon
+                        WHERE hd.MaHoaDon = @MaHoaDon
+                    `);
+                const row = invoiceNotice.recordset[0];
+                if (!row) throw new Error(`Không tìm thấy hóa đơn ${invoiceId} để gửi thông báo.`);
+                const cashNotice = await getCashPaymentNotice(sql, transaction);
+                {
+                    let recipientDetail = body.loaiHoaDon === "TIEN_PHONG" ? body.maChiTiet : null;
+                    if (body.loaiHoaDon === "DICH_VU_PHONG" && body.maSinhVienNop) {
+                        const selected = await new sql.Request(transaction)
+                            .input("MaHopDong", sql.NVarChar(20), body.maHopDong)
+                            .input("MaSinhVien", sql.NVarChar(30), body.maSinhVienNop)
+                            .query(`
+                                SELECT TOP (1) MaChiTiet FROM dbo.ChiTietHopDong
+                                WHERE MaHopDong = @MaHopDong AND MaSinhVien = @MaSinhVien
+                                ORDER BY MaChiTiet DESC
+                            `);
+                        recipientDetail = selected.recordset?.[0]?.MaChiTiet || null;
+                    }
+                    await insertStudentNotifications(sql, transaction, {
+                        contractId: row.MaHopDong,
+                        detailId: recipientDetail,
+                        title: `Hóa đơn mới ${invoiceId}`,
+                        content: `Hóa đơn ${invoiceId} đã được lập, số tiền ${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(Number(row.TongThuc))} đ, hạn đóng ${dateForMessage(row.HanThanhToan)}. ${cashNotice}`,
+                        eventKey: `INVOICE:${invoiceId}`,
+                        invoiceId,
+                        creatorId: req.auth.accountId
+                    });
+                }
+            }
             await auditRequest(sql, transaction, req, "Lập hóa đơn theo kỳ", "HoaDon",
                 invoiceId || "Theo kỳ", `${body.loaiHoaDon}; kỳ ${body.kyThanhToan}`);
             await transaction.commit();
@@ -517,7 +861,7 @@ function registerMoneyRoutes(app, {
             }
             const result = await request.query(`
                 SELECT cp.MaChiPhi, cp.MaHopDong, cp.MaChiTiet, cp.NoiDung, cp.SoTien,
-                       cp.NgayPhatSinh, cp.NguoiNhap, cp.TrangThai, cp.MaChiTietHoaDon,
+                       cp.NgayPhatSinh, cp.HanDong, cp.NguoiNhap, cp.TrangThai, cp.MaChiTietHoaDon,
                        cp.GhiChu, cp.NgayTao, hd.TenPhong, c.MaSinhVien, sv.HoTen,
                        chi.MaHoaDon
                 FROM dbo.ChiPhiPhatSinh cp
@@ -541,9 +885,10 @@ function registerMoneyRoutes(app, {
             || (body.maChiTiet != null && !isJsonInteger(body.maChiTiet, 1, 2147483647))
             || typeof body.noiDung !== "string" || !body.noiDung.trim() || body.noiDung.trim().length > 255
             || !isPositiveVnd(body.soTien)
-            || (body.ngayPhatSinh !== undefined && !isDateOnly(body.ngayPhatSinh))
+            || !isDateOnly(body.ngayPhatSinh)
+            || !isDateOnly(body.hanDong)
             || !isOptionalText(body.ghiChu, 255)) {
-            return respondRequestError(res, 400, "Hợp đồng, nội dung, ngày hợp lệ và số tiền nguyên VND dương là bắt buộc.");
+            return respondRequestError(res, 400, "Hợp đồng, nội dung, ngày phát sinh, hạn đóng hợp lệ và số tiền nguyên VND dương là bắt buộc.");
         }
         const transaction = new sql.Transaction(getPool());
         try {
@@ -569,18 +914,27 @@ function registerMoneyRoutes(app, {
                 .input("MaChiTiet", sql.Int, body.maChiTiet ?? null)
                 .input("NoiDung", sql.NVarChar(255), body.noiDung.trim())
                 .input("SoTien", sql.Decimal(18, 2), body.soTien)
-                .input("NgayPhatSinh", sql.Date, body.ngayPhatSinh || null)
+                .input("NgayPhatSinh", sql.Date, body.ngayPhatSinh)
+                .input("HanDong", sql.Date, body.hanDong)
                 .input("NguoiNhap", sql.Int, req.auth.accountId)
                 .input("GhiChu", sql.NVarChar(255), body.ghiChu || null)
                 .query(`
                     INSERT INTO dbo.ChiPhiPhatSinh
-                        (MaHopDong, MaChiTiet, NoiDung, SoTien, NgayPhatSinh, NguoiNhap, GhiChu)
+                        (MaHopDong, MaChiTiet, NoiDung, SoTien, NgayPhatSinh, HanDong, NguoiNhap, GhiChu)
                     VALUES
                         (@MaHopDong, @MaChiTiet, @NoiDung, @SoTien,
-                         COALESCE(@NgayPhatSinh, CAST(GETDATE() AS date)), @NguoiNhap, @GhiChu);
+                         @NgayPhatSinh, @HanDong, @NguoiNhap, @GhiChu);
                     SELECT CONVERT(bigint, SCOPE_IDENTITY()) AS MaChiPhi;
                 `);
             const expenseId = insert.recordset[0].MaChiPhi;
+            await insertStudentNotifications(sql, transaction, {
+                contractId: body.maHopDong,
+                detailId: body.maChiTiet ?? null,
+                title: `Khoản phí mới: ${body.noiDung.trim()}`,
+                content: `Khoản phí ${body.noiDung.trim()}: ${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(body.soTien)} đ, hạn đóng ${dateForMessage(body.hanDong)}.`,
+                eventKey: `EXPENSE:${expenseId}`,
+                creatorId: req.auth.accountId
+            });
             await auditRequest(sql, transaction, req, "Tạo chi phí phát sinh", "ChiPhiPhatSinh",
                 expenseId, `${body.noiDung.trim()}; ${body.soTien} VND`);
             await transaction.commit();
@@ -599,9 +953,10 @@ function registerMoneyRoutes(app, {
             || (req.body.maChiTiet != null && !isJsonInteger(req.body.maChiTiet, 1, 2147483647))
             || typeof req.body.noiDung !== "string" || !req.body.noiDung.trim() || req.body.noiDung.trim().length > 255
             || !isPositiveVnd(req.body.soTien)
-            || (req.body.ngayPhatSinh !== undefined && !isDateOnly(req.body.ngayPhatSinh))
+            || !isDateOnly(req.body.ngayPhatSinh)
+            || !isDateOnly(req.body.hanDong)
             || !isOptionalText(req.body.ghiChu, 255)) {
-            return respondRequestError(res, 400, "Thông tin chi phí phát sinh không hợp lệ; số tiền phải là nguyên VND dương.");
+            return respondRequestError(res, 400, "Thông tin chi phí phát sinh hoặc hạn đóng không hợp lệ; số tiền phải là nguyên VND dương.");
         }
         const body = req.body;
         const transaction = new sql.Transaction(getPool());
@@ -629,13 +984,14 @@ function registerMoneyRoutes(app, {
                 .input("MaChiTiet", sql.Int, body.maChiTiet ?? null)
                 .input("NoiDung", sql.NVarChar(255), body.noiDung.trim())
                 .input("SoTien", sql.Decimal(18, 2), body.soTien)
-                .input("NgayPhatSinh", sql.Date, body.ngayPhatSinh || null)
+                .input("NgayPhatSinh", sql.Date, body.ngayPhatSinh)
+                .input("HanDong", sql.Date, body.hanDong)
                 .input("GhiChu", sql.NVarChar(255), body.ghiChu || null)
                 .query(`
                     UPDATE dbo.ChiPhiPhatSinh
                     SET MaHopDong = @MaHopDong, MaChiTiet = @MaChiTiet,
                         NoiDung = @NoiDung, SoTien = @SoTien,
-                        NgayPhatSinh = COALESCE(@NgayPhatSinh, NgayPhatSinh),
+                        NgayPhatSinh = @NgayPhatSinh, HanDong = @HanDong,
                         GhiChu = @GhiChu
                     WHERE MaChiPhi = @MaChiPhi AND TrangThai = N'Chưa lập hóa đơn';
                     SELECT @@ROWCOUNT AS SoDong;
@@ -699,6 +1055,28 @@ function registerMoneyRoutes(app, {
                 .output("MaHoaDon", sql.NVarChar(20));
             const result = await request.execute("dbo.sp_TaoHoaDonPhatSinh");
             const invoiceId = result.output?.MaHoaDon || result.recordset?.[0]?.MaHoaDon;
+            if (invoiceId) {
+                const cost = await new sql.Request(transaction)
+                    .input("MaChiPhi", sql.BigInt, Number(req.params.id))
+                    .query(`
+                        SELECT cp.MaHopDong, cp.MaChiTiet, cp.NoiDung, cp.SoTien,
+                               CONVERT(nvarchar(10), cp.HanDong, 23) AS HanDong
+                        FROM dbo.ChiPhiPhatSinh cp
+                        WHERE cp.MaChiPhi = @MaChiPhi
+                    `);
+                const row = cost.recordset[0];
+                if (!row) throw new Error("Không tìm thấy khoản phát sinh vừa lập hóa đơn.");
+                const cashNotice = await getCashPaymentNotice(sql, transaction);
+                await insertStudentNotifications(sql, transaction, {
+                    contractId: row.MaHopDong,
+                    detailId: row.MaChiTiet,
+                    title: `Hóa đơn phát sinh ${invoiceId}`,
+                    content: `Khoản phí ${row.NoiDung}: ${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(Number(row.SoTien))} đ, hạn đóng ${dateForMessage(row.HanDong)}. ${cashNotice}`,
+                    eventKey: `INVOICE:${invoiceId}`,
+                    invoiceId,
+                    creatorId: req.auth.accountId
+                });
+            }
             await auditRequest(sql, transaction, req, "Lập hóa đơn phát sinh", "ChiPhiPhatSinh",
                 req.params.id, `Hóa đơn ${invoiceId || ""}`);
             await transaction.commit();
@@ -762,6 +1140,34 @@ function registerMoneyRoutes(app, {
             const receiptId = receipt.recordset?.[0]?.MaPhieuThu;
             await auditRequest(sql, transaction, req, "Ghi phiếu thu", "PhieuThu",
                 receiptId || req.params.id, `${body.soTien} VND; ${method}; ${status}`);
+            if (receiptId && status === "Hợp lệ") {
+                const invoiceNotice = await new sql.Request(transaction)
+                    .input("MaHoaDon", sql.NVarChar(20), req.params.id)
+                    .query("SELECT MaHopDong, MaChiTiet FROM dbo.HoaDon WHERE MaHoaDon = @MaHoaDon");
+                const invoiceRow = invoiceNotice.recordset[0];
+                if (!invoiceRow) throw new Error("Không tìm thấy hóa đơn của phiếu thu vừa ghi.");
+                let recipientDetail = invoiceRow.MaChiTiet;
+                if (body.maSinhVienNop) {
+                    const selected = await new sql.Request(transaction)
+                        .input("MaHopDong", sql.NVarChar(20), invoiceRow.MaHopDong)
+                        .input("MaSinhVien", sql.NVarChar(30), body.maSinhVienNop)
+                        .query(`
+                            SELECT TOP (1) MaChiTiet FROM dbo.ChiTietHopDong
+                            WHERE MaHopDong = @MaHopDong AND MaSinhVien = @MaSinhVien
+                            ORDER BY MaChiTiet DESC
+                        `);
+                    recipientDetail = selected.recordset?.[0]?.MaChiTiet || recipientDetail;
+                }
+                await insertStudentNotifications(sql, transaction, {
+                    contractId: invoiceRow.MaHopDong,
+                    detailId: recipientDetail,
+                    title: `Đã nhận thanh toán hóa đơn ${req.params.id}`,
+                    content: `Khoản thanh toán ${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(body.soTien)} đ cho hóa đơn ${req.params.id} đã được xác nhận.`,
+                    eventKey: `PAYMENT:${receiptId}`,
+                    invoiceId: req.params.id,
+                    creatorId: req.auth.accountId
+                });
+            }
             const printResult = receiptId
                 ? await new sql.Request(transaction)
                     .input("MaPhieuThu", sql.BigInt, receiptId)
@@ -821,10 +1227,30 @@ function registerMoneyRoutes(app, {
         const transaction = new sql.Transaction(getPool());
         try {
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const receiptIdentity = await lockReceiptContext(transaction, Number(req.params.id));
+            if (!receiptIdentity) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy phiếu thu.");
+            }
             const request = new sql.Request(transaction)
                 .input("MaPhieuThu", sql.BigInt, Number(req.params.id));
             let result;
             if (action === "confirm") {
+                const paymentStatus = await new sql.Request(transaction)
+                    .input("MaPhieuThu", sql.BigInt, Number(req.params.id))
+                    .query(`
+                        SELECT gd.TrangThai, gd.LyDoDoiSoat
+                        FROM dbo.PhieuThu pt
+                        INNER JOIN dbo.GiaoDichThanhToan gd
+                            ON gd.MaGiaoDich = pt.MaGiaoDich
+                        WHERE pt.MaPhieuThu = @MaPhieuThu
+                    `);
+                if (paymentStatus.recordset[0]?.TrangThai === "RECONCILIATION") {
+                    await transaction.rollback();
+                    return respondRequestError(res, 409,
+                        paymentStatus.recordset[0].LyDoDoiSoat
+                            || "Giao dịch cần được đối soát; không thể xác nhận trực tiếp.");
+                }
                 request.input("NguoiXacNhan", sql.Int, req.auth.accountId)
                     .input("MaThamChieuNgoai", sql.NVarChar(100), req.body?.maThamChieuNgoai || null);
                 result = await request.execute("dbo.sp_XacNhanPhieuThu");
@@ -833,12 +1259,23 @@ function registerMoneyRoutes(app, {
                     .input("LyDo", sql.NVarChar(255), req.body?.lyDo || null);
                 result = await request.execute("dbo.sp_HuyPhieuThu");
             }
-            await transaction.commit();
             const row = result.recordset?.[0] || {};
             if (row.TrangThaiGiaoDich === "RECONCILIATION") {
+                await transaction.commit();
                 return respondRequestError(res, 409,
                     row.LyDoDoiSoat || "Giao dịch cần được đối soát trước khi xác nhận.");
             }
+            if (action === "confirm" && row.TrangThaiPhieuThu === "Hợp lệ") {
+                await notifyReceiptConfirmed(
+                    sql, transaction, Number(req.params.id), req.auth.accountId
+                );
+            }
+            if (action === "cancel" && row.TrangThaiPhieuThu === "Đã hủy") {
+                await notifyReceiptRejected(
+                    sql, transaction, Number(req.params.id), req.body?.lyDo, req.auth.accountId
+                );
+            }
+            await transaction.commit();
             return res.json({ success: true, ...row });
         } catch (error) {
             await rollback(transaction, "XỬ LÝ PHIẾU THU");
@@ -905,6 +1342,27 @@ function registerMoneyRoutes(app, {
             const refund = result.recordset?.[0] || {};
             await auditRequest(sql, transaction, req, "Tạo phiếu chi", "PhieuChi",
                 refund.MaPhieuChi || body.maChiTiet, `${body.soTien ?? "theo gợi ý"} VND; ${body.lyDo}`);
+            if (refund.MaPhieuChi) {
+                const recipient = await new sql.Request(transaction)
+                    .input("MaChiTiet", sql.Int, body.maChiTiet)
+                    .input("MaPhieuChi", sql.BigInt, refund.MaPhieuChi)
+                    .query(`
+                        SELECT c.MaHopDong, pc.SoTien
+                        FROM dbo.ChiTietHopDong c
+                        INNER JOIN dbo.PhieuChi pc ON pc.MaChiTiet = c.MaChiTiet
+                        WHERE c.MaChiTiet = @MaChiTiet AND pc.MaPhieuChi = @MaPhieuChi
+                    `);
+                const refundData = recipient.recordset[0];
+                if (!refundData) throw new Error("Không tìm thấy người nhận của phiếu chi vừa lập.");
+                await insertStudentNotifications(sql, transaction, {
+                    contractId: refundData.MaHopDong,
+                    detailId: body.maChiTiet,
+                    title: `Đã lập phiếu hoàn tiền ${refund.MaPhieuChi}`,
+                    content: `Phiếu hoàn tiền ${refund.MaPhieuChi} với số tiền ${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(Number(refundData.SoTien))} đ đã được lập.`,
+                    eventKey: `REFUND:${refund.MaPhieuChi}`,
+                    creatorId: req.auth.accountId
+                });
+            }
             await transaction.commit();
             return res.status(201).json({ success: true, ...refund });
         } catch (error) {
@@ -966,14 +1424,32 @@ function registerMoneyRoutes(app, {
                        hd.MaHoaDon, hd.TenPhong, hd.LoaiHoaDon, hd.KyThanhToan,
                        pt.MaPhieuThu, pt.SoTien, pt.NgayThu, pt.PhuongThuc, pt.TrangThai AS TrangThaiPhieuThu,
                        pt.MaThamChieu AS ThamChieuPhieuThu, pt.GhiChu AS GhiChuPhieuThu,
-                       gd.NoiDungCK, gd.NgayTao, gd.NgayThanhToan,
+                       gd.NoiDungCK, gd.NgayTao, gd.NgayThanhToan, gd.SoTienThucNhan,
+                       gd.TongTien AS SoTienYeuCau,
                        CASE WHEN gd.TrangThai = N'RECONCILIATION' THEN N'Cần đối soát'
                             ELSE gd.TrangThai END AS TrangThai,
                        gd.XacNhanBoi, approver.TenHienThi AS TenNguoiXacNhan,
-                       gd.MaThamChieuNgoai, gd.LyDoTuChoi, gd.LyDoDoiSoat
+                       gd.MaThamChieuNgoai, gd.LyDoTuChoi, gd.LyDoDoiSoat,
+                       surplus.SoTien AS SoTienDu, surplus.TrangThai AS TrangThaiHoanDu,
+                       surplus.NguoiTra, surplus.ThoiDiemTra,
+                       total.TongThuc AS TongHoaDon,
+                       CASE WHEN total.TongThuc - received.DaThu > 0
+                            THEN total.TongThuc - received.DaThu ELSE 0 END AS ConNo,
+                       hd.HanThanhToan
                 FROM dbo.GiaoDichThanhToan gd
                 LEFT JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
                 LEFT JOIN dbo.HoaDon hd ON hd.MaHoaDon = pt.MaHoaDon
+                LEFT JOIN dbo.HoanTienChuyenKhoanDu surplus ON surplus.MaGiaoDich = gd.MaGiaoDich
+                OUTER APPLY (
+                    SELECT ISNULL(SUM(ct.SoTien), 0) AS TongThuc
+                    FROM dbo.ChiTietHoaDon ct WHERE ct.MaHoaDon = hd.MaHoaDon
+                ) total
+                OUTER APPLY (
+                    SELECT ISNULL(SUM(validReceipt.SoTien), 0) AS DaThu
+                    FROM dbo.PhieuThu validReceipt
+                    WHERE validReceipt.MaHoaDon = hd.MaHoaDon
+                      AND validReceipt.TrangThai = N'Hợp lệ'
+                ) received
                 LEFT JOIN dbo.SinhVien payer ON payer.MaSinhVien = gd.MaSinhVien
                 LEFT JOIN dbo.TaiKhoan approver ON approver.MaTaiKhoan = gd.XacNhanBoi
                 WHERE (@MaHoaDon IS NULL OR hd.MaHoaDon = @MaHoaDon)
@@ -1080,6 +1556,10 @@ function registerMoneyRoutes(app, {
             return respondRequestError(res, 400,
                 "Mã hóa đơn, phương thức ONLINE/CASH và số tiền nguyên VND dương (nếu có) là bắt buộc.");
         }
+        if (method === "CASH") {
+            return respondRequestError(res, 400,
+                "Sinh viên không thể tạo yêu cầu thu tiền mặt. Vui lòng nộp tiền mặt tại văn phòng ký túc xá.");
+        }
         if (method === "ONLINE" && !getBankTransferConfig(stringValue)) {
             return respondRequestError(res, 503, "Chưa cấu hình tài khoản nhận chuyển khoản QR.");
         }
@@ -1087,6 +1567,28 @@ function registerMoneyRoutes(app, {
         const transaction = new sql.Transaction(getPool());
         try {
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            await lockInvoice(transaction, body.MaHoaDon);
+            const pendingIdentities = await new sql.Request(transaction)
+                .input("MaHoaDon", sql.NVarChar(20), body.MaHoaDon)
+                .query(`
+                    SELECT MaGiaoDich
+                    FROM dbo.PhieuThu WITH (READCOMMITTED)
+                    WHERE MaHoaDon = @MaHoaDon
+                      AND TrangThai = N'Chờ xác nhận'
+                      AND MaGiaoDich IS NOT NULL
+                    ORDER BY MaGiaoDich
+                `);
+            for (const paymentIdentity of pendingIdentities.recordset) {
+                await lockPayment(transaction, paymentIdentity.MaGiaoDich);
+            }
+            await new sql.Request(transaction)
+                .input("MaHoaDon", sql.NVarChar(20), body.MaHoaDon)
+                .query(`
+                    SELECT MaPhieuThu
+                    FROM dbo.PhieuThu WITH (UPDLOCK, HOLDLOCK)
+                    WHERE MaHoaDon = @MaHoaDon
+                    ORDER BY MaPhieuThu
+                `);
             const invoiceResult = await new sql.Request(transaction)
                 .input("MaHoaDon", sql.NVarChar(20), body.MaHoaDon)
                 .input("MaSinhVien", sql.NVarChar(30), req.auth.studentId)
@@ -1143,7 +1645,7 @@ function registerMoneyRoutes(app, {
                         PhuongThuc: existing.PhuongThuc, TrangThai: existing.TrangThai
                     });
                 }
-                return respondRequestError(res, 409, "Hóa đơn đã có yêu cầu thanh toán đang chờ xác nhận.");
+                return respondRequestError(res, 409, "Hóa đơn đã có yêu cầu thanh toán đang xử lý.");
             }
 
             const transactionId = `PAY-${randomUUID().replace(/-/g, "").toUpperCase()}`;
@@ -1208,13 +1710,22 @@ function registerMoneyRoutes(app, {
         const transaction = new sql.Transaction(getPool());
         try {
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            await lockInvoice(transaction, req.body.MaHoaDon);
+            await lockPayment(transaction, req.body.MaGiaoDich);
+            await new sql.Request(transaction)
+                .input("MaGiaoDich", sql.NVarChar(60), req.body.MaGiaoDich)
+                .query(`
+                    SELECT MaPhieuThu
+                    FROM dbo.PhieuThu WITH (UPDLOCK, HOLDLOCK)
+                    WHERE MaGiaoDich = @MaGiaoDich
+                `);
             const invoiceResult = await new sql.Request(transaction)
                 .input("MaHoaDon", sql.NVarChar(20), req.body.MaHoaDon)
                 .input("MaSinhVien", sql.NVarChar(30), req.auth.studentId)
                 .query(`
                     SELECT hd.MaHoaDon, hd.TrangThaiThanhToan,
                            total.TongThuc - received.DaThu AS ConNo
-                    FROM dbo.HoaDon hd WITH (UPDLOCK, HOLDLOCK)
+                    FROM dbo.HoaDon hd
                     CROSS APPLY (
                         SELECT ISNULL(SUM(c.SoTien), 0) AS TongThuc
                         FROM dbo.ChiTietHoaDon c
@@ -1231,7 +1742,7 @@ function registerMoneyRoutes(app, {
             const invoice = invoiceResult.recordset[0];
             if (!invoice) {
                 await transaction.rollback();
-                return respondRequestError(res, 404, "Không tìm thấy hóa đơn được phép thanh toán.");
+                return respondRequestError(res, 403, "Bạn không có quyền thanh toán hóa đơn này.");
             }
             if (invoice.TrangThaiThanhToan === "Đã hủy") {
                 await transaction.rollback();
@@ -1245,8 +1756,8 @@ function registerMoneyRoutes(app, {
                 .query(`
                     SELECT gd.TrangThai AS TrangThaiGiaoDich, gd.PhuongThuc,
                            pt.MaPhieuThu, pt.TrangThai AS TrangThaiPhieuThu, pt.SoTien
-                    FROM dbo.GiaoDichThanhToan gd WITH (UPDLOCK, HOLDLOCK)
-                    INNER JOIN dbo.PhieuThu pt WITH (UPDLOCK, HOLDLOCK)
+                    FROM dbo.GiaoDichThanhToan gd
+                    INNER JOIN dbo.PhieuThu pt
                         ON pt.MaGiaoDich = gd.MaGiaoDich
                     WHERE gd.MaGiaoDich = @MaGiaoDich
                       AND gd.MaSinhVien = @MaSinhVien
@@ -1324,29 +1835,54 @@ function registerMoneyRoutes(app, {
             return respondRequestError(res, 401, "Chữ ký thông báo thanh toán không hợp lệ.");
         }
 
+        const reference = stringValue(req.body.MaThamChieuNgoai);
         const transaction = new sql.Transaction(getPool());
         try {
-            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
-            const reference = stringValue(req.body.MaThamChieuNgoai);
-            const existingReference = await new sql.Request(transaction)
+            const referenceIdentity = await getPool().request()
                 .input("MaThamChieuNgoai", sql.NVarChar(100), reference)
                 .query(`
-                    SELECT TOP (1) gd.MaGiaoDich, gd.TrangThai, gd.PhuongThuc, gd.TongTien,
-                           gd.NoiDungCK, gd.LyDoDoiSoat, pt.MaHoaDon, pt.SoTien, pt.TrangThai AS TrangThaiPhieuThu
-                    FROM dbo.GiaoDichThanhToan gd WITH (UPDLOCK, HOLDLOCK)
+                    SELECT TOP (1) gd.MaGiaoDich, pt.MaHoaDon
+                    FROM dbo.GiaoDichThanhToan gd
                     LEFT JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
                     WHERE gd.MaThamChieuNgoai = @MaThamChieuNgoai
                 `);
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            await lockInvoice(transaction,
+                referenceIdentity.recordset[0]?.MaHoaDon || req.body.MaHoaDon.trim());
+            const existingReference = await new sql.Request(transaction)
+                .input("MaThamChieuNgoai", sql.NVarChar(100), reference)
+                .query(`
+                    SELECT TOP (1) gd.MaGiaoDich
+                    FROM dbo.GiaoDichThanhToan gd
+                    WHERE gd.MaThamChieuNgoai = @MaThamChieuNgoai
+                `);
             if (existingReference.recordset.length) {
-                const existing = existingReference.recordset[0];
+                const existingId = existingReference.recordset[0].MaGiaoDich;
+                await lockPayment(transaction, existingId);
+                await new sql.Request(transaction)
+                    .input("MaGiaoDich", sql.NVarChar(60), existingId)
+                    .query(`
+                        SELECT MaPhieuThu
+                        FROM dbo.PhieuThu WITH (UPDLOCK, HOLDLOCK)
+                        WHERE MaGiaoDich = @MaGiaoDich
+                    `);
+                const existingResult = await new sql.Request(transaction)
+                    .input("MaGiaoDich", sql.NVarChar(60), existingId)
+                    .query(`
+                        SELECT gd.TrangThai, gd.PhuongThuc, gd.TongTien,
+                               gd.SoTienThucNhan, gd.NoiDungCK, gd.LyDoDoiSoat,
+                               pt.MaHoaDon, pt.SoTien, pt.TrangThai AS TrangThaiPhieuThu
+                        FROM dbo.GiaoDichThanhToan gd
+                        LEFT JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
+                        WHERE gd.MaGiaoDich = @MaGiaoDich
+                    `);
+                const existing = existingResult.recordset[0];
                 const sameIdentity = existing.PhuongThuc === "ONLINE"
                     && existing.MaHoaDon === req.body.MaHoaDon.trim()
                     && existing.NoiDungCK === req.body.NoiDungCK;
                 const sameEvent = sameIdentity
-                    && (existing.TrangThai === "RECONCILIATION"
-                        || (existing.TrangThai === "SUCCESS"
-                            && Number(existing.TongTien) === req.body.SoTien
-                            && Number(existing.SoTien) === req.body.SoTien));
+                    && ["RECONCILIATION", "SUCCESS", "REJECTED"].includes(existing.TrangThai)
+                    && Number(existing.SoTienThucNhan) === req.body.SoTien;
                 await transaction.rollback();
                 if (sameEvent) {
                     return res.status(200).json({
@@ -1358,73 +1894,247 @@ function registerMoneyRoutes(app, {
                 return respondRequestError(res, 409, "Mã tham chiếu bên ngoài đã được sử dụng cho giao dịch khác.");
             }
 
-            const pending = await new sql.Request(transaction)
+            const pendingIdentity = await new sql.Request(transaction)
                 .input("MaHoaDon", sql.NVarChar(20), req.body.MaHoaDon.trim())
+                .input("NoiDungCK", sql.NVarChar(100), req.body.NoiDungCK)
                 .query(`
-                    SELECT TOP (1) gd.MaGiaoDich, gd.MaSinhVien, gd.TongTien, gd.NoiDungCK,
-                           pt.MaPhieuThu, pt.SoTien, pt.TrangThai AS TrangThaiPhieuThu,
-                           pt.MaHoaDon, hd.TrangThaiThanhToan
-                    FROM dbo.PhieuThu pt WITH (UPDLOCK, HOLDLOCK)
-                    INNER JOIN dbo.GiaoDichThanhToan gd WITH (UPDLOCK, HOLDLOCK)
+                    SELECT TOP (1) pt.MaGiaoDich
+                    FROM dbo.PhieuThu pt WITH (READCOMMITTED)
+                    INNER JOIN dbo.GiaoDichThanhToan gd WITH (READCOMMITTED)
                         ON gd.MaGiaoDich = pt.MaGiaoDich
-                    INNER JOIN dbo.HoaDon hd WITH (UPDLOCK, HOLDLOCK) ON hd.MaHoaDon = pt.MaHoaDon
                     WHERE pt.MaHoaDon = @MaHoaDon
                       AND pt.TrangThai = N'Chờ xác nhận'
                       AND gd.PhuongThuc = N'ONLINE'
                       AND gd.TrangThai = N'PENDING'
-                    ORDER BY pt.NgayTao DESC, pt.MaPhieuThu DESC
+                    ORDER BY CASE WHEN gd.NoiDungCK = @NoiDungCK THEN 0 ELSE 1 END,
+                             pt.NgayTao DESC, pt.MaPhieuThu DESC
                 `);
+            const candidateId = pendingIdentity.recordset[0]?.MaGiaoDich;
+            if (candidateId) {
+                await lockPayment(transaction, candidateId);
+                await new sql.Request(transaction)
+                    .input("MaGiaoDich", sql.NVarChar(60), candidateId)
+                    .query(`
+                        SELECT MaPhieuThu
+                        FROM dbo.PhieuThu WITH (UPDLOCK, HOLDLOCK)
+                        WHERE MaGiaoDich = @MaGiaoDich
+                    `);
+            }
+            await new sql.Request(transaction)
+                .input("MaHoaDon", sql.NVarChar(20), req.body.MaHoaDon.trim())
+                .query(`
+                    SELECT MaPhieuThu
+                    FROM dbo.PhieuThu WITH (UPDLOCK, HOLDLOCK)
+                    WHERE MaHoaDon = @MaHoaDon
+                    ORDER BY MaPhieuThu
+                `);
+            const pending = candidateId
+                ? await new sql.Request(transaction)
+                    .input("MaHoaDon", sql.NVarChar(20), req.body.MaHoaDon.trim())
+                    .input("MaGiaoDich", sql.NVarChar(60), candidateId)
+                    .query(`
+                        SELECT TOP (1) gd.MaGiaoDich, gd.MaSinhVien, gd.TongTien, gd.NoiDungCK,
+                               pt.MaPhieuThu, pt.SoTien, pt.TrangThai AS TrangThaiPhieuThu,
+                               pt.MaHoaDon, hd.TrangThaiThanhToan, hd.MaHopDong, hd.MaChiTiet,
+                               hd.HanThanhToan,
+                               total.TongThuc,
+                               received.DaThu,
+                               CASE WHEN total.TongThuc - received.DaThu > 0
+                                    THEN total.TongThuc - received.DaThu ELSE 0 END AS ConNo
+                        FROM dbo.GiaoDichThanhToan gd
+                        INNER JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
+                        INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = pt.MaHoaDon
+                        CROSS APPLY (
+                            SELECT ISNULL(SUM(ct.SoTien), 0) AS TongThuc
+                            FROM dbo.ChiTietHoaDon ct WHERE ct.MaHoaDon = hd.MaHoaDon
+                        ) total
+                        CROSS APPLY (
+                            SELECT ISNULL(SUM(validReceipt.SoTien), 0) AS DaThu
+                            FROM dbo.PhieuThu validReceipt
+                            WHERE validReceipt.MaHoaDon = hd.MaHoaDon
+                              AND validReceipt.TrangThai = N'Hợp lệ'
+                        ) received
+                        WHERE pt.MaHoaDon = @MaHoaDon
+                          AND gd.MaGiaoDich = @MaGiaoDich
+                          AND pt.TrangThai = N'Chờ xác nhận'
+                          AND gd.PhuongThuc = N'ONLINE'
+                          AND gd.TrangThai = N'PENDING'
+                    `)
+                : { recordset: [] };
             const payment = pending.recordset[0];
             if (!payment) {
                 await transaction.rollback();
                 return respondRequestError(res, 404, "Không tìm thấy phiếu chuyển khoản đang chờ cho hóa đơn này.");
             }
-            const eventMatches = Number(payment.TongTien) === req.body.SoTien
-                && Number(payment.SoTien) === req.body.SoTien
-                && payment.NoiDungCK === req.body.NoiDungCK
+            const eventMatches = payment.NoiDungCK === req.body.NoiDungCK
                 && payment.TrangThaiThanhToan !== "Đã hủy";
             if (!eventMatches) {
-                const reason = "Số tiền hoặc nội dung chuyển khoản không khớp phiếu thu đang chờ.";
+                const reason = "Nội dung chuyển khoản không khớp giao dịch đang chờ; toàn bộ tiền thực nhận cần được hoàn trả.";
                 await new sql.Request(transaction)
                     .input("MaGiaoDich", sql.NVarChar(60), payment.MaGiaoDich)
                     .input("TrangThai", sql.NVarChar(20), mapPaymentStatusToDatabase("Cần đối soát"))
                     .input("MaThamChieuNgoai", sql.NVarChar(100), reference)
                     .input("LyDoDoiSoat", sql.NVarChar(255), reason)
+                    .input("SoTienThucNhan", sql.Decimal(18, 2), req.body.SoTien)
                     .query(`
                         UPDATE dbo.GiaoDichThanhToan
                         SET TrangThai = @TrangThai,
                             MaThamChieuNgoai = @MaThamChieuNgoai,
-                            LyDoDoiSoat = @LyDoDoiSoat
+                            LyDoDoiSoat = @LyDoDoiSoat,
+                            SoTienThucNhan = @SoTienThucNhan
                         WHERE MaGiaoDich = @MaGiaoDich AND TrangThai = N'PENDING'
+                    `);
+                await new sql.Request(transaction)
+                    .input("MaGiaoDich", sql.NVarChar(60), payment.MaGiaoDich)
+                    .input("MaHoaDon", sql.NVarChar(20), payment.MaHoaDon)
+                    .input("SoTien", sql.Decimal(18, 2), req.body.SoTien)
+                    .input("GhiChu", sql.NVarChar(255), reason)
+                    .query(`
+                        INSERT INTO dbo.HoanTienChuyenKhoanDu
+                            (MaGiaoDich, MaHoaDon, SoTien, GhiChu)
+                        VALUES (@MaGiaoDich, @MaHoaDon, @SoTien, @GhiChu)
                     `);
                 await auditRequest(sql, transaction, req, "Giao dịch cần đối soát",
                     "GiaoDichThanhToan", payment.MaGiaoDich, reason);
+                const amountText = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(req.body.SoTien);
+                let detailId = payment.MaChiTiet;
+                if (payment.MaSinhVien) {
+                    const selected = await new sql.Request(transaction)
+                        .input("MaHopDong", sql.NVarChar(20), payment.MaHopDong)
+                        .input("MaSinhVien", sql.NVarChar(30), payment.MaSinhVien)
+                        .query(`
+                            SELECT TOP (1) MaChiTiet FROM dbo.ChiTietHopDong
+                            WHERE MaHopDong = @MaHopDong AND MaSinhVien = @MaSinhVien
+                            ORDER BY MaChiTiet DESC
+                        `);
+                    detailId = selected.recordset?.[0]?.MaChiTiet || detailId;
+                }
+                await insertStudentNotifications(sql, transaction, {
+                    contractId: payment.MaHopDong,
+                    detailId,
+                    title: `Giao dịch ${payment.MaGiaoDich} cần đối soát`,
+                    content: `Ngân hàng báo đã nhận ${amountText} đ cho hóa đơn ${payment.MaHoaDon}, nhưng nội dung chuyển khoản không khớp. Toàn bộ tiền đang chờ hoàn trả tại văn phòng.`,
+                    eventKey: `BANK_RECEIVED:${payment.MaGiaoDich}`,
+                    invoiceId: payment.MaHoaDon
+                });
                 await transaction.commit();
                 return res.status(200).json({ success: true, needsReconciliation: true, message: reason });
             }
 
-            await new sql.Request(transaction)
+            const allocation = Math.min(Number(req.body.SoTien), Math.max(0, Number(payment.ConNo)));
+            const surplus = Number(req.body.SoTien) - allocation;
+            const updatedTransaction = await new sql.Request(transaction)
                 .input("MaGiaoDich", sql.NVarChar(60), payment.MaGiaoDich)
                 .input("MaThamChieuNgoai", sql.NVarChar(100), reference)
+                .input("SoTienThucNhan", sql.Decimal(18, 2), req.body.SoTien)
                 .query(`
                     UPDATE dbo.GiaoDichThanhToan
-                    SET MaThamChieuNgoai = @MaThamChieuNgoai
+                    SET MaThamChieuNgoai = @MaThamChieuNgoai,
+                        SoTienThucNhan = @SoTienThucNhan
                     WHERE MaGiaoDich = @MaGiaoDich AND TrangThai = N'PENDING'
+                    SELECT @@ROWCOUNT AS RowsAffected;
                 `);
-            const confirmed = await new sql.Request(transaction)
-                .input("MaPhieuThu", sql.BigInt, payment.MaPhieuThu)
-                .input("NguoiXacNhan", sql.Int, null)
-                .input("MaThamChieuNgoai", sql.NVarChar(100), reference)
-                .execute("dbo.sp_XacNhanPhieuThu");
-            const confirmation = confirmed.recordset?.[0] || {};
-            await transaction.commit();
-            if (confirmation.TrangThaiGiaoDich === "RECONCILIATION") {
-                return res.status(200).json({
-                    success: true, needsReconciliation: true,
-                    message: confirmation.LyDoDoiSoat || "Giao dịch cần được đối soát."
-                });
+            if (Number(updatedTransaction.recordset?.[0]?.RowsAffected) !== 1) {
+                throw new Error("Giao dịch chuyển khoản đã thay đổi trạng thái trong lúc xử lý.");
             }
-            return res.status(200).json({ success: true, message: "Đã ghi nhận giao dịch chuyển khoản." });
+
+            if (allocation > 0) {
+                const receiptUpdate = await new sql.Request(transaction)
+                    .input("MaPhieuThu", sql.BigInt, payment.MaPhieuThu)
+                    .input("SoTien", sql.Decimal(18, 2), allocation)
+                    .query(`
+                        UPDATE dbo.PhieuThu
+                        SET SoTien = @SoTien
+                        WHERE MaPhieuThu = @MaPhieuThu AND TrangThai = N'Chờ xác nhận';
+                        SELECT @@ROWCOUNT AS RowsAffected;
+                    `);
+                if (Number(receiptUpdate.recordset?.[0]?.RowsAffected) !== 1) {
+                    throw new Error("Phiếu thu chuyển khoản đã được xử lý bởi thao tác khác.");
+                }
+                const confirmed = await new sql.Request(transaction)
+                    .input("MaPhieuThu", sql.BigInt, payment.MaPhieuThu)
+                    .input("NguoiXacNhan", sql.Int, null)
+                    .input("MaThamChieuNgoai", sql.NVarChar(100), reference)
+                    .execute("dbo.sp_XacNhanPhieuThu");
+                if (confirmed.recordset?.[0]?.TrangThaiPhieuThu !== "Hợp lệ") {
+                    throw new Error("Không thể phân bổ khoản chuyển khoản theo số dư hóa đơn hiện tại.");
+                }
+            } else {
+                await new sql.Request(transaction)
+                    .input("MaPhieuThu", sql.BigInt, payment.MaPhieuThu)
+                    .input("GhiChu", sql.NVarChar(255), "Hóa đơn đã được thanh toán; toàn bộ khoản chuyển khoản đang chờ hoàn.")
+                    .query(`
+                        UPDATE dbo.PhieuThu
+                        SET TrangThai = N'Đã hủy', GhiChu = @GhiChu
+                        WHERE MaPhieuThu = @MaPhieuThu AND TrangThai = N'Chờ xác nhận'
+                    `);
+                await new sql.Request(transaction)
+                    .input("MaGiaoDich", sql.NVarChar(60), payment.MaGiaoDich)
+                    .input("MaThamChieuNgoai", sql.NVarChar(100), reference)
+                    .input("SoTienThucNhan", sql.Decimal(18, 2), req.body.SoTien)
+                    .query(`
+                        UPDATE dbo.GiaoDichThanhToan
+                        SET TrangThai = N'SUCCESS', NgayThanhToan = GETDATE(),
+                            MaThamChieuNgoai = @MaThamChieuNgoai,
+                            SoTienThucNhan = @SoTienThucNhan, LyDoDoiSoat = NULL
+                        WHERE MaGiaoDich = @MaGiaoDich AND TrangThai = N'PENDING'
+                    `);
+                await auditRequest(sql, transaction, req, "Giao dịch chuyển khoản chờ hoàn",
+                    "GiaoDichThanhToan", payment.MaGiaoDich,
+                    `Hóa đơn ${payment.MaHoaDon} đã thanh toán; khoản ${req.body.SoTien} đ đang chờ hoàn.`);
+            }
+
+            if (surplus > 0) {
+                await new sql.Request(transaction)
+                    .input("MaGiaoDich", sql.NVarChar(60), payment.MaGiaoDich)
+                    .input("MaHoaDon", sql.NVarChar(20), payment.MaHoaDon)
+                    .input("SoTien", sql.Decimal(18, 2), surplus)
+                    .input("GhiChu", sql.NVarChar(255), allocation > 0 ? null : "Hóa đơn đã được thanh toán trước khi QR được xử lý.")
+                    .query(`
+                        INSERT INTO dbo.HoanTienChuyenKhoanDu
+                            (MaGiaoDich, MaHoaDon, SoTien, GhiChu)
+                        VALUES (@MaGiaoDich, @MaHoaDon, @SoTien, @GhiChu)
+                    `);
+            }
+
+            const remainingAfter = Math.max(0, Number(payment.ConNo) - allocation);
+            const amountText = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 });
+            let detailId = payment.MaChiTiet;
+            if (payment.MaSinhVien) {
+                const selected = await new sql.Request(transaction)
+                    .input("MaHopDong", sql.NVarChar(20), payment.MaHopDong)
+                    .input("MaSinhVien", sql.NVarChar(30), payment.MaSinhVien)
+                    .query(`
+                        SELECT TOP (1) MaChiTiet FROM dbo.ChiTietHopDong
+                        WHERE MaHopDong = @MaHopDong AND MaSinhVien = @MaSinhVien
+                        ORDER BY MaChiTiet DESC
+                    `);
+                detailId = selected.recordset?.[0]?.MaChiTiet || detailId;
+            }
+            let notificationContent;
+            if (surplus > 0) {
+                notificationContent = `Ngân hàng đã nhận ${amountText.format(req.body.SoTien)} đ cho hóa đơn ${payment.MaHoaDon}; đã phân bổ ${amountText.format(allocation)} đ, còn dư ${amountText.format(surplus)} đ. Vui lòng tới văn phòng để nhận lại tiền dư.`;
+            } else if (remainingAfter > 0) {
+                notificationContent = `Ngân hàng đã nhận ${amountText.format(req.body.SoTien)} đ cho hóa đơn ${payment.MaHoaDon}; hóa đơn còn thiếu ${amountText.format(remainingAfter)} đ, hạn đóng ${dateForMessage(payment.HanThanhToan)}.`;
+            } else {
+                notificationContent = `Ngân hàng đã nhận đủ ${amountText.format(req.body.SoTien)} đ cho hóa đơn ${payment.MaHoaDon}. Hóa đơn đã được thanh toán đủ.`;
+            }
+            await insertStudentNotifications(sql, transaction, {
+                contractId: payment.MaHopDong,
+                detailId,
+                title: `Đã nhận thanh toán hóa đơn ${payment.MaHoaDon}`,
+                content: notificationContent,
+                eventKey: `BANK_RECEIVED:${payment.MaGiaoDich}`,
+                invoiceId: payment.MaHoaDon
+            });
+
+            await transaction.commit();
+            return res.status(200).json({
+                success: true, allocated: allocation, surplus,
+                message: surplus > 0 ? "Đã ghi nhận tiền thu và khoản dư chờ hoàn."
+                    : remainingAfter > 0 ? "Đã ghi nhận khoản thanh toán; hóa đơn còn nợ."
+                        : "Đã ghi nhận thanh toán đủ."
+            });
         } catch (error) {
             await rollback(transaction, "XỬ LÝ WEBHOOK CHUYỂN KHOẢN");
             return respondMoneyProcedureError(res, "LỖI XỬ LÝ WEBHOOK CHUYỂN KHOẢN", error,
@@ -1441,13 +2151,18 @@ function registerMoneyRoutes(app, {
         const transaction = new sql.Transaction(getPool());
         try {
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const paymentIdentity = await lockPaymentContext(transaction, req.params.transactionId);
+            if (!paymentIdentity) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy giao dịch.");
+            }
             const payment = await new sql.Request(transaction)
                 .input("MaGiaoDich", sql.NVarChar(60), req.params.transactionId)
                 .query(`
                     SELECT pt.MaPhieuThu, pt.MaHoaDon, pt.TrangThai AS TrangThaiPhieuThu,
                            gd.PhuongThuc, gd.TrangThai
-                    FROM dbo.GiaoDichThanhToan gd WITH (UPDLOCK, HOLDLOCK)
-                    INNER JOIN dbo.PhieuThu pt WITH (UPDLOCK, HOLDLOCK) ON pt.MaGiaoDich = gd.MaGiaoDich
+                    FROM dbo.GiaoDichThanhToan gd
+                    INNER JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
                     WHERE gd.MaGiaoDich = @MaGiaoDich
                 `);
             if (!payment.recordset.length) {
@@ -1464,6 +2179,9 @@ function registerMoneyRoutes(app, {
                 .input("NguoiXacNhan", sql.Int, req.auth.accountId)
                 .input("MaThamChieuNgoai", sql.NVarChar(100), req.body.MaThamChieuNgoai || null)
                 .execute("dbo.sp_XacNhanPhieuThu");
+            if (result.recordset?.[0]?.TrangThaiPhieuThu === "Hợp lệ") {
+                await notifyReceiptConfirmed(sql, transaction, row.MaPhieuThu, req.auth.accountId);
+            }
             await transaction.commit();
             const confirmation = result.recordset?.[0] || {};
             if (confirmation.TrangThaiGiaoDich === "RECONCILIATION") {
@@ -1487,12 +2205,17 @@ function registerMoneyRoutes(app, {
         const transaction = new sql.Transaction(getPool());
         try {
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const paymentIdentity = await lockPaymentContext(transaction, req.params.transactionId);
+            if (!paymentIdentity) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy giao dịch.");
+            }
             const payment = await new sql.Request(transaction)
                 .input("MaGiaoDich", sql.NVarChar(60), req.params.transactionId)
                 .query(`
                     SELECT pt.MaPhieuThu, gd.PhuongThuc
-                    FROM dbo.GiaoDichThanhToan gd WITH (UPDLOCK, HOLDLOCK)
-                    INNER JOIN dbo.PhieuThu pt WITH (UPDLOCK, HOLDLOCK) ON pt.MaGiaoDich = gd.MaGiaoDich
+                    FROM dbo.GiaoDichThanhToan gd
+                    INNER JOIN dbo.PhieuThu pt ON pt.MaGiaoDich = gd.MaGiaoDich
                     WHERE gd.MaGiaoDich = @MaGiaoDich
                 `);
             if (!payment.recordset.length) {
@@ -1508,12 +2231,115 @@ function registerMoneyRoutes(app, {
                 .input("NguoiThucHien", sql.Int, req.auth.accountId)
                 .input("LyDo", sql.NVarChar(255), stringValue(req.body.LyDoTuChoi))
                 .execute("dbo.sp_HuyPhieuThu");
+            if (result.recordset?.[0]?.TrangThaiPhieuThu === "Đã hủy") {
+                await notifyReceiptRejected(
+                    sql, transaction, payment.recordset[0].MaPhieuThu,
+                    stringValue(req.body.LyDoTuChoi), req.auth.accountId
+                );
+            }
             await transaction.commit();
             return res.json({ success: true, ...result.recordset?.[0] });
         } catch (error) {
             await rollback(transaction, "TỪ CHỐI GIAO DỊCH");
             return respondMoneyProcedureError(res, "LỖI TỪ CHỐI GIAO DỊCH", error,
                 "Không thể từ chối giao dịch.", errorContext);
+        }
+    });
+
+    app.post("/api/payments/surplus/:transactionId/return", async (req, res) => {
+        if (!routeManager(req, res, respondRequestError)) return;
+        if (!isValidId(req.params.transactionId, 60) || !isObjectBody(req.body)
+            || !isOptionalText(req.body.GhiChu, 255)) {
+            return respondRequestError(res, 400, "Mã giao dịch hợp lệ và ghi chú tối đa 255 ký tự.");
+        }
+        const transaction = new sql.Transaction(getPool());
+        try {
+            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const surplusIdentity = await new sql.Request(transaction)
+                .input("MaGiaoDich", sql.NVarChar(60), req.params.transactionId)
+                .query(`
+                    SELECT MaHoaDon
+                    FROM dbo.HoanTienChuyenKhoanDu WITH (READCOMMITTED)
+                    WHERE MaGiaoDich = @MaGiaoDich
+                `);
+            const invoiceId = surplusIdentity.recordset[0]?.MaHoaDon;
+            if (!invoiceId) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy khoản tiền dư chờ hoàn.");
+            }
+            await lockInvoice(transaction, invoiceId);
+            await lockPayment(transaction, req.params.transactionId);
+            await new sql.Request(transaction)
+                .input("MaGiaoDich", sql.NVarChar(60), req.params.transactionId)
+                .query(`
+                    SELECT MaPhieuThu
+                    FROM dbo.PhieuThu WITH (UPDLOCK, HOLDLOCK)
+                    WHERE MaGiaoDich = @MaGiaoDich
+                `);
+            await new sql.Request(transaction)
+                .input("MaGiaoDich", sql.NVarChar(60), req.params.transactionId)
+                .query(`
+                    SELECT MaGiaoDich
+                    FROM dbo.HoanTienChuyenKhoanDu WITH (UPDLOCK, HOLDLOCK)
+                    WHERE MaGiaoDich = @MaGiaoDich
+                `);
+            const surplus = await new sql.Request(transaction)
+                .input("MaGiaoDich", sql.NVarChar(60), req.params.transactionId)
+                .query(`
+                    SELECT h.MaGiaoDich, h.MaHoaDon, h.SoTien, h.TrangThai,
+                           hd.MaHopDong, hd.MaChiTiet, gd.MaSinhVien
+                    FROM dbo.HoanTienChuyenKhoanDu h
+                    INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = h.MaHoaDon
+                    INNER JOIN dbo.GiaoDichThanhToan gd
+                        ON gd.MaGiaoDich = h.MaGiaoDich
+                    WHERE h.MaGiaoDich = @MaGiaoDich
+                `);
+            const row = surplus.recordset[0];
+            if (!row) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy khoản tiền dư chờ hoàn.");
+            }
+            const result = await new sql.Request(transaction)
+                .input("MaGiaoDich", sql.NVarChar(60), row.MaGiaoDich)
+                .input("NguoiTra", sql.Int, req.auth.accountId)
+                .input("GhiChu", sql.NVarChar(255), req.body.GhiChu || null)
+                .execute("dbo.sp_DanhDauHoanTienChuyenKhoanDu");
+            const returned = result.recordset?.[0];
+            if (!returned) throw new Error("Thủ tục hoàn tiền dư không trả về kết quả.");
+            if (!returned.DaXuLyTruoc) {
+                let detailId = row.MaChiTiet;
+                if (row.MaSinhVien) {
+                    const selected = await new sql.Request(transaction)
+                        .input("MaHopDong", sql.NVarChar(20), row.MaHopDong)
+                        .input("MaSinhVien", sql.NVarChar(30), row.MaSinhVien)
+                        .query(`
+                            SELECT TOP (1) MaChiTiet FROM dbo.ChiTietHopDong
+                            WHERE MaHopDong = @MaHopDong AND MaSinhVien = @MaSinhVien
+                            ORDER BY MaChiTiet DESC
+                        `);
+                    detailId = selected.recordset?.[0]?.MaChiTiet || detailId;
+                }
+                await insertStudentNotifications(sql, transaction, {
+                    contractId: row.MaHopDong,
+                    detailId,
+                    title: `Đã trả lại khoản tiền dư hóa đơn ${row.MaHoaDon}`,
+                    content: `Khoản chuyển khoản dư ${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(Number(row.SoTien))} đ cho hóa đơn ${row.MaHoaDon} đã được trả lại.`,
+                    eventKey: `SURPLUS_REFUNDED:${row.MaGiaoDich}`,
+                    invoiceId: row.MaHoaDon
+                });
+            }
+            await transaction.commit();
+            return res.json({
+                success: true,
+                alreadyProcessed: Boolean(returned.DaXuLyTruoc),
+                MaHoaDon: returned.MaHoaDon,
+                SoTien: returned.SoTien,
+                TrangThai: returned.TrangThai
+            });
+        } catch (error) {
+            await rollback(transaction, "HOÀN TIỀN CHUYỂN KHOẢN DƯ");
+            return respondMoneyProcedureError(res, "LỖI HOÀN TIỀN CHUYỂN KHOẢN DƯ", error,
+                "Không thể xác nhận đã trả lại tiền dư.", errorContext);
         }
     });
 

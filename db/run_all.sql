@@ -105,5 +105,25 @@ PRINT N'=== Migration 025 ==='
 GO
 :r db/migrations/025_contract_gender_errors.sql
 GO
+PRINT N'=== Migration 026 ==='
+GO
+:r db/migrations/026_incident_cost_due_date.sql
+GO
+PRINT N'=== Migration 027 ==='
+GO
+:r db/migrations/027_bank_transfer_surplus.sql
+GO
+PRINT N'=== Migration 028 ==='
+GO
+:r db/migrations/028_payment_lock_order.sql
+GO
+PRINT N'=== Migration 029 ==='
+GO
+:r db/migrations/029_vietnam_invoice_creation_date.sql
+GO
+PRINT N'=== Migration 030 ==='
+GO
+:r db/migrations/030_early_checkout_request.sql
+GO
 PRINT N'=== Hết run_all (master seed chạy riêng: db/seed/run_master.sql) ==='
 GO

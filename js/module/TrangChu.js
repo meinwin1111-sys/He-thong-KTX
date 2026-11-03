@@ -74,7 +74,7 @@ function renderTrangChuModule() {
                             <h3 class="home-section-title">
                                 <i class="fa-solid fa-bullhorn"></i> Thông báo mới nhất
                             </h3>
-                            <p class="text-xs text-slate-500 mt-1">Các khoản thanh toán thành công từ dữ liệu giao dịch.</p>
+                            <p class="text-xs text-slate-500 mt-1">Thanh toán và yêu cầu mới từ sinh viên.</p>
                         </div>
                         <div class="space-y-3" data-payment-announcements role="status">Đang tải giao dịch…</div>
                     </div>
@@ -86,7 +86,7 @@ function renderTrangChuModule() {
                             <select name="PhamViNhan" aria-label="Đối tượng nhận" class="w-full rounded-lg border px-3 py-2">
                                 <option value="TAT_CA">Tất cả sinh viên</option><option value="PHONG">Theo phòng</option><option value="SINH_VIEN">Theo Số CCCD</option>
                             </select>
-                            <input name="TenPhong" maxlength="50" placeholder="Tên phòng" aria-label="Tên phòng nhận thông báo" hidden>
+                            <input name="TenPhong" maxlength="50" placeholder="Nhập hoặc chọn tên phòng" aria-label="Tên phòng nhận thông báo" class="w-full rounded-lg border px-3 py-2" hidden>
                             <label data-notice-student-field class="hidden text-sm font-semibold">Số CCCD
                                 <input name="MaSinhVien" maxlength="30" placeholder="Nhập Số CCCD" aria-label="Số CCCD nhận thông báo" class="mt-1 w-full rounded-lg border px-3 py-2">
                             </label>
@@ -395,16 +395,19 @@ function startHomeDashboard(root) {
                 ? `Phòng ${notice.TenPhong || "—"}`
                 : notice.PhamViNhan === "SINH_VIEN" ? `Sinh viên ${window.AdminWorkflowUtils.maskStudentId(notice.MaSinhVien)}` : "Tất cả sinh viên";
             return `<li class="rounded-lg border p-3">
-                <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0"><strong>${escapeHtml(window.AdminWorkflowUtils.maskStudentIdsInText(
-                        notice.TieuDe || "—", [notice.MaSinhVien]
-                    ))}</strong>
+                <div class="flex min-w-0 items-start gap-3">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex min-w-0 items-start justify-between gap-3">
+                            <strong class="min-w-0 break-words">${escapeHtml(window.AdminWorkflowUtils.maskStudentIdsInText(
+                                notice.TieuDe || "—", [notice.MaSinhVien]
+                            ))}</strong>
+                            <button type="button" data-notice-delete="${escapeHtml(notice.MaThongBao)}" class="shrink-0 self-start rounded bg-red-50 px-3 py-1 text-sm font-semibold text-red-800">Ẩn</button>
+                        </div>
                         <p class="mt-1 whitespace-pre-wrap break-words text-sm">${escapeHtml(window.AdminWorkflowUtils.maskStudentIdsInText(
                             notice.NoiDung || "—", [notice.MaSinhVien]
                         ))}</p>
                         <p class="mt-1 text-xs text-slate-500">${escapeHtml(scope)} · ${escapeHtml(window.AdminWorkflowUtils.dateTime(notice.NgayTao))}</p>
                     </div>
-                    <button type="button" data-notice-delete="${escapeHtml(notice.MaThongBao)}" class="shrink-0 rounded bg-red-50 px-3 py-1 text-sm font-semibold text-red-800">Ẩn</button>
                 </div>
             </li>`;
         }).join("") : '<li class="text-sm text-slate-500">Chưa có thông báo.</li>';
@@ -422,28 +425,64 @@ function startHomeDashboard(root) {
     const loadPaymentAnnouncements = async () => {
         const list = root.querySelector("[data-payment-announcements]");
         try {
-            const payments = await fetchJson("/api/payments/history");
+            const [payments, requests] = await Promise.all([
+                fetchJson("/api/payments/history"),
+                fetchJson("/api/requests")
+            ]);
             if (!root.isConnected) return;
             if (!Array.isArray(payments)) throw new Error("Dữ liệu thanh toán không hợp lệ.");
-            const successful = payments.filter(payment => payment.TrangThai === "SUCCESS").slice(0, 5);
-            list.innerHTML = successful.length ? successful.map((payment, index) => `
-                <button type="button" data-payment-announcement="${index}"
-                    aria-label="Xem chi tiết thanh toán của ${escapeHtml(payment.HoTen)}"
-                    class="block w-full cursor-pointer rounded-xl border-y border-r border-l-4 border-slate-200 border-l-emerald-400 bg-emerald-50/40 p-4 text-left transition-colors hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2">
-                    <p class="font-bold text-slate-900 text-sm">${escapeHtml(payment.HoTen)} đã thanh toán ${escapeHtml(payment.TenKhoan)}</p>
-                    <p class="mt-1 text-xs text-slate-500">Hóa đơn ${escapeHtml(payment.MaHoaDon || "—")} · ${payment.SoTien !== null && payment.SoTien !== undefined && payment.SoTien !== "" && Number.isFinite(Number(payment.SoTien)) ? `${Number(payment.SoTien).toLocaleString("vi-VN")} ₫` : "—"} · ${escapeHtml(payment.PhuongThuc === "ONLINE" ? "Chuyển khoản QR" : "Tiền mặt")}</p>
-                </button>`).join("") : '<p class="text-sm text-slate-500">Chưa có khoản thanh toán thành công.</p>';
-
+            if (!Array.isArray(requests)) throw new Error("Dữ liệu yêu cầu sinh viên không hợp lệ.");
+            const successful = payments.filter(payment => payment.TrangThai === "SUCCESS");
+            const entries = [
+                ...successful.map(payment => ({
+                    kind: "payment",
+                    date: payment.NgayThanhToan || payment.NgayTao || "",
+                    html: `<button type="button" data-payment-announcement="${escapeHtml(payment.MaGiaoDich || "")}"
+                        aria-label="Xem chi tiết thanh toán của ${escapeHtml(payment.HoTen)}"
+                        class="home-payment-announcement block w-full cursor-pointer rounded-xl border-y border-r border-l-4 border-slate-200 border-l-emerald-400 bg-emerald-50/40 p-4 text-left transition-colors hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2">
+                        <p class="font-bold text-slate-900 text-sm">${escapeHtml(payment.HoTen)} đã thanh toán ${escapeHtml(payment.TenKhoan)}</p>
+                        <p class="mt-1 text-xs text-slate-500">Hóa đơn ${escapeHtml(payment.MaHoaDon || "—")} · ${payment.SoTien !== null && payment.SoTien !== undefined && payment.SoTien !== "" && Number.isFinite(Number(payment.SoTien)) ? `${Number(payment.SoTien).toLocaleString("vi-VN")} ₫` : "—"} · ${escapeHtml(payment.PhuongThuc === "ONLINE" ? "Chuyển khoản QR" : "Tiền mặt")}</p>
+                    </button>`,
+                    payment
+                })),
+                ...requests.map(request => ({
+                    kind: "request",
+                    date: request.NgayTao || "",
+                    html: `<button type="button" data-request-announcement="${escapeHtml(request.MaYeuCau)}"
+                        aria-label="Mở xử lý yêu cầu ${escapeHtml(request.MaYeuCau)} của ${escapeHtml(request.HoTen)}"
+                        class="home-request-announcement block w-full cursor-pointer rounded-xl border-y border-r border-l-4 border-amber-200 border-l-amber-600 bg-amber-50 p-4 text-left transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2">
+                        <p class="flex items-center gap-2 font-bold text-amber-950 text-sm"><i class="fa-solid ${requestIcon(request.Loai)}" aria-hidden="true"></i><span>Yêu cầu · ${escapeHtml(request.Loai || "Yêu cầu sinh viên")}</span></p>
+                        <p class="mt-1 text-sm text-slate-900">${escapeHtml(request.HoTen || "Sinh viên")} · ${escapeHtml(request.TenPhong || "Chưa xếp phòng")}</p>
+                        <p class="mt-1 text-xs text-slate-600">${escapeHtml(window.AdminWorkflowUtils.dateTime(request.NgayTao))}</p>
+                    </button>`,
+                    request
+                }))
+            ].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 10);
+            list.innerHTML = entries.length ? entries.map(entry => entry.html).join("")
+                : '<p class="text-sm text-slate-500">Chưa có thanh toán hoặc yêu cầu mới.</p>';
             list.addEventListener("click", event => {
-                const button = event.target.closest("[data-payment-announcement]");
-                if (!button) return;
-                const payment = successful[Number(button.dataset.paymentAnnouncement)];
-                if (payment) openPaymentAnnouncementDetails(payment);
+                const paymentButton = event.target.closest("[data-payment-announcement]");
+                if (paymentButton) {
+                    const payment = successful.find(item => String(item.MaGiaoDich || "") === paymentButton.dataset.paymentAnnouncement);
+                    if (payment) openPaymentAnnouncementDetails(payment);
+                    return;
+                }
+                const requestButton = event.target.closest("[data-request-announcement]");
+                if (!requestButton) return;
+                window.pendingAdminRequestId = requestButton.dataset.requestAnnouncement;
+                const menuItem = [...document.querySelectorAll(".nav-item")]
+                    .find(item => item.textContent.includes("Duyệt") && item.textContent.includes("Kiểm soát"));
+                window.switchPage?.("Duyet & Kiem soat", menuItem);
             }, { signal: controller.signal });
         } catch (error) {
             if (error.name !== "AbortError" && root.isConnected) list.textContent = error.message || "Không thể tải giao dịch.";
         }
     };
+    const requestIcon = type => ({
+        "Gia hạn hợp đồng": "fa-calendar-plus",
+        "Báo hỏng thiết bị": "fa-screwdriver-wrench",
+        "Yêu cầu khác": "fa-circle-question"
+    })[type] || "fa-clipboard-question";
     const openPaymentAnnouncementDetails = payment => {
         const display = value => value === null || value === undefined || String(value).trim() === "" ? "—" : String(value);
         const formatDate = value => window.AdminWorkflowUtils.dateTime(value);
@@ -536,6 +575,7 @@ function startHomeDashboard(root) {
         const form = scope.form;
         form.elements.TenPhong.hidden = scope.value !== "PHONG";
         form.elements.TenPhong.required = scope.value === "PHONG";
+        form.elements.TenPhong.classList.toggle("hidden", scope.value !== "PHONG");
         form.querySelector("[data-notice-student-field]").classList.toggle("hidden", scope.value !== "SINH_VIEN");
         form.elements.MaSinhVien.required = scope.value === "SINH_VIEN";
     }, { signal: controller.signal });
@@ -578,6 +618,7 @@ function startHomeDashboard(root) {
                 form.reset();
                 form.elements.TenPhong.hidden = true;
                 form.elements.TenPhong.required = false;
+                form.elements.TenPhong.classList.add("hidden");
                 form.querySelector("[data-notice-student-field]").classList.add("hidden");
                 form.elements.MaSinhVien.required = false;
                 showStatus(form.querySelector("[data-notice-status]"), "Đã gửi thông báo.");

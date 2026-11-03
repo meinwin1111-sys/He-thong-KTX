@@ -4,25 +4,30 @@
     const data = ui.repository.data;
     const { esc, date, badge, card, requestTable } = ui.helpers;
     const backendStudent = () => window.StudentAuth?.session()?.isBackend;
+    const earlyCheckout = 'Trả phòng sớm';
+    const dateRequired = type => type === 'Gia hạn hợp đồng' || type === earlyCheckout;
     const requestRules = Object.freeze({
-        dateRequired: type => type === 'Gia hạn hợp đồng',
-        isValid: (type, content) => ['Gia hạn hợp đồng', 'Báo hỏng thiết bị', 'Yêu cầu khác'].includes(type)
-            && typeof content === 'string' && Boolean(content.trim()) && content.trim().length <= 1000
+        dateRequired,
+        isValid: (type, content) => ['Gia hạn hợp đồng', earlyCheckout, 'Báo hỏng thiết bị', 'Yêu cầu khác'].includes(type)
+            && typeof content === 'string' && Boolean(content.trim())
+            && content.trim().length <= 1000
+            && (type !== earlyCheckout || content.trim().length >= 10)
     });
     ui.requestRules = requestRules;
     const guidance = type => ({
         'Gia hạn hợp đồng': 'Mô tả thời gian muốn gia hạn và chọn ngày kết thúc đề xuất. Nội dung tối đa 1.000 ký tự.',
+        [earlyCheckout]: 'Chọn ngày muốn trả phòng sớm và nhập lý do từ 10 đến 1.000 ký tự.',
         'Báo hỏng thiết bị': 'Ghi rõ thiết bị, vị trí và tình trạng hư hỏng. Không cần nhập ngày kết thúc.',
         'Yêu cầu khác': 'Mô tả sự việc, góp ý hoặc nội dung khác cần Quản lý hỗ trợ. Không cần nhập ngày kết thúc.'
     })[type] || 'Chọn loại yêu cầu và mô tả nội dung cần hỗ trợ.';
     const backendForm = () => `<form id="student-request-form">
         <div class="st-request-layout">
             <div class="st-request-fields">
-                <label>Loại yêu cầu<select name="type" required><option>Gia hạn hợp đồng</option><option>Báo hỏng thiết bị</option><option>Yêu cầu khác</option></select></label>
+                <label>Loại yêu cầu<select name="type" required><option>Gia hạn hợp đồng</option><option>Trả phòng sớm</option><option>Báo hỏng thiết bị</option><option>Yêu cầu khác</option></select></label>
                 <p class="st-request-guidance-inline" data-request-guidance>${guidance('Gia hạn hợp đồng')}</p>
                 <label data-extension-date>Ngày kết thúc đề xuất
                     <span class="st-date-control">
-                        <input type="text" name="extensionEndDateText" maxlength="10" inputmode="numeric" placeholder="dd/mm/yyyy" autocomplete="off" aria-describedby="extension-date-error" required>
+                        <input type="text" name="extensionEndDateText" maxlength="10" inputmode="numeric" placeholder="dd/mm/yyyy" autocomplete="off" aria-describedby="extension-date-error" data-admin-date required>
                         <button type="button" class="st-date-picker-button" data-open-date-picker aria-label="Chọn ngày kết thúc đề xuất" title="Chọn ngày"><i class="fa-regular fa-calendar" aria-hidden="true"></i></button>
                         <input class="st-native-date-picker" type="date" data-date-picker tabindex="-1" aria-hidden="true">
                     </span>
@@ -40,11 +45,11 @@
     const demoForm = () => `<form id="student-request-form">
         <div class="st-request-layout">
             <div class="st-request-fields">
-                <label>Loại yêu cầu<select name="type" required><option>Gia hạn hợp đồng</option><option>Báo hỏng thiết bị</option><option>Yêu cầu khác</option></select></label>
+                <label>Loại yêu cầu<select name="type" required><option>Gia hạn hợp đồng</option><option>Trả phòng sớm</option><option>Báo hỏng thiết bị</option><option>Yêu cầu khác</option></select></label>
                 <p class="st-request-guidance-inline" data-request-guidance>${guidance('Gia hạn hợp đồng')}</p>
                 <label data-extension-date>Ngày kết thúc đề xuất
                     <span class="st-date-control">
-                        <input type="text" name="extensionEndDateText" maxlength="10" inputmode="numeric" placeholder="dd/mm/yyyy" autocomplete="off" aria-describedby="extension-date-error" required>
+                        <input type="text" name="extensionEndDateText" maxlength="10" inputmode="numeric" placeholder="dd/mm/yyyy" autocomplete="off" aria-describedby="extension-date-error" data-admin-date required>
                         <button type="button" class="st-date-picker-button" data-open-date-picker aria-label="Chọn ngày kết thúc đề xuất" title="Chọn ngày"><i class="fa-regular fa-calendar" aria-hidden="true"></i></button>
                         <input class="st-native-date-picker" type="date" data-date-picker tabindex="-1" aria-hidden="true">
                     </span>
@@ -111,8 +116,17 @@
                 dateError.textContent = '';
                 dateInput.setCustomValidity('');
                 if (!dateInput.value.trim()) return;
+                const normalized = StudentDate.normalizeInput(dateInput.value);
+                if (!normalized) {
+                    dateInput.setCustomValidity('Ngày không hợp lệ');
+                    dateError.textContent = 'Ngày không hợp lệ';
+                    return;
+                }
                 try {
-                    isoDateInput.value = window.StudentDate.futureDateToIso(dateInput.value);
+                    isoDateInput.value = form.elements.type.value === earlyCheckout
+                        ? window.StudentDate.earlyCheckoutDateToIso(normalized)
+                        : window.StudentDate.futureDateToIso(normalized);
+                    dateInput.value = normalized;
                 } catch (error) {
                     dateInput.setCustomValidity(error.message);
                     dateError.textContent = error.message;
@@ -134,12 +148,11 @@
                 }
             };
             form.elements.type.addEventListener('change', updateDateField);
-            dateInput.addEventListener('input', updateExtensionDate);
-            dateInput.addEventListener('blur', updateExtensionDate);
+            dateInput.addEventListener('admin-date-input', updateExtensionDate);
             picker.addEventListener('change', () => {
                 if (!picker.value) return;
                 dateInput.value = StudentDate.formatIso(picker.value);
-                updateExtensionDate();
+                dateInput.dispatchEvent(new Event('focusout', { bubbles: true }));
             });
             form.querySelector('[data-open-date-picker]').addEventListener('click', () => {
                 if (typeof picker.showPicker === 'function') picker.showPicker();
@@ -150,6 +163,10 @@
                 updateCounter();
             });
             form.addEventListener('submit', event => {
+                if (dateRequired(form.elements.type.value)) {
+                    const normalized = StudentDate.normalizeInput(dateInput.value);
+                    if (normalized) dateInput.value = normalized;
+                }
                 updateExtensionDate();
                 contentError.textContent = '';
                 if (!contentInput.value.trim()) {
@@ -159,7 +176,10 @@
                 } else if (contentInput.value.length > 1000) {
                     event.preventDefault();
                     contentError.textContent = 'Nội dung không được vượt quá 1.000 ký tự.';
-                } else if (form.elements.type.value === 'Gia hạn hợp đồng' && !isoDateInput.value) {
+                } else if (form.elements.type.value === earlyCheckout && contentInput.value.trim().length < 10) {
+                    event.preventDefault();
+                    contentError.textContent = 'Lý do trả phòng sớm phải từ 10 đến 1.000 ký tự.';
+                } else if (dateRequired(form.elements.type.value) && !isoDateInput.value) {
                     event.preventDefault();
                     dateInput.reportValidity();
                 }

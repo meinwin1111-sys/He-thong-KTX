@@ -5780,6 +5780,8 @@ BEGIN
                 SoTien decimal(18,2) NOT NULL,
                 NgayPhatSinh date NOT NULL
                     CONSTRAINT DF_ChiPhiPhatSinh_NgayPhatSinh DEFAULT (CONVERT(date, GETDATE())),
+                HanDong date NOT NULL
+                    CONSTRAINT DF_ChiPhiPhatSinh_HanDong DEFAULT (DATEADD(day, 7, CONVERT(date, GETDATE()))),
                 NguoiNhap int NOT NULL,
                 TrangThai nvarchar(20) NOT NULL
                     CONSTRAINT DF_ChiPhiPhatSinh_TrangThai DEFAULT (N''Chưa lập hóa đơn''),
@@ -5812,6 +5814,29 @@ BEGIN
             CREATE INDEX IX_ChiPhiPhatSinh_HopDong_TrangThai
                 ON dbo.ChiPhiPhatSinh(MaHopDong, TrangThai, NgayPhatSinh)
                 INCLUDE (MaChiPhi, MaChiTiet, SoTien);';
+
+        EXEC sys.sp_executesql N'
+IF COL_LENGTH(N''dbo.ChiPhiPhatSinh'', N''HanDong'') IS NULL
+    ALTER TABLE dbo.ChiPhiPhatSinh ADD HanDong date NULL;
+UPDATE dbo.ChiPhiPhatSinh
+SET HanDong = DATEADD(day, 7, NgayPhatSinh)
+WHERE HanDong IS NULL;
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.default_constraints
+    WHERE parent_object_id = OBJECT_ID(N''dbo.ChiPhiPhatSinh'')
+      AND name = N''DF_ChiPhiPhatSinh_HanDong''
+)
+    ALTER TABLE dbo.ChiPhiPhatSinh
+        ADD CONSTRAINT DF_ChiPhiPhatSinh_HanDong
+        DEFAULT (DATEADD(day, 7, CONVERT(date, GETDATE()))) FOR HanDong;
+IF EXISTS
+(
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N''dbo.ChiPhiPhatSinh'')
+      AND name = N''HanDong'' AND is_nullable = 1
+)
+    ALTER TABLE dbo.ChiPhiPhatSinh ALTER COLUMN HanDong date NOT NULL;';
 
         EXEC sys.sp_executesql N'
 CREATE OR ALTER TRIGGER dbo.TRG_ChiPhiPhatSinh_BaoVe
@@ -6571,6 +6596,10 @@ BEGIN
                 END;';
 
             EXEC sys.sp_executesql N'
+                IF COL_LENGTH(N''dbo.ThongBao'', N''MaSuKien'') IS NULL
+                    ALTER TABLE dbo.ThongBao ADD MaSuKien nvarchar(100) NULL;';
+
+            EXEC sys.sp_executesql N'
                 INSERT INTO dbo.PhieuThu
                     (MaHoaDon, MaGiaoDich, SoTien, NgayThu, PhuongThuc,
                      MaSinhVienNop, NguoiThu, TrangThai, MaThamChieu, GhiChu)
@@ -7078,9 +7107,9 @@ BEGIN
         DECLARE @MaHopDong nvarchar(20), @MaChiTiet int, @NoiDung nvarchar(255),
                 @SoTien decimal(18,2), @TenPhong nvarchar(50), @MaSinhVien nvarchar(30),
                 @Ky date, @Ngay date = CAST(GETDATE() AS date), @Prefix nvarchar(40),
-                @TenKhoan nvarchar(100), @MaChiTietHD nvarchar(40);
+                @TenKhoan nvarchar(100), @MaChiTietHD nvarchar(40), @HanDong date;
         SELECT @MaHopDong = cp.MaHopDong, @MaChiTiet = cp.MaChiTiet,
-               @NoiDung = cp.NoiDung, @SoTien = cp.SoTien,
+               @NoiDung = cp.NoiDung, @SoTien = cp.SoTien, @HanDong = cp.HanDong,
                @TenPhong = hd.TenPhong, @Ky = DATEFROMPARTS(YEAR(cp.NgayPhatSinh), MONTH(cp.NgayPhatSinh), 1),
                @MaSinhVien = c.MaSinhVien
         FROM dbo.ChiPhiPhatSinh cp WITH (UPDLOCK, HOLDLOCK)
@@ -7101,11 +7130,11 @@ BEGIN
         END;
         INSERT INTO dbo.HoaDon
             (MaHoaDon, MaSinhVien, TenPhong, NgayLap, TienPhong, TienDien, TienNuoc,
-             TrangThaiThanhToan, LoaiHoaDon, MaHopDong, MaChiTiet,
+             TrangThaiThanhToan, HanThanhToan, LoaiHoaDon, MaHopDong, MaChiTiet,
              KyThanhToan, KyThanhToanDen)
         VALUES
             (@MaHoaDon, @MaSinhVien, @TenPhong, @Ngay, 0, 0, 0,
-             N''Chưa thanh toán'', N''PHAT_SINH'', @MaHopDong, @MaChiTiet, @Ky, @Ky);
+             N''Chưa thanh toán'', @HanDong, N''PHAT_SINH'', @MaHopDong, @MaChiTiet, @Ky, @Ky);
         SET @Prefix = N''Phát sinh #'' + CONVERT(nvarchar(20), @MaChiPhi) + N'': '';
         SET @TenKhoan = @Prefix + LEFT(@NoiDung, 100 - LEN(@Prefix));
         SET @MaChiTietHD = LEFT(@MaHoaDon, 25) + N''-INC-'' + CONVERT(nvarchar(12), @MaChiPhi);
@@ -8164,6 +8193,7 @@ BEGIN
         PhamViNhan nvarchar(10) NOT NULL,
         TenPhong nvarchar(50) NULL,
         MaSinhVien nvarchar(30) NULL,
+        MaSuKien nvarchar(100) NULL,
         NguoiTao int NOT NULL,
         NgayTao datetime2(0) NOT NULL
             CONSTRAINT DF_ThongBao_NgayTao DEFAULT (SYSDATETIME()),
@@ -8192,6 +8222,17 @@ IF NOT EXISTS
     CREATE INDEX IX_ThongBao_NgayTao
         ON dbo.ThongBao (NgayTao DESC, MaThongBao DESC)
         INCLUDE (DaXoa, PhamViNhan, TenPhong, MaSinhVien);';
+
+        EXEC sys.sp_executesql N'
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N''dbo.ThongBao'')
+      AND name = N''UX_ThongBao_MaSuKien_MaSinhVien''
+)
+    CREATE UNIQUE INDEX UX_ThongBao_MaSuKien_MaSinhVien
+        ON dbo.ThongBao (MaSuKien, MaSinhVien)
+        WHERE MaSuKien IS NOT NULL;';
 
         EXEC sys.sp_executesql N'
             GRANT SELECT, INSERT, UPDATE ON OBJECT::dbo.ThongBao TO [DNKTX];';
@@ -8272,5 +8313,15 @@ GO
 GO
 :r db/migrations/025_contract_gender_errors.sql
 GO
-PRINT N'KTX_Group3 schema, migrations 001-025, master data, and DNKTX permissions are ready.'
+:r db/migrations/026_incident_cost_due_date.sql
+GO
+:r db/migrations/027_bank_transfer_surplus.sql
+GO
+:r db/migrations/028_payment_lock_order.sql
+GO
+:r db/migrations/029_vietnam_invoice_creation_date.sql
+GO
+:r db/migrations/030_early_checkout_request.sql
+GO
+PRINT N'KTX_Group3 schema, migrations 001-030, master data, and DNKTX permissions are ready.'
 GO

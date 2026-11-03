@@ -49,9 +49,9 @@
         const [year, month, day] = iso.split('-').map(Number);
         return { year, month, day, iso };
     }
-    function formatDateInput(value, caretPosition = String(value || '').length) {
-        const result = sharedDates()?.sanitizeDateInput(value, caretPosition) || { value, caret: caretPosition };
-        return { value: result.value, selectionStart: result.caret };
+    function formatDateInput(value) {
+        return sharedDates()?.filterDateInput(value)
+            || String(value || '').replace(/[^\d/]/g, '').slice(0, 10);
     }
     function bindDateInput(input, { birth = false } = {}) {
         input.maxLength = 10;
@@ -66,12 +66,17 @@
         parse: parseDate,
         formatInput: formatDateInput,
         bindInput: bindDateInput,
+        normalizeInput(value) {
+            return sharedDates()?.normalizeDateInput(value) || null;
+        },
         formatIso(value) {
             const formatted = sharedDates()?.date(String(value || ''), 'format');
             if (!formatted) throw new Error('Ngày không hợp lệ.');
             return formatted;
         },
         birthDateToIso(value) {
+            const validation = sharedDates()?.validateDateInput(value, { minYear: 1900 });
+            if (validation) throw new Error(validation);
             const parsed = parseDate(value);
             if (!parsed) throw new Error('Ngày sinh phải đúng định dạng dd/mm/yyyy.');
             const today = new Date();
@@ -85,11 +90,22 @@
             return parsed.iso;
         },
         futureDateToIso(value) {
+            const validation = sharedDates()?.validateDateInput(value, { minYear: 1900 });
+            if (validation) throw new Error(validation);
             const parsed = parseDate(value);
             if (!parsed) throw new Error('Ngày phải đúng định dạng dd/mm/yyyy.');
             const today = new Date();
             const isoToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
             if (parsed.iso <= isoToday) throw new Error('Ngày kết thúc đề xuất phải sau ngày hôm nay.');
+            return parsed.iso;
+        },
+        earlyCheckoutDateToIso(value) {
+            const validation = sharedDates()?.validateDateInput(value, { minYear: 1900 });
+            if (validation) throw new Error(validation);
+            const parsed = parseDate(value);
+            if (!parsed) throw new Error('Ngày phải đúng định dạng dd/mm/yyyy.');
+            const todayVN = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+            if (parsed.iso < todayVN) throw new Error('Ngày kết thúc đề xuất phải từ hôm nay trở đi.');
             return parsed.iso;
         }
     });

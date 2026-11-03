@@ -31,7 +31,7 @@
             ${stat(0, 'Phòng hiện tại', backend ? 'Đang tải…' : roomLabel, backend ? '' : roomLabel === '—' ? '' : 'Đang ở', 'room', 'fa-bed', 'data-dashboard-room', 'data-dashboard-room-hint')}
             ${stat(1, 'Hợp đồng', '—', '', 'contract', 'fa-file-contract', 'data-dashboard-contract', 'data-dashboard-contract-hint')}
             ${stat(2, 'Hóa đơn chưa thanh toán', '—', '', 'invoices', 'fa-file-invoice', 'data-dashboard-unpaid', 'data-dashboard-unpaid-hint')}
-            ${stat(3, 'Công nợ', '—', '', 'invoices', 'fa-wallet', 'data-dashboard-debt', 'data-dashboard-debt-hint')}
+            ${stat(3, 'Công nợ', backend ? 'Đang tải…' : money(0), backend ? '' : 'Không có nợ', 'invoices', 'fa-wallet', 'data-dashboard-debt', 'data-dashboard-debt-hint')}
         </div>
         <p data-dashboard-contract-warning class="st-notice" role="status" hidden></p>
         <div class="sh-columns">
@@ -147,13 +147,16 @@
             set('data-dashboard-room', roomLabel);
             set('data-dashboard-contract', status);
             set('data-dashboard-unpaid', hasInvoices ? `${unpaid} hóa đơn` : '—');
-            set('data-dashboard-debt', hasInvoices ? money(debt) : '—');
+            set('data-dashboard-debt', money(debt));
             for (const [attribute, value] of [
-                ['data-dashboard-room-hint', hasRoom ? 'Đang ở' : ''],
-                ['data-dashboard-contract-hint', hasContract ? days < 0 ? 'Đã hết hạn' : `${days} ngày còn lại` : ''],
+                ['data-dashboard-room-hint', hasRoom ? `Đang ở · ${Array.isArray(room.members) ? room.members.length : 0}/${room.capacity ?? '—'} người` : ''],
+                ['data-dashboard-contract-hint', hasContract ? days < 0 ? 'Đã hết hạn' : days <= 30 ? 'Sắp hết hạn' : 'Đang hiệu lực' : ''],
                 ['data-dashboard-unpaid-hint', paymentHint],
-                ['data-dashboard-debt-hint', hasInvoices ? debt > 0 ? 'Cần thanh toán' : 'Không có công nợ' : '']
+                ['data-dashboard-debt-hint', debt > 0 ? 'Cần thanh toán' : 'Không có nợ']
             ]) markup = replaceHint(markup, attribute, value);
+            set('data-dashboard-contract', hasContract
+                ? days < 0 ? `Quá hạn ${Math.abs(days)} ngày` : `${days} ngày`
+                : '—');
             if (!hasRoom) {
                 markup = markup.replace('data-dashboard-residence-panel>', 'data-dashboard-residence-panel hidden>');
                 markup = markup.replace('data-dashboard-room-empty hidden>', 'data-dashboard-room-empty>');
@@ -164,7 +167,7 @@
                 set('data-dashboard-contract-start', contract?.start ? date(contract.start) : '—');
                 set('data-dashboard-contract-end', hasContract ? date(contract.end) : '—');
                 set('data-dashboard-contract-status', status);
-                set('data-dashboard-debt-detail', hasInvoices ? debt > 0 ? `Còn nợ ${money(debt)}` : 'Không có công nợ' : '—');
+                set('data-dashboard-debt-detail', debt > 0 ? `Còn nợ ${money(debt)}` : '0 đ · Không có nợ');
             }
             markup = replaceHtml(markup, 'data-student-notices', '<li class="st-muted">Chưa có thông báo.</li>');
             markup = replaceHtml(markup, 'data-student-rules', '<li class="st-muted">Nội quy dùng chung chưa khả dụng trong chế độ demo.</li>');
@@ -212,18 +215,32 @@
                     ? daysRemaining < 0 ? 'Hợp đồng đã hết hạn' : daysRemaining <= 30 ? 'Sắp hết hạn' : currentContract.TrangThaiHopDong
                     : '—';
                 const roomLabel = hasRoom ? room.TenPhong : '—';
+                const occupancy = hasRoom
+                    ? Array.isArray(roomData.members)
+                        ? roomData.members.length
+                        : Number(room.SoSinhVienHienTai || 0)
+                    : 0;
+                const roomHint = hasRoom
+                    ? `Đang ở · ${occupancy}/${room.SucChuaToiDa ?? '—'} người`
+                    : '';
+                const contractValue = daysRemaining == null
+                    ? '—'
+                    : daysRemaining < 0 ? `Quá hạn ${Math.abs(daysRemaining)} ngày` : `${daysRemaining} ngày`;
+                const contractHint = daysRemaining == null
+                    ? ''
+                    : daysRemaining < 0 ? 'Đã hết hạn' : daysRemaining <= 30 ? 'Sắp hết hạn' : 'Đang hiệu lực';
                 set('[data-dashboard-room]', roomLabel);
-                set('[data-dashboard-contract]', contractStatus);
+                set('[data-dashboard-contract]', contractValue);
                 set('[data-dashboard-unpaid]', invoices.length ? `${unpaidInvoices.length} hóa đơn` : '—');
-                set('[data-dashboard-debt]', invoices.length ? money(debt) : '—');
+                set('[data-dashboard-debt]', money(debt));
                 set('[data-dashboard-subtitle]', [data.profile?.code, hasRoom ? roomLabel : ''].filter(Boolean).join(' · '));
                 const hints = root.querySelectorAll('.sh-stat .sh-status');
                 const hintValues = [
-                    hasRoom ? room.TrangThaiPhong || 'Đang ở' : '',
-                    daysRemaining == null ? '' : daysRemaining < 0 ? 'Đã hết hạn' : `Còn ${daysRemaining} ngày`,
+                    roomHint,
+                    contractHint,
                     unpaidInvoices.length ? 'Còn nợ'
                         : allInvoicesPaid ? 'Đã thanh toán đủ' : invoices.length ? 'Không có công nợ' : 'Chưa có hóa đơn',
-                    invoices.length ? debt > 0 ? 'Cần thanh toán' : 'Không có công nợ' : ''
+                    debt > 0 ? 'Cần thanh toán' : 'Không có nợ'
                 ];
                 hints.forEach((node, index) => {
                     node.textContent = hintValues[index];
@@ -235,11 +252,11 @@
                 if (hasRoom) {
                     set('[data-dashboard-room-detail]', roomLabel);
                     set('[data-dashboard-building]', room.Khu ? `Khu ${room.Khu}` : '—');
-                    set('[data-dashboard-occupancy]', `${room.SoSinhVienHienTai ?? '—'}/${room.SucChuaToiDa ?? '—'} người`);
+                    set('[data-dashboard-occupancy]', `${occupancy}/${room.SucChuaToiDa ?? '—'} người`);
                     set('[data-dashboard-contract-start]', currentContract?.NgayBatDau ? date(currentContract.NgayBatDau) : '—');
                     set('[data-dashboard-contract-end]', currentContract?.NgayKetThuc ? date(currentContract.NgayKetThuc) : '—');
                     set('[data-dashboard-contract-status]', contractStatus);
-                    set('[data-dashboard-debt-detail]', invoices.length ? debt > 0 ? `Còn nợ ${money(debt)}` : 'Không có công nợ' : '—');
+                    set('[data-dashboard-debt-detail]', debt > 0 ? `Còn nợ ${money(debt)}` : '0 đ · Không có nợ');
                 }
                 set('[data-dashboard-contract-warning]', daysRemaining != null && daysRemaining <= 30
                     ? `Hợp đồng lưu trú ${daysRemaining < 0 ? 'đã hết hạn' : `sắp hết hạn ngày ${date(endDate)} (${daysRemaining} ngày)`}.`
