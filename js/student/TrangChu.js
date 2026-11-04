@@ -104,21 +104,44 @@
         const rows = [
             ...payments.filter(payment => payment.TrangThai === 'SUCCESS').map(payment => ({
                 kind: 'Thanh toán',
+                tone: 'payment',
                 title: `Đã thanh toán ${payment.TenKhoan || 'khoản phí'}`,
                 detail: `Hóa đơn ${payment.MaHoaDon || '—'} · ${money(Number(payment.SoTien || 0))} · ${payment.PhuongThuc === 'ONLINE' ? 'Chuyển khoản QR' : 'Tiền mặt'}`,
-                createdAt: payment.NgayThanhToan || payment.NgayTao
+                createdAt: payment.NgayThanhToan || payment.NgayTao,
+                eventKey: `INVOICE:${payment.MaHoaDon || ''}`,
+                action: 'Mở hóa đơn'
             })),
-            ...notices.map(notice => ({
-                kind: 'Thông báo từ Quản lý',
-                title: maskStudentIdsInText(notice.TieuDe || '—', [data.profile.code]),
-                detail: maskStudentIdsInText(notice.NoiDung || '—', [data.profile.code]),
-                createdAt: notice.NgayTao
-            }))
+            ...notices.map(notice => {
+                const title = maskStudentIdsInText(notice.TieuDe || '—', [data.profile.code]);
+                const detail = maskStudentIdsInText(notice.NoiDung || '—', [data.profile.code]);
+                const eventKey = String(notice.MaSuKien || '');
+                const requestNotice = eventKey.startsWith('CHECKOUT:')
+                    || /yêu cầu|trả phòng sớm/i.test(`${title} ${detail}`);
+                const paymentNotice = /^(?:PAYMENT|INVOICE|EXPENSE):/.test(eventKey)
+                    || /thanh toán|hóa đơn|khoản phí/i.test(title);
+                return {
+                    kind: requestNotice ? 'Trả phòng sớm / yêu cầu'
+                        : paymentNotice ? 'Thanh toán' : 'Thông báo từ Quản lý',
+                    tone: requestNotice ? 'request' : paymentNotice ? 'payment' : 'management',
+                    title,
+                    detail,
+                    createdAt: notice.NgayTao,
+                    eventKey,
+                    action: requestNotice ? 'Mở yêu cầu' : paymentNotice ? 'Mở hóa đơn hoặc thanh toán' : 'Đọc thông báo'
+                };
+            })
         ].sort((left, right) => (Date.parse(right.createdAt || '') || 0) - (Date.parse(left.createdAt || '') || 0));
-        return rows.length ? rows.map(item => `<li>
-            <span class="st-badge st-neutral">${esc(item.kind)}</span>
-            <div class="sh-news-content"><h3>${esc(item.title)}</h3>
-                <p>${esc(item.detail)}</p><p>${esc(dateTime(item.createdAt))}</p></div>
+        return rows.length ? rows.map(item => `<li class="sh-notice sh-notice--${item.tone}">
+            <button type="button" class="sh-notice-button" data-action="student-notification"
+                data-event-key="${esc(item.eventKey)}" data-title="${esc(item.title)}" data-detail="${esc(item.detail)}">
+                <span class="st-badge st-notification-kind st-notification-kind--${item.tone}">${esc(item.kind)}</span>
+                <span class="sh-news-content">
+                    <strong class="sh-notice-title">${esc(item.title)}</strong>
+                    <span class="sh-notice-detail">${esc(item.detail)}</span>
+                    <time class="sh-notice-time">${esc(dateTime(item.createdAt))}</time>
+                    <span class="sh-notice-action">${esc(item.action)} →</span>
+                </span>
+            </button>
         </li>`).join('') : '<li class="st-muted">Chưa có thông báo.</li>';
     };
     ui.noticeHelpers = Object.freeze({ renderNotifications });

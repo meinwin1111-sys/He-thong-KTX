@@ -4,12 +4,11 @@
     const data = ui.repository.data;
     const store = KTXPaymentDemo;
     const { esc, money, date, fields, card, table, maskStudentId, maskReference, paymentMethodLabel } = ui.helpers;
-    const labels = { UNPAID: 'Còn nợ', OVERDUE: 'Còn nợ', WAITING_CASH: 'Còn nợ', PARTIAL: 'Còn nợ', PAID: 'Đã thanh toán' };
+    const labels = { UNPAID: 'Còn nợ', OVERDUE: 'Trễ hạn', WAITING_CASH: 'Còn nợ', PARTIAL: 'Còn nợ', PAID: 'Đã thanh toán' };
     const itemLabels = { UNPAID: 'Còn nợ', WAITING_CASH: 'Còn nợ', PAID: 'Đã thanh toán' };
     let officeContact = {};
     const method = value => value === 'CASH' ? 'Tiền mặt' : value ? 'Chuyển khoản QR' : 'Chưa xác định';
-    const invoiceStatus = invoice => window.AdminWorkflowUtils?.invoicePaymentDisplayLabel?.(invoice)
-        || window.AdminWorkflowUtils?.invoicePaymentLabel(invoice)
+    const invoiceStatus = invoice => window.AdminWorkflowUtils?.invoicePaymentLabel(invoice)
         || (Number(invoice?.ConNo) > 0 ? 'Còn nợ' : 'Đã thanh toán');
     const backendStudent = () => window.StudentAuth?.session()?.isBackend === true;
     const time = value => {
@@ -20,7 +19,8 @@
         const hour = /[T ](\d{2}:\d{2})/.exec(source)?.[1];
         return /^\d{2}\/\d{2}\/\d{4}$/.test(day) ? `${hour ? `${hour} ` : ''}${day}` : 'Chưa có';
     };
-    const badgeClass = value => value === 'PAID' || value === 'Đã thanh toán' ? 'st-success' : 'st-danger';
+    const badgeClass = value => value === 'PAID' || value === 'Đã thanh toán' ? 'st-success'
+        : value === 'Trễ hạn' ? 'st-danger' : 'st-warning';
     const badge = value => `<span class="st-badge ${badgeClass(value)}">${esc(labels[value] || value || 'Chưa có')}</span>`;
     const itemBadge = value => `<span class="st-badge ${badgeClass(value)}">${esc(itemLabels[value] || value)}</span>`;
     const token = (invoiceId, itemId) => `${invoiceId}\0${itemId}`;
@@ -230,7 +230,6 @@
                 REJECTED: 'Thất bại',
                 FAILED: 'Thất bại',
                 EXPIRED: 'Thất bại',
-                RECONCILIATION: 'Thất bại',
             })[status] || 'Thất bại';
         },
         parseAmount(value, balance) {

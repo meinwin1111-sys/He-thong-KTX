@@ -394,13 +394,16 @@ function startHomeDashboard(root) {
             const scope = notice.PhamViNhan === "PHONG"
                 ? `Phòng ${notice.TenPhong || "—"}`
                 : notice.PhamViNhan === "SINH_VIEN" ? `Sinh viên ${window.AdminWorkflowUtils.maskStudentId(notice.MaSinhVien)}` : "Tất cả sinh viên";
-            return `<li class="rounded-lg border p-3">
+            return `<li class="home-managed-notice rounded-lg border p-3">
                 <div class="flex min-w-0 items-start gap-3">
                     <div class="min-w-0 flex-1">
                         <div class="flex min-w-0 items-start justify-between gap-3">
-                            <strong class="min-w-0 break-words">${escapeHtml(window.AdminWorkflowUtils.maskStudentIdsInText(
+                            <div class="min-w-0 flex-1">
+                            <span class="home-notice-label home-notice-label--management">Thông báo từ Quản lý</span>
+                            <strong class="mt-1 block min-w-0 break-words">${escapeHtml(window.AdminWorkflowUtils.maskStudentIdsInText(
                                 notice.TieuDe || "—", [notice.MaSinhVien]
                             ))}</strong>
+                            </div>
                             <button type="button" data-notice-delete="${escapeHtml(notice.MaThongBao)}" class="shrink-0 self-start rounded bg-red-50 px-3 py-1 text-sm font-semibold text-red-800">Ẩn</button>
                         </div>
                         <p class="mt-1 whitespace-pre-wrap break-words text-sm">${escapeHtml(window.AdminWorkflowUtils.maskStudentIdsInText(
@@ -453,6 +456,8 @@ function startHomeDashboard(root) {
                         class="home-request-announcement block w-full cursor-pointer rounded-xl border-y border-r border-l-4 border-amber-200 border-l-amber-600 bg-amber-50 p-4 text-left transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2">
                         <p class="flex items-center gap-2 font-bold text-amber-950 text-sm"><i class="fa-solid ${requestIcon(request.Loai)}" aria-hidden="true"></i><span>Yêu cầu · ${escapeHtml(request.Loai || "Yêu cầu sinh viên")}</span></p>
                         <p class="mt-1 text-sm text-slate-900">${escapeHtml(request.HoTen || "Sinh viên")} · ${escapeHtml(request.TenPhong || "Chưa xếp phòng")}</p>
+                        ${(request.Loai === "Gia hạn hợp đồng" || request.Loai === "Trả phòng sớm") ? `<p class="mt-1 text-xs text-slate-600">Ngày bắt đầu hợp đồng: ${escapeHtml(window.AdminWorkflowUtils.date(String(request.NgayBatDauHopDong || "").slice(0, 10), "format") || "—")} · Ngày kết thúc hợp đồng hiện tại: ${escapeHtml(window.AdminWorkflowUtils.date(String(request.NgayKetThucHopDong || "").slice(0, 10), "format") || "—")} · Ngày kết thúc đề xuất: ${escapeHtml(window.AdminWorkflowUtils.date(String(request.NgayKetThucDeXuat || "").slice(0, 10), "format") || "—")}</p>` : ""}
+                        <p class="mt-1 text-sm text-slate-800">Lý do: ${escapeHtml(request.NoiDung || "—")}</p>
                         <p class="mt-1 text-xs text-slate-600">${escapeHtml(window.AdminWorkflowUtils.dateTime(request.NgayTao))}</p>
                     </button>`,
                     request
@@ -480,6 +485,7 @@ function startHomeDashboard(root) {
     };
     const requestIcon = type => ({
         "Gia hạn hợp đồng": "fa-calendar-plus",
+        "Trả phòng sớm": "fa-person-walking-arrow-right",
         "Báo hỏng thiết bị": "fa-screwdriver-wrench",
         "Yêu cầu khác": "fa-circle-question"
     })[type] || "fa-clipboard-question";

@@ -742,7 +742,9 @@ function registerApiRoutes(app, {
                 .input("MaSinhVien", sql.NVarChar(20), req.auth.studentId)
                 .query(`
                     SELECT hd.MaHopDong, c.MaSinhVien, hd.TenPhong,
-                           p.Khu, hp.GiaPhongThang AS GiaPhong, hd.NgayBatDau, hd.NgayKetThuc,
+                           p.Khu, hp.GiaPhongThang AS GiaPhong, hd.NgayBatDau,
+                           CONVERT(char(10), c.NgayVao, 23) AS NgayBatDauThanhVien,
+                           hd.NgayKetThuc,
                            hd.TrangThaiHopDong, hd.GhiChu, hd.NgayKetThucThucTe
                     FROM dbo.HopDong hd
                     INNER JOIN dbo.ChiTietHopDong c ON c.MaHopDong = hd.MaHopDong
@@ -860,9 +862,12 @@ function registerApiRoutes(app, {
                     .input("MaSinhVien", sql.NVarChar(30), req.auth.studentId)
                     .query(`
                     SELECT tb.MaThongBao, tb.TieuDe, tb.NoiDung, tb.PhamViNhan,
-                           tb.TenPhong, tb.NgayTao
+                           tb.TenPhong, tb.NgayTao, tb.MaSuKien
                     FROM dbo.ThongBao tb
                     WHERE tb.DaXoa = 0
+                      AND (tb.MaSuKien IS NULL
+                           OR (tb.MaSuKien NOT LIKE N'BANK_RECEIVED:%'
+                               AND tb.MaSuKien NOT LIKE N'SURPLUS_REFUNDED:%'))
                       AND
                       (
                           tb.PhamViNhan = N'TAT_CA'
@@ -901,11 +906,24 @@ function registerApiRoutes(app, {
             const result = await getPool().request()
                 .input("MaSinhVien", sql.NVarChar(20), req.auth.studentId)
                 .query(`
-                    SELECT MaYeuCau, Loai, NoiDung, NgayKetThucDeXuat,
-                           TenPhong, TrangThai, PhanHoi, NgayTao, NgayXuLy
-                    FROM dbo.YeuCauSinhVien
-                    WHERE MaSinhVien = @MaSinhVien
-                    ORDER BY NgayTao DESC, Id DESC
+                    SELECT yc.MaYeuCau, yc.Loai, yc.NoiDung,
+                           CONVERT(char(10), yc.NgayKetThucDeXuat, 23) AS NgayKetThucDeXuat,
+                           yc.TenPhong, yc.TrangThai, yc.PhanHoi, yc.NgayTao, yc.NgayXuLy,
+                           contractDates.NgayBatDauHopDong, contractDates.NgayKetThucHopDong
+                    FROM dbo.YeuCauSinhVien yc
+                    OUTER APPLY (
+                        SELECT TOP (1)
+                               CONVERT(char(10), c.NgayVao, 23) AS NgayBatDauHopDong,
+                               CONVERT(char(10), h.NgayKetThuc, 23) AS NgayKetThucHopDong
+                        FROM dbo.ChiTietHopDong c
+                        INNER JOIN dbo.HopDong h ON h.MaHopDong = c.MaHopDong
+                        WHERE c.MaSinhVien = yc.MaSinhVien
+                          AND (yc.TenPhong IS NULL OR h.TenPhong = yc.TenPhong)
+                        ORDER BY CASE WHEN c.TrangThai = N'Đang ở' THEN 0 ELSE 1 END,
+                                 c.NgayVao DESC, c.MaChiTiet DESC
+                    ) contractDates
+                    WHERE yc.MaSinhVien = @MaSinhVien
+                    ORDER BY yc.NgayTao DESC, yc.Id DESC
                 `);
             return res.json(result.recordset);
         } catch (error) {
@@ -1029,12 +1047,26 @@ function registerApiRoutes(app, {
         try {
             const result = await getPool().request().query(`
                 SELECT yc.MaYeuCau, yc.MaSinhVien, sv.HoTen, yc.TenPhong,
-                       yc.Loai, yc.NoiDung, yc.NgayKetThucDeXuat, yc.TrangThai,
+                       yc.Loai, yc.NoiDung,
+                       CONVERT(char(10), yc.NgayKetThucDeXuat, 23) AS NgayKetThucDeXuat,
+                       yc.TrangThai,
                        yc.PhanHoi, yc.NgayTao, yc.NgayXuLy,
+                       contractDates.NgayBatDauHopDong, contractDates.NgayKetThucHopDong,
                        tk.TenHienThi AS TenNguoiXuLy
                 FROM dbo.YeuCauSinhVien yc
                 INNER JOIN dbo.SinhVien sv ON sv.MaSinhVien = yc.MaSinhVien
                 LEFT JOIN dbo.TaiKhoan tk ON tk.MaTaiKhoan = yc.XuLyBoi
+                OUTER APPLY (
+                    SELECT TOP (1)
+                           CONVERT(char(10), c.NgayVao, 23) AS NgayBatDauHopDong,
+                           CONVERT(char(10), h.NgayKetThuc, 23) AS NgayKetThucHopDong
+                    FROM dbo.ChiTietHopDong c
+                    INNER JOIN dbo.HopDong h ON h.MaHopDong = c.MaHopDong
+                    WHERE c.MaSinhVien = yc.MaSinhVien
+                      AND (yc.TenPhong IS NULL OR h.TenPhong = yc.TenPhong)
+                    ORDER BY CASE WHEN c.TrangThai = N'Đang ở' THEN 0 ELSE 1 END,
+                             c.NgayVao DESC, c.MaChiTiet DESC
+                ) contractDates
                 ORDER BY yc.NgayTao DESC, yc.Id DESC
             `);
             return res.json(result.recordset);

@@ -56,28 +56,8 @@
     const money = value => value === null || value === undefined || value === "" ? "—" : U.formatVnd(Number(value));
     const display = value => U.displayLabel(value);
     const badge = value => U.statusBadge(value);
-    const paymentAmountDifference = payment => {
-        const surplus = Number(payment?.SoTienDu);
-        if (payment?.SoTienDu !== null && payment?.SoTienDu !== undefined
-            && Number.isFinite(surplus) && surplus > 0) return surplus;
-        if (payment?.SoTienThucNhan === null || payment?.SoTienThucNhan === undefined
-            || (payment?.SoTienYeuCau ?? payment?.TongTien) === null
-            || (payment?.SoTienYeuCau ?? payment?.TongTien) === undefined) return 0;
-        const received = Number(payment?.SoTienThucNhan);
-        const requested = Number(payment?.SoTienYeuCau ?? payment?.TongTien);
-        return Number.isFinite(received) && Number.isFinite(requested) && received !== requested
-            ? received - requested : 0;
-    };
     const paymentHasActualAmount = payment =>
         payment?.SoTienThucNhan !== null && payment?.SoTienThucNhan !== undefined;
-    const paymentDifferenceLabel = payment => {
-        const difference = paymentAmountDifference(payment);
-        if (!difference) return "—";
-        const value = money(Math.abs(difference));
-        return difference < 0
-            ? `<span class="font-semibold text-amber-700">Thiếu ${value}</span>`
-            : `<span class="font-semibold text-green-700">Dư ${value}</span>`;
-    };
     const receiptStatusLabel = (receipt, payment = null) => {
         const actualAmount = receipt?.SoTienThucNhan !== null && receipt?.SoTienThucNhan !== undefined
             ? receipt.SoTienThucNhan
@@ -89,28 +69,18 @@
             ...receipt,
             SoTienYeuCau: receipt?.SoTienYeuCau ?? payment?.SoTienYeuCau
                 ?? payment?.TongTien ?? receipt?.SoTien,
-            SoTienThucNhan: actualAmount,
-            SoTienDu: receipt?.SoTienDu ?? payment?.SoTienDu,
-            TrangThaiHoanDu: receipt?.TrangThaiHoanDu ?? payment?.TrangThaiHoanDu
+            SoTienThucNhan: actualAmount
         };
         if (!paymentHasActualAmount(merged)
             || ["Đã hủy", "Đã huỷ", "REJECTED"].includes(String(merged.TrangThai || ""))) return "";
-        const difference = paymentAmountDifference(merged);
-        if (difference < 0) return "Thiếu tiền";
-        if (difference > 0) return merged.TrangThaiHoanDu === "DA_HOAN"
-            ? "Đã hoàn tiền dư" : "Dư tiền (chờ hoàn)";
+        const requested = Number(merged.SoTienYeuCau);
+        const received = Number(merged.SoTienThucNhan);
+        if (!Number.isFinite(requested) || !Number.isFinite(received) || requested !== received) return "";
         return "Đã xác nhận";
     };
-    const receiptStatusBadge = label => {
-        const colors = {
-            "Đã xác nhận": "bg-emerald-100 text-emerald-800",
-            "Thiếu tiền": "bg-amber-100 text-amber-800",
-            "Dư tiền (chờ hoàn)": "bg-blue-100 text-blue-800",
-            "Đã hoàn tiền dư": "bg-slate-200 text-slate-700"
-        };
-        return `<span class="inline-flex rounded-full px-2 py-1 text-xs font-semibold ${colors[label] || "bg-slate-100 text-slate-700"}">${esc(label || "—")}</span>`;
-    };
-    const invoiceStatusBadge = invoice => badge(U.invoicePaymentDisplayLabel(invoice));
+    const receiptStatusBadge = label =>
+        `<span class="inline-flex rounded-full px-2 py-1 text-xs font-semibold bg-emerald-100 text-emerald-800">${esc(label || "—")}</span>`;
+    const invoiceStatusBadge = invoice => badge(U.invoicePaymentLabel(invoice));
     const status = message => {
         const target = root?.querySelector("[data-admin-status]");
         if (target) target.textContent = message || "";
@@ -177,6 +147,40 @@
             </span>
             <span data-date-error role="alert" class="mt-1 block min-h-4 text-xs font-normal text-red-700"></span>
         </label>`;
+    const expenseDateField = (label, name, value, required = true) => `
+        <label class="admin-expense-field admin-expense-date-field">
+            <span>${esc(label)}${required ? ' <span class="text-red-600">*</span>' : ""}</span>
+            <span class="admin-expense-date-control">
+                <input name="${esc(name)}" type="text" maxlength="10" inputmode="numeric" autocomplete="off"
+                    placeholder="dd/mm/yyyy" value="${esc(U.date(String(value || "").slice(0, 10), "format") || "")}"
+                    data-admin-date class="admin-expense-control" ${required ? "required" : ""}>
+                <button type="button" data-action="date-picker-open" aria-label="Chọn ngày"
+                    title="Chọn ngày">▦</button>
+                <input type="date" data-date-picker aria-hidden="true" tabindex="-1">
+            </span>
+            <span data-date-error role="alert" class="admin-expense-date-error"></span>
+        </label>`;
+    const expenseTextField = (label, name, value = "", required = false, extra = "") => `
+        <label class="admin-expense-field">
+            <span>${esc(label)}${required ? ' <span class="text-red-600">*</span>' : ""}</span>
+            <input name="${esc(name)}" type="text" value="${esc(value)}" class="admin-expense-control" ${required ? "required" : ""} ${extra}>
+        </label>`;
+    const expenseAmountField = (value = "") => `
+        <label class="admin-expense-field">
+            <span>Số tiền VND <span class="text-red-600">*</span></span>
+            <input name="soTien" type="number" value="${esc(value)}" step="1" inputmode="numeric"
+                data-expense-amount aria-required="true" aria-describedby="expense-amount-error"
+                class="admin-expense-control">
+            <span id="expense-amount-error" data-expense-amount-error class="admin-expense-field-error" role="alert"></span>
+        </label>`;
+    const expenseAmountError = value => {
+        const raw = String(value ?? "").trim();
+        if (!raw) return "Vui lòng nhập số tiền";
+        const amount = U.parseVnd(raw);
+        if (amount === null) return "Nhập số nguyên VND dương";
+        if (amount > U.MAX_INCIDENT_EXPENSE_VND) return `Không được vượt ${U.MAX_INCIDENT_EXPENSE_VND.toLocaleString("vi-VN")} đ`;
+        return "";
+    };
     const moneyField = (label, name, value) => `
         <label class="block text-sm font-semibold text-slate-700">${esc(label)}
             <span class="mt-1 flex items-center rounded-lg border border-slate-300 px-3">
@@ -186,10 +190,10 @@
                 <span class="text-slate-500">đ</span>
             </span>
         </label>`;
-    const select = (label, name, options, selected = "", required = false) => `
-        <label class="block text-sm font-semibold text-slate-700">${esc(label)}
+    const select = (label, name, options, selected = "", required = false, fieldClass = "") => `
+        <label class="${fieldClass || "block text-sm font-semibold text-slate-700"}"><span>${esc(label)}</span>
             <select name="${esc(name)}" ${required ? "required" : ""}
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal">
+                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal ${fieldClass === "admin-expense-field" ? "admin-expense-control" : ""}">
                 ${required && !String(selected) ? '<option value="" selected disabled>Chọn một mục</option>' : ""}
                 ${options.map(option => `<option value="${esc(option.value)}" ${String(option.value) === String(selected) ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
             </select>
@@ -228,13 +232,13 @@
         element.textContent = busy ? "Đang xử lý…" : element.dataset.originalText;
         element.classList.toggle("opacity-60", busy);
     };
-    const modalShell = (title, content, submitLabel = "Xác nhận") => {
+    const modalShell = (title, content, submitLabel = "Xác nhận", dialogClass = "") => {
         const modal = root.querySelector("[data-admin-modal]");
         if (!modal) return null;
         modal.innerHTML = `
             <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4">
                 <section role="dialog" aria-modal="true" aria-labelledby="admin-modal-title"
-                    class="max-h-[92vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-6 shadow-2xl">
+                    class="max-h-[92vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-6 shadow-2xl ${esc(dialogClass)}">
                     <header class="mb-5 flex items-center justify-between border-b pb-3">
                         <h3 id="admin-modal-title" class="text-xl font-bold">${esc(title)}</h3>
                         <button type="button" data-action="modal-close" aria-label="Đóng"
@@ -274,24 +278,6 @@
         drawer.classList.remove("hidden");
         drawer.querySelector("section[role='dialog']")?.focus();
         return drawer;
-    };
-    const receiptActionModal = (title, contentHtml, confirmLabel, action, attrs = "") => {
-        const modal = root?.querySelector("[data-admin-modal]");
-        if (!modal) return null;
-        modal.innerHTML = `<div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4">
-            <section role="dialog" aria-modal="true" aria-labelledby="admin-modal-title"
-                class="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
-                <header class="mb-4 border-b pb-3"><h3 id="admin-modal-title" class="text-lg font-bold">${esc(title)}</h3></header>
-                ${contentHtml}
-                <p class="mt-2 min-h-5 text-sm text-red-700" role="alert" data-modal-error></p>
-                <footer class="mt-3 flex justify-end gap-2 border-t pt-3">
-                    <button type="button" data-action="modal-close" class="rounded-lg bg-slate-100 px-4 py-2">Hủy</button>
-                    ${button(confirmLabel, action, attrs)}
-                </footer>
-            </section>
-        </div>`;
-        modal.classList.remove("hidden");
-        return modal;
     };
     const closeDrawer = () => {
         const drawer = root?.querySelector("[data-admin-drawer]");
@@ -556,7 +542,7 @@
         if (type === "expense") {
             const expense = state.expenses.find(item => String(item.MaChiPhi) === String(id));
             if (!expense) throw new Error("Không tìm thấy khoản phát sinh trong dữ liệu đã tải.");
-            const editable = expense.TrangThai === "Chưa lập hóa đơn" && !expense.MaHoaDon;
+            const editable = ["Chưa lập hóa đơn", "Chờ gộp"].includes(expense.TrangThai) && !expense.MaHoaDon;
             drawerShell(`Chi phí phát sinh #${expense.MaChiPhi}`, `<dl class="grid gap-3 sm:grid-cols-2">
                 <div><dt class="text-sm text-slate-500">Khoản phí</dt><dd>${text(expense.NoiDung)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Phòng / hợp đồng</dt><dd>${text(expense.TenPhong)} / ${text(expense.MaHopDong)}</dd></div>
@@ -568,7 +554,7 @@
                 <div class="sm:col-span-2"><dt class="text-sm text-slate-500">Ghi chú</dt><dd>${text(expense.GhiChu)}</dd></div>
             </dl><div class="mt-5 flex flex-wrap gap-2">${editable ? `${button("Sửa", "expense-edit", `data-expense="${esc(expense.MaChiPhi)}"`, "bg-slate-700 text-white")}
                 ${button("Hủy", "expense-cancel", `data-expense="${esc(expense.MaChiPhi)}"`, "bg-red-700 text-white")}
-                ${button("Lập hóa đơn riêng", "expense-invoice", `data-expense="${esc(expense.MaChiPhi)}"`)}` : ""}</div>`);
+                ${expense.TrangThai === "Chưa lập hóa đơn" ? button("Lập hóa đơn riêng", "expense-invoice", `data-expense="${esc(expense.MaChiPhi)}"`) : ""}` : ""}</div>`);
             return;
         }
         if (type === "receipt") {
@@ -580,8 +566,6 @@
                 SoTienYeuCau: payment?.SoTienYeuCau ?? payment?.TongTien ?? receipt.SoTien,
                 SoTienThucNhan: payment?.SoTienThucNhan
                     ?? (receipt.TrangThai === "Hợp lệ" ? receipt.SoTien : null),
-                SoTienDu: payment?.SoTienDu,
-                TrangThaiHoanDu: payment?.TrangThaiHoanDu || "",
                 MaGiaoDich: receipt.MaGiaoDich || payment?.MaGiaoDich,
                 PhuongThuc: receipt.PhuongThuc || payment?.PhuongThuc,
                 NgayThu: receipt.NgayThu || payment?.NgayThu || payment?.NgayTao
@@ -591,15 +575,10 @@
                 <div><dt class="text-sm text-slate-500">Mã giao dịch</dt><dd>${text(merged.MaGiaoDich)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Hóa đơn/phòng</dt><dd>${text(merged.MaHoaDon)} / ${text(merged.TenPhong)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Người nộp</dt><dd>${text(merged.TenNguoiNop || merged.HoTen || merged.MaSinhVienNop)}</dd></div>
-                <div><dt class="text-sm text-slate-500">Số tiền yêu cầu</dt><dd>${money(merged.SoTienYeuCau)}</dd></div>
-                <div><dt class="text-sm text-slate-500">Số tiền thực nhận</dt><dd>${money(merged.SoTienThucNhan)}</dd></div>
-                <div><dt class="text-sm text-slate-500">Chênh lệch</dt><dd>${paymentDifferenceLabel(merged)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Phương thức</dt><dd>${text(U.paymentMethodLabel(merged.PhuongThuc))}</dd></div>
                 <div><dt class="text-sm text-slate-500">Thời điểm</dt><dd>${esc(receiptDateTime(merged.NgayThu))}</dd></div>
                 <div><dt class="text-sm text-slate-500">Trạng thái</dt><dd>${receiptStatusBadge(status)}</dd></div>
-            </dl><div class="mt-5">${status === "Dư tiền (chờ hoàn)"
-                ? button("Đã trả lại", "surplus-return-open", `data-transaction="${esc(merged.MaGiaoDich)}"`, "bg-emerald-700 text-white")
-                : ""}</div>`);
+            </dl>`);
             return;
         }
         if (type === "payment") {
@@ -612,15 +591,10 @@
                     ${button("⧉", "payment-copy", `data-transaction="${esc(payment.MaGiaoDich)}" aria-label="Sao chép mã giao dịch" title="Sao chép mã giao dịch"`, "bg-slate-100 text-slate-700")}</dd></div>
                 <div><dt class="text-sm text-slate-500">Hóa đơn / phòng</dt><dd>${text(payment.MaHoaDon)} / ${text(payment.TenPhong)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Người nộp</dt><dd>${text(payment.HoTen || payment.MaSinhVien)}</dd></div>
-                <div><dt class="text-sm text-slate-500">Số tiền yêu cầu</dt><dd>${money(payment.SoTienYeuCau ?? payment.TongTien ?? payment.SoTien)}</dd></div>
-                <div><dt class="text-sm text-slate-500">Số tiền thực nhận</dt><dd>${money(payment.SoTienThucNhan)}</dd></div>
-                <div class="sm:col-span-2"><dt class="text-sm text-slate-500">Chênh lệch</dt><dd>${paymentDifferenceLabel(payment)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Phương thức / trạng thái</dt><dd>${text(U.paymentMethodLabel(payment.PhuongThuc))} / ${badge(statusLabel)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Thời điểm</dt><dd>${esc(receiptDateTime(payment.NgayThu || payment.NgayTao))}</dd></div>
             </dl>
-            <div class="mt-5">${statusLabel === "Dư tiền (chờ hoàn)"
-                ? button("Đã trả lại", "surplus-return-open", `data-transaction="${esc(payment.MaGiaoDich)}"`, "bg-emerald-700 text-white")
-                : ""}</div>`);
+            `);
             return;
         }
         if (type === "refund") {
@@ -629,10 +603,10 @@
             drawerShell(`Phiếu chi #${refund.MaPhieuChi}`, `<dl class="grid gap-3 sm:grid-cols-2">
                 <div><dt class="text-sm text-slate-500">Sinh viên / chi tiết</dt><dd>${text(refund.HoTen || refund.MaSinhVien)} / ${text(refund.MaChiTiet)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Ngày chi</dt><dd>${dateOnly(refund.NgayChi)}</dd></div>
-                <div><dt class="text-sm text-slate-500">Đã đóng / đã dùng</dt><dd>${money(refund.SoTienDaDong)} / ${money(refund.SoTienDaSuDung)}</dd></div>
-                <div><dt class="text-sm text-slate-500">Khấu trừ / hoàn</dt><dd>${money(refund.KhauTru)} / ${money(refund.SoTien)}</dd></div>
+                <div><dt class="text-sm text-slate-500">Đã đóng</dt><dd>${money(refund.SoTienDaDong)}</dd></div>
+                <div><dt class="text-sm text-slate-500">Đã hoàn</dt><dd>${money(refund.SoTien)}</dd></div>
                 <div><dt class="text-sm text-slate-500">Lý do / trạng thái</dt><dd>${text(refund.LyDo)} / ${badge(refund.TrangThai)}</dd></div>
-                <div><dt class="text-sm text-slate-500">Ghi chú</dt><dd>${text(refund.GhiChu)}</dd></div>
+                <div><dt class="text-sm text-slate-500">Ghi chú</dt><dd>${text(U.refundDisplayNote(refund))}</dd></div>
             </dl><div class="mt-5">${button("In phiếu chi", "refund-print", `data-refund="${esc(refund.MaPhieuChi)}"`, "bg-slate-700 text-white")}</div>`);
         }
     }
@@ -926,8 +900,13 @@
     }
     function financialRows(type) {
         if (type === "receipts") {
-            const paymentByTransaction = new Map(state.payments.map(row => [String(row.MaGiaoDich), row]));
-            return state.receipts.map(row => {
+            const paymentByTransaction = new Map(state.payments
+                .filter(row => String(row.TrangThai).toUpperCase() !== "RECONCILIATION")
+                .map(row => [String(row.MaGiaoDich), row]));
+            const hiddenTransactionIds = new Set(state.payments
+                .filter(row => String(row.TrangThai).toUpperCase() === "RECONCILIATION")
+                .map(row => String(row.MaGiaoDich)));
+            return state.receipts.filter(row => !hiddenTransactionIds.has(String(row.MaGiaoDich))).map(row => {
                 const payment = paymentByTransaction.get(String(row.MaGiaoDich));
                 const actualAmount = payment
                     ? payment.SoTienThucNhan
@@ -936,8 +915,6 @@
                     ...row,
                     SoTienYeuCau: payment?.SoTienYeuCau ?? payment?.TongTien ?? row.SoTien,
                     SoTienThucNhan: actualAmount,
-                    SoTienDu: payment?.SoTienDu,
-                    TrangThaiHoanDu: payment?.TrangThaiHoanDu || "",
                     HoTen: row.TenNguoiNop || payment?.HoTen || ""
                 };
                 return { ...merged, TrangThaiDanhSach: receiptStatusLabel(merged, payment) };
@@ -979,9 +956,9 @@
     function financialFilterToolbar(type) {
         const rows = financialRows(type);
         const statuses = type === "invoices"
-            ? ["Còn nợ", "Đã thanh toán"]
+            ? ["Còn nợ", "Trễ hạn", "Đã thanh toán"]
             : type === "receipts"
-                ? ["Đã xác nhận", "Thiếu tiền", "Dư tiền (chờ hoàn)", "Đã hoàn tiền dư"]
+                ? ["Đã xác nhận"]
             : [...new Set(rows.map(row => display(row.TrangThaiThanhToan || row.TrangThai, "")).filter(Boolean))];
         const selected = state.financeFilters[type] || {};
         return `<form data-form="financial-filter" data-finance-type="${type}" class="mb-1 flex flex-wrap items-end gap-2 rounded-xl border bg-white p-3">
@@ -1146,7 +1123,8 @@
         const invoiceTotal = Number(invoice.TongTien ?? invoice.TongThuc
             ?? (invoice.ChiTiet || []).reduce((total, line) => total + Number(line.SoTien || 0), 0));
         const invoicePayments = (Array.isArray(paymentHistory) ? paymentHistory : [])
-            .filter(payment => String(payment.MaHoaDon) === String(invoice.MaHoaDon));
+            .filter(payment => String(payment.MaHoaDon) === String(invoice.MaHoaDon)
+                && String(payment.TrangThai).toUpperCase() !== "RECONCILIATION");
         const invoiceContract = state.contracts.find(contract => contract.MaHopDong === invoice.MaHopDong);
         const invoiceMembers = (invoiceContract?.sinhVien || []).filter(member => member.TrangThai === "Đang ở");
         const defaultPayer = invoice.MaSinhVien
@@ -1162,12 +1140,17 @@
                 : []),
             { label: "Số tiền", align: "right", render: line => money(line.SoTien) }
         ], invoice.ChiTiet || []);
+        const hiddenTransactionIds = new Set(state.payments
+            .filter(payment => String(payment.TrangThai).toUpperCase() === "RECONCILIATION")
+            .map(payment => String(payment.MaGiaoDich)));
+        const visibleReceipts = (invoice.PhieuThu || []).filter(receipt =>
+            receipt.TrangThai !== "Đã hủy" && !hiddenTransactionIds.has(String(receipt.MaGiaoDich)));
         const receiptTable = U.renderTable([
             { label: "Mã phiếu", render: receipt => text(receipt.MaPhieuThu) },
             { label: "Người nộp", render: receipt => text(receipt.TenNguoiNop), longText: true, title: receipt => receipt.TenNguoiNop || "—" },
             { label: "Số tiền", align: "right", render: receipt => money(receipt.SoTien) },
             { label: "Trạng thái", render: receipt => badge(receipt.TrangThai) }
-        ], invoice.PhieuThu || []);
+        ], visibleReceipts);
         const paymentTable = U.renderTable([
             { label: "Giao dịch", width: 130, render: payment => text(payment.MaGiaoDich) },
             { label: "Người nộp", width: 180, wrap: true, render: payment => `<span class="admin-wrap-cell">${text(payment.HoTen)}</span>` },
@@ -1213,7 +1196,8 @@
             ${U.isOverdueInvoice(invoice) ? `<div class="mt-3">${button("Gửi nhắc nợ", "invoice-remind", `data-invoice="${esc(invoice.MaHoaDon)}"`, "bg-amber-700 text-white")}</div>` : ""}
             <form id="admin-workflow-form" data-form="receipt-create" class="mt-5 grid gap-3 border-t pt-4 md:grid-cols-3">
                 <input type="hidden" name="invoiceId" value="${esc(invoice.MaHoaDon)}">
-                ${field("Số tiền tiền mặt (mặc định còn nợ)", "soTien", "number", Math.max(0, Number(invoice.ConNo || 0)), true, 'min="1" step="1" inputmode="numeric"')}
+                <div>${field("Số tiền tiền mặt (mặc định còn nợ)", "soTien", "number", Math.max(0, Number(invoice.ConNo || 0)), true, 'min="1" step="1" inputmode="numeric"')}</div>
+                <p class="hidden md:col-span-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" data-cash-amount-warning role="alert" aria-live="polite"></p>
                 ${select("Người nộp", "maSinhVienNop", [
                     ...(invoiceMembers.length
                         ? invoiceMembers.map(member => ({value:member.MaSinhVien,label:memberName(member)}))
@@ -1265,9 +1249,7 @@
             { label: "Mã hóa đơn", width: 120, wrap: true, render: receipt => text(receipt.MaHoaDon) },
             { label: "Phòng", width: 150, nowrap: true, render: receipt => text(receipt.TenPhong) },
             { label: "Người nộp", width: 165, wrap: true, render: receipt => `<span class="admin-wrap-cell">${text(receipt.TenNguoiNop || receipt.HoTen)}</span>` },
-            { label: "Số tiền yêu cầu", align: "right", width: 125, nowrap: true, render: receipt => money(receipt.SoTienYeuCau) },
-            { label: "Số tiền thực nhận", align: "right", width: 135, nowrap: true, render: receipt => money(receipt.SoTienThucNhan) },
-            { label: "Chênh lệch", align: "right", width: 115, nowrap: true, render: receipt => paymentDifferenceLabel(receipt) },
+            { label: "Số tiền", align: "right", width: 125, nowrap: true, render: receipt => money(receipt.SoTien) },
             { label: "Phương thức", width: 140, wrap: true, render: receipt => text(U.paymentMethodLabel(receipt.PhuongThuc)) },
             { label: "Thời điểm", width: 155, nowrap: true, render: receipt => esc(receiptDateTime(receipt.NgayThu || receipt.NgayTao)) },
             { label: "Trạng thái", width: 155, wrap: true, render: receipt => receiptStatusBadge(receipt.TrangThaiDanhSach) }
@@ -1290,8 +1272,6 @@
             { label: "Phiếu chi", width: 140, render: refund => `#${text(refund.MaPhieuChi)} · ${dateOnly(refund.NgayChi)}` },
             { label: "Sinh viên / chi tiết", width: 230, wrap: true, render: refund => `<span class="admin-wrap-cell">${text(refund.HoTen)} / ${text(refund.MaChiTiet)}</span>` },
             { label: "Đã đóng", align: "right", width: 130, render: refund => money(refund.SoTienDaDong) },
-            { label: "Đã dùng", align: "right", width: 130, render: refund => money(refund.SoTienDaSuDung) },
-            { label: "Khấu trừ", align: "right", width: 130, render: refund => money(refund.KhauTru) },
             { label: "Đã hoàn", align: "right", width: 130, render: refund => money(refund.SoTien) },
             { label: "Trạng thái", width: 125, render: refund => badge(refund.TrangThai) },
             { label: "", width: 40, render: () => `<span aria-hidden="true" class="text-lg text-slate-500">›</span>` }
@@ -1588,13 +1568,13 @@
     }
 
     async function renderBaoCaoThongKeModule() {
-        ensureRoot("Báo cáo doanh thu và công nợ", "Doanh thu ròng = phiếu thu hợp lệ − phiếu chi hợp lệ; tiền dư chờ hoàn hiển thị riêng và không tính vào doanh thu.");
+        ensureRoot("Báo cáo doanh thu và công nợ", "Doanh thu ròng = phiếu thu hợp lệ − phiếu chi hợp lệ.");
         content().innerHTML = `
             <div class="mb-4 flex items-end gap-2">
                 ${field("Năm", "reportYear", "number", new Date().getFullYear(), true, 'min="2000" max="2100" step="1"')}
                 <button type="button" data-action="report-load" class="rounded-lg bg-emerald-700 px-4 py-2 font-semibold text-white">Tải báo cáo</button>
             </div>
-            <section data-report-revenue class="overflow-x-auto rounded-xl border bg-white"></section>
+            <section data-report-revenue data-no-admin-filters class="admin-report-scroll max-w-full overflow-x-auto rounded-xl border bg-white"></section>
             <h2 class="mt-6 text-xl font-bold">Công nợ</h2>
             <section data-report-debt class="overflow-x-auto rounded-xl border bg-white"></section>`;
         try {
@@ -1617,11 +1597,12 @@
             ["Tổng thu", "TongThu"], ["Tổng chi", "TongChi"], ["Doanh thu ròng", "DoanhThuRong"]
         ];
         root.querySelector("[data-report-revenue]").innerHTML = U.renderTable([
-            { label: "Tháng", render: month => `${text(month.Thang)}/${text(year)}` },
+            { label: "Tháng", width: 100, nowrap: true, render: month => `${text(month.Thang)}/${text(year)}` },
             ...revenueFields.map(([label, key]) => ({
-                label, align: "right", render: month => money(month[key] ?? (key === "DoanhThuRong" ? month.TongDoanhThu : null))
+                label, align: "right", width: 150, nowrap: true,
+                render: month => money(month[key] ?? (key === "DoanhThuRong" ? month.TongDoanhThu : null))
             }))
-        ], months);
+        ], months, "Không có dữ liệu báo cáo", () => "", "admin-report-table");
         root.querySelector("[data-report-debt]").innerHTML = U.renderTable([
             { label: "Loại", render: debt => text(display(debt.LoaiHoaDon)) },
             { label: "Phòng", render: debt => text(debt.TenPhong) },
@@ -1666,10 +1647,9 @@
                 <dl class="mt-6 grid grid-cols-2 gap-3">
                     <dt>Sinh viên</dt><dd>${esc(refund.HoTen || U.maskStudentId(refund.MaSinhVien))}</dd>
                     <dt>Mã chi tiết</dt><dd>${text(refund.MaChiTiet)}</dd><dt>Đã đóng</dt><dd>${money(refund.SoTienDaDong)}</dd>
-                    <dt>Đã sử dụng</dt><dd>${money(refund.SoTienDaSuDung)}</dd><dt>Khấu trừ</dt><dd>${money(refund.KhauTru)}</dd>
-                    <dt>Số tiền hoàn</dt><dd>${money(refund.SoTien)} (${esc(U.amountInWords(Number(refund.SoTien)))})</dd>
+                    <dt>Đã hoàn</dt><dd>${money(refund.SoTien)} (${esc(U.amountInWords(Number(refund.SoTien)))})</dd>
                     <dt>Ngày chi</dt><dd>${esc(formatDateTime(refund.NgayChi))}</dd>
-                    <dt>Lý do</dt><dd>${text(refund.LyDo)}</dd><dt>Ghi chú</dt><dd>${text(refund.GhiChu)}</dd>
+                    <dt>Lý do</dt><dd>${text(refund.LyDo)}</dd><dt>Ghi chú</dt><dd>${text(U.refundDisplayNote(refund))}</dd>
                 </dl>
                 <div class="mt-12 flex justify-around text-center"><p>Người nhận<br><br><br>Ký, ghi rõ họ tên</p><p>Người lập<br><br><br>Ký, ghi rõ họ tên</p></div>
                 <div class="mt-6 flex justify-end gap-2 print:hidden">
@@ -1928,28 +1908,6 @@
                     if (invoice?.MaHoaDon) await openInvoiceDetail(invoice.MaHoaDon);
                     break;
                 }
-                case "surplus-return-open": {
-                    const payment = state.payments.find(item => String(item.MaGiaoDich) === String(actionButton.dataset.transaction));
-                    if (!payment || payment.TrangThaiHoanDu !== "CHO_HOAN") {
-                        throw new Error("Khoản tiền dư không còn ở trạng thái chờ hoàn.");
-                    }
-                    receiptActionModal("Xác nhận đã trả lại tiền dư", `<dl class="grid grid-cols-[110px_minmax(0,1fr)] gap-2 text-sm">
-                        <dt class="text-slate-500">Hóa đơn</dt><dd class="font-semibold">${text(payment.MaHoaDon)}</dd>
-                        <dt class="text-slate-500">Số tiền trả</dt><dd class="font-semibold">${money(payment.SoTienDu)}</dd>
-                        <dt class="text-slate-500">Người nộp</dt><dd>${text(payment.HoTen)}</dd>
-                    </dl><p class="mt-3 text-sm text-slate-600">Thao tác này chỉ ghi nhận đã trả lại khoản dư, không tạo phiếu chi.</p>`,
-                    "Xác nhận", "surplus-return-submit", `data-transaction="${esc(payment.MaGiaoDich)}"`);
-                    break;
-                }
-                case "surplus-return-submit":
-                    await request(`/api/payments/surplus/${encodeURIComponent(actionButton.dataset.transaction)}/return`, {
-                        method: "POST", body: "{}"
-                    });
-                    closeModal();
-                    window.showToast?.("Đã ghi nhận trả lại tiền dư.", "success");
-                    await loadReceipts();
-                    if (root.querySelector("[data-report-debt]")) await loadReport(new Date().getFullYear());
-                    break;
                 case "receipt-print": await receiptForId(actionButton.dataset.receipt); break;
                 case "receipt-detail": await showReceiptDetails(actionButton.dataset.receipt); break;
                 case "receipt-print-latest": await printLatestReceipt(); break;
@@ -2081,15 +2039,21 @@
                     </form>`);
                     break;
                 case "expense-create-open":
-                    modalShell("Thêm chi phí phát sinh", `<form id="admin-workflow-form" data-form="expense-create" class="grid gap-3 md:grid-cols-2">
-                        ${select("Hợp đồng", "maHopDong", contractOptions(), "", true)}
-                        ${select("Sinh viên (không bắt buộc)", "maChiTiet", [{value:"",label:"Không gắn sinh viên"}], "", false)}
-                        ${field("Khoản phí (ví dụ: sửa vòi nước)", "noiDung", "text", "", true, 'maxlength="255"')}
-                        ${field("Số tiền VND", "soTien", "number", "", true, 'min="1" step="1" inputmode="numeric"')}
-                        ${field("Ngày phát sinh", "ngayPhatSinh", "date", today(), true)}
-                        ${field("Hạn đóng", "hanDong", "date", dateAfterDays(today(), 7), true)}
-                        <label class="block md:col-span-2">Ghi chú<textarea name="ghiChu" maxlength="255" class="mt-1 w-full rounded border p-2"></textarea></label>
-                    </form>`);
+                    modalShell("Thêm chi phí phát sinh", `<form id="admin-workflow-form" data-form="expense-create" class="admin-expense-form">
+                        ${select("Hợp đồng", "maHopDong", contractOptions(), "", true, "admin-expense-field")}
+                        ${select("Sinh viên (không bắt buộc)", "maChiTiet", [{value:"",label:"Không gắn sinh viên"}], "", false, "admin-expense-field")}
+                        ${select("Cách lập hóa đơn", "cheDoLap", [
+                            {value:"RIENG",label:"Lập hóa đơn riêng"},
+                            {value:"GOP",label:"Gộp vào hóa đơn dịch vụ kỳ"}
+                        ], "RIENG", true, "admin-expense-field")}
+                        ${expenseTextField("Khoản phí (ví dụ: sửa vòi nước)", "noiDung", "", true, 'maxlength="255"')}
+                        ${expenseAmountField()}
+                        ${expenseDateField("Ngày phát sinh", "ngayPhatSinh", today())}
+                        ${expenseDateField("Hạn đóng", "hanDong", dateAfterDays(today(), 7))}
+                        <label class="admin-expense-field admin-expense-note">
+                            <span>Ghi chú</span><textarea name="ghiChu" maxlength="255" class="admin-expense-control"></textarea>
+                        </label>
+                    </form>`, "Xác nhận", "admin-expense-dialog");
                     break;
                 case "room-edit": await openRoomEdit(actionButton.dataset.room); break;
                 case "service-edit": await openServiceEdit(actionButton.dataset.service); break;
@@ -2136,7 +2100,7 @@
         if (!expense || expense.TrangThai !== "Chưa lập hóa đơn" || expense.MaHoaDon) {
             throw new Error("Khoản đã lập hóa đơn hoặc đã hủy, không thể sửa.");
         }
-        modalShell("Sửa chi phí phát sinh", `<form id="admin-workflow-form" data-form="expense-edit">
+        modalShell("Sửa chi phí phát sinh", `<form id="admin-workflow-form" data-form="expense-edit" class="admin-expense-form">
             <input type="hidden" name="expenseId" value="${esc(expense.MaChiPhi)}">
             ${select("Hợp đồng", "maHopDong", contractOptions(false), expense.MaHopDong, true)}
             ${select("Sinh viên (không bắt buộc)", "maChiTiet", [
@@ -2144,11 +2108,11 @@
                 ...state.contracts.find(item => item.MaHopDong === expense.MaHopDong)?.sinhVien?.map(member => ({value:member.MaChiTiet,label:memberName(member)})) || []
             ], expense.MaChiTiet || "", false)}
             ${field("Khoản phí (ví dụ: sửa vòi nước)", "noiDung", "text", expense.NoiDung, true, 'maxlength="255"')}
-            ${field("Số tiền VND", "soTien", "number", expense.SoTien, true, 'min="1" step="1" inputmode="numeric"')}
-            ${field("Ngày phát sinh", "ngayPhatSinh", "date", dateOnly(expense.NgayPhatSinh), true)}
-            ${field("Hạn đóng", "hanDong", "date", dateOnly(expense.HanDong), true)}
+            ${expenseAmountField(expense.SoTien)}
+            ${expenseDateField("Ngày phát sinh", "ngayPhatSinh", dateOnly(expense.NgayPhatSinh))}
+            ${expenseDateField("Hạn đóng", "hanDong", dateOnly(expense.HanDong))}
             <label class="block">Ghi chú<textarea name="ghiChu" maxlength="255" class="mt-1 w-full rounded border p-2">${esc(expense.GhiChu || "")}</textarea></label>
-        </form>`);
+        </form>`, "Xác nhận", "admin-expense-dialog");
     }
     function serviceCatalogMarkup() {
         const services = state.services || [];
@@ -2282,6 +2246,16 @@
                 `<option value="${esc(member.MaChiTiet)}" ${String(member.MaChiTiet) === selected ? "selected" : ""}>${esc(memberName(member))}</option>`
             ).join("")}`;
         }
+        if (form.dataset.form === "expense-create" && event.target.name === "cheDoLap") {
+            const studentSelect = form.elements.maChiTiet;
+            if (event.target.value === "GOP") {
+                studentSelect.value = "";
+                studentSelect.disabled = true;
+                studentSelect.setCustomValidity("");
+            } else {
+                studentSelect.disabled = false;
+            }
+        }
         if (form.dataset.form === "contract-create" && event.target.name === "tenPhong") {
             updateCreateStudentOptions(form, event.target.value);
             const tier = U.tierForRoom(state.rooms, event.target.value);
@@ -2321,6 +2295,13 @@
     }
     async function handleInput(event) {
         const target = event.target;
+        if (target.matches("[data-expense-amount]")) {
+            const message = target.value.trim() ? expenseAmountError(target.value) : "";
+            const error = target.closest("label")?.querySelector("[data-expense-amount-error]");
+            if (error) error.textContent = message;
+            target.setAttribute("aria-invalid", message ? "true" : "false");
+            return;
+        }
         if (target.matches("[data-student-search]")) {
             const form = target.closest('form[data-form="contract-create"]');
             const row = target.closest(".member-row");
@@ -2432,6 +2413,17 @@
         const form = event.target.closest("#admin-workflow-form, form[data-form]");
         if (!form) return;
         event.preventDefault();
+        if (["expense-create", "expense-edit"].includes(form.dataset.form)) {
+            const amountInput = form.querySelector("[data-expense-amount]");
+            const amountError = expenseAmountError(amountInput?.value);
+            const errorElement = form.querySelector("[data-expense-amount-error]");
+            if (errorElement) errorElement.textContent = amountError;
+            amountInput?.setAttribute("aria-invalid", amountError ? "true" : "false");
+            if (amountError) {
+                amountInput?.focus();
+                return;
+            }
+        }
         for (const input of form.querySelectorAll("[data-admin-date]")) {
             const value = input.value.trim();
             if (!value && !input.required) continue;
@@ -2439,7 +2431,8 @@
             const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
             const message = U.validateDateInput(value, input.dataset.dateBirth === "true"
                 ? { minYear: 1900, maxDate: todayIso } : {});
-            const error = input.closest("div")?.parentElement?.querySelector("[data-date-error]");
+            const error = input.closest("label")?.querySelector("[data-date-error]")
+                || input.closest("div")?.parentElement?.querySelector("[data-date-error]");
             if (error) error.textContent = message;
             if (message) {
                 input.focus();
@@ -2718,7 +2711,25 @@
                 case "receipt-create": {
                     const amount = U.parseVnd(values.get("soTien"));
                     const balance = Number(state.invoiceDetail?.ConNo || 0);
-                    if (U.exceedsBalance(amount, balance)) throw new Error(`Số tiền phải là số nguyên VND dương và không vượt còn nợ ${money(balance)}.`);
+                    const warning = form.querySelector("[data-cash-amount-warning]");
+                    let warningText = "";
+                    if (amount === null) {
+                        warningText = "Vui lòng nhập số tiền nguyên VND hợp lệ.";
+                    } else if (amount < balance) {
+                        warningText = `Bạn nhập thiếu ${money(balance - amount)} so với số tiền cần nộp (${money(balance)}).`;
+                    } else if (amount > balance) {
+                        warningText = `Bạn nhập dư ${money(amount - balance)} so với số tiền cần nộp (${money(balance)}).`;
+                    } else if (balance <= 0) {
+                        warningText = "Hóa đơn không còn nợ.";
+                    }
+                    if (warningText) {
+                        if (warning) {
+                            warning.textContent = warningText;
+                            warning.classList.remove("hidden");
+                        }
+                        break;
+                    }
+                    warning?.classList.add("hidden");
                     if (!window.confirm(`Xác nhận đã thu tiền mặt ${money(amount)} cho hóa đơn ${values.get("invoiceId")}?`)) break;
                     const result = await request(`/api/HoaDon/${encodeURIComponent(values.get("invoiceId"))}/phieuthu`, {
                         method: "POST", body: json({
@@ -2736,6 +2747,7 @@
                 case "expense-edit": {
                     const amount = U.parseVnd(values.get("soTien"));
                     if (amount === null) throw new Error("Số tiền phải là số nguyên VND dương.");
+                    if (amount > U.MAX_INCIDENT_EXPENSE_VND) throw new Error(`Số tiền chi phí phát sinh không được vượt quá ${U.MAX_INCIDENT_EXPENSE_VND.toLocaleString("vi-VN")} đ.`);
                     const body = {
                         maHopDong: values.get("maHopDong"),
                         maChiTiet: values.get("maChiTiet") ? Number(values.get("maChiTiet")) : null,
@@ -2745,6 +2757,7 @@
                         ghiChu: values.get("ghiChu") || ""
                     };
                     const editing = form.dataset.form === "expense-edit";
+                    if (!editing) body.cheDoLap = values.get("cheDoLap");
                     if (!window.confirm(`${editing ? "Cập nhật" : "Thêm"} chi phí phát sinh ${body.noiDung} · ${money(amount)}?`)) break;
                     await request(editing ? `/api/ChiPhiPhatSinh/${encodeURIComponent(values.get("expenseId"))}` : "/api/ChiPhiPhatSinh", {
                         method: editing ? "PUT" : "POST", body: json(body)

@@ -49,7 +49,9 @@ function validateRegistration(body, now = new Date()) {
     const latest = new Date(Date.UTC(today.getUTCFullYear() - 15, today.getUTCMonth(), today.getUTCDate()));
     if (birthday > latest || birthday < earliest) return { error: "Tuổi phải từ 15 đến 100 và ngày sinh không được ở tương lai." };
     if (registration.address.length > 255) return { error: "Địa chỉ tối đa 255 ký tự." };
-    if (registration.school.length > 150) return { error: "Tên trường tối đa 150 ký tự." };
+    if (!registration.school || registration.school.length > 150) {
+        return { error: "Tên trường là bắt buộc và tối đa 150 ký tự." };
+    }
     if (!registration.className || registration.className.length > 50) return { error: "Lớp là bắt buộc và tối đa 50 ký tự." };
     if (registration.password.length < 8 || Buffer.byteLength(registration.password, "utf8") > 72) {
         return { error: "Mật khẩu phải có ít nhất 8 ký tự và tối đa 72 byte khi mã hóa." };

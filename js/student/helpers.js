@@ -30,13 +30,13 @@
         : Number(invoice.room) + Number(invoice.electricity) + Number(invoice.water);
     const badge = status => {
         const raw = String(status ?? '').trim() || '—';
-        const value = ['Cần đối soát', 'Không ghi nhận', 'RECONCILIATION'].includes(raw)
-            ? 'Cần xác minh' : raw;
+        if (raw.toUpperCase() === 'RECONCILIATION') return '';
+        const value = raw;
         const tone = ['Đã duyệt', 'Đã thanh toán', 'Đang hiệu lực', 'Đã xử lý', 'Hoàn tất'].includes(value)
             ? 'st-success'
-            : ['Từ chối', 'Đã hủy', 'Đã huỷ'].includes(value)
+            : ['Từ chối', 'Đã hủy', 'Đã huỷ', 'Trễ hạn'].includes(value)
                 ? 'st-neutral'
-                : ['Chờ xác nhận', 'Cần xác minh', 'Còn nợ', 'Chờ duyệt', 'Chờ xử lý', 'Trễ hạn'].includes(value)
+                : ['Chờ xác nhận', 'Còn nợ', 'Chờ duyệt', 'Chờ xử lý', 'Trễ hạn'].includes(value)
                     ? 'st-warning'
                     : 'st-neutral';
         return `<span class="st-badge ${tone}">${esc(value)}</span>`;
@@ -44,7 +44,7 @@
     const fields = entries => `<dl class="st-fields">${entries.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value === null || value === undefined || value === '' ? '—' : value)}</dd></div>`).join('')}</dl>`;
     const card = (title, content) => `<article class="st-card"><h2>${title}</h2>${content}</article>`;
     const table = (headers, rows) => `<div class="st-table-wrap"><table><thead><tr>${headers.map(h => `<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${headers.length}" class="st-empty">Chưa có dữ liệu.</td></tr>`}</tbody></table></div>`;
-    const requestTable = rows => table(['Mã yêu cầu', 'Loại yêu cầu', 'Ngày gửi', 'Nội dung', 'Trạng thái', 'Phản hồi', 'Chi tiết'], rows.map(r => `<tr><td>${esc(r.id || '—')}</td><td>${esc(r.type || '—')}</td><td>${date(r.date)}</td><td class="st-long" title="${esc(r.content || '—')}">${esc(r.content || '—')}</td><td>${badge(r.status)}</td><td class="st-long" title="${esc(r.reply || 'Chưa có phản hồi')}">${esc(r.reply || 'Chưa có phản hồi')}</td><td><button type="button" class="st-button st-request-detail" data-action="request-detail" data-id="${esc(r.id)}">Xem</button></td></tr>`).join(''));
+    const requestTable = rows => table(['Mã yêu cầu', 'Loại yêu cầu', 'Ngày gửi', 'Ngày hợp đồng / đề xuất', 'Lý do', 'Trạng thái', 'Phản hồi', 'Chi tiết'], rows.map(r => `<tr><td>${esc(r.id || '—')}</td><td>${esc(r.type || '—')}</td><td>${date(r.date)}</td><td class="st-long">${r.contractStart ? `Bắt đầu: ${date(r.contractStart)}<br>` : ''}${r.contractEnd ? `Kết thúc hiện tại: ${date(r.contractEnd)}<br>` : ''}${r.proposedEnd ? `Đề xuất: ${date(r.proposedEnd)}` : '—'}</td><td class="st-long" title="${esc(r.content || '—')}">${esc(r.content || '—')}</td><td>${badge(r.status)}</td><td class="st-long" title="${esc(r.reply || 'Chưa có phản hồi')}">${esc(r.reply || 'Chưa có phản hồi')}</td><td><button type="button" class="st-button st-request-detail" data-action="request-detail" data-id="${esc(r.id)}">Xem</button></td></tr>`).join(''));
     const calendarDay = value => {
         const [year, month, day] = value.split('-').map(Number);
         return Date.UTC(year, month - 1, day) / 86400000;

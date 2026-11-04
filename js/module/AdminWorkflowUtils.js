@@ -1,4 +1,5 @@
 (function (root) {
+    const MAX_INCIDENT_EXPENSE_VND = 50000000;
     const studentIdentity = root.StudentIdentity
         || (typeof module !== "undefined" && module.exports ? require("../student-identity") : null);
     const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, character => ({
@@ -170,7 +171,7 @@
 
     function statusClass(value) {
         const label = displayLabel(value).trim().toLocaleLowerCase("vi");
-        if (["chờ xác nhận", "cần xác minh", "cần đối soát", "còn nợ", "chưa thanh toán", "thanh toán một phần",
+        if (["chờ xác nhận", "còn nợ", "chưa thanh toán", "thanh toán một phần",
             "chưa xếp phòng", "chờ duyệt", "chờ xử lý", "sắp hết hạn"].includes(label)) {
             return "admin-status--warning";
         }
@@ -200,16 +201,40 @@
         return String(value ?? "");
     }
 
-    function invoicePaymentLabel(invoice) {
-        return String(invoice?.TrangThaiThanhToan || "").trim() === "Đã thanh toán"
-            || (invoice?.ConNo !== undefined && Number(invoice.ConNo) <= 0)
-            ? "Đã thanh toán" : "Còn nợ";
+    function vietnamToday() {
+        const parts = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Asia/Ho_Chi_Minh",
+            year: "numeric", month: "2-digit", day: "2-digit"
+        }).formatToParts(new Date());
+        const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+        return `${values.year}-${values.month}-${values.day}`;
     }
 
-    function invoicePaymentDisplayLabel(invoice) {
-        return invoicePaymentLabel(invoice) === "Đã thanh toán"
-            && (invoice?.DaXacNhanQR === true || Number(invoice?.DaXacNhanQR) === 1)
-            ? "Đã xác nhận thanh toán" : invoicePaymentLabel(invoice);
+    function invoicePaymentLabel(invoice, today = vietnamToday()) {
+        if (String(invoice?.TrangThaiThanhToan || "").trim() === "Đã hủy") return "Đã hủy";
+        const balance = Number(invoice?.ConNo);
+        if ((invoice?.ConNo !== undefined && balance <= 0)
+            || String(invoice?.TrangThaiThanhToan || "").trim() === "Đã thanh toán") {
+            return "Đã thanh toán";
+        }
+        const dueDate = String(invoice?.HanThanhToanApDung || invoice?.HanThanhToan || "")
+            .slice(0, 10);
+        if (balance > 0 && /^\d{4}-\d{2}-\d{2}$/.test(dueDate) && dueDate < today) {
+            return "Trễ hạn";
+        }
+        return "Còn nợ";
+    }
+
+    function refundDisplayNote(refund) {
+        const note = String(refund?.GhiChu || "").trim();
+        const requestId = note.match(/yêu cầu\s+(YC\d{5})/i)?.[1];
+        const days = Number(refund?.SoNgayDaO);
+        const amount = Number(refund?.SoTien);
+        if (refund?.LyDo !== "Trả phòng sớm" || !requestId
+            || !Number.isInteger(days) || days < 1 || !Number.isFinite(amount) || amount < 0) {
+            return note || "—";
+        }
+        return `Trả phòng sớm theo yêu cầu ${requestId}: ở ${days} ngày, hoàn ${amount.toLocaleString("vi-VN")} đ`;
     }
 
     function overdueDays(invoice, today = "") {
@@ -609,7 +634,6 @@
         CO_DINH_KY: "Cố định theo kỳ",
         PHONG: "Cả phòng",
         CA_NHAN: "Từng người",
-        RECONCILIATION: "Cần đối soát",
         VALID: "Hợp lệ",
         SUCCESS: "Hợp lệ",
         PENDING: "Chờ xác nhận",
@@ -648,8 +672,6 @@
         "ĐÃ KẾT THÚC": "Đã kết thúc",
         "CÒN HIỆU LỰC": "Còn hiệu lực",
         "CHỜ XÁC NHẬN": "Chờ xác nhận",
-        "CẦN ĐỐI SOÁT": "Cần đối soát",
-        "KHÔNG GHI NHẬN": "Cần xác minh",
         "ĐÃ THANH TOÁN": "Đã thanh toán",
         "HỢP LỆ": "Hợp lệ",
         "ĐÃ HỦY": "Đã hủy",
@@ -668,38 +690,34 @@
     function displayLabel(value, fallback = "—") {
         const raw = String(value ?? "").trim();
         if (!raw || raw.toLowerCase() === "null" || raw.toLowerCase() === "undefined") return fallback;
+        if (raw.toUpperCase() === "RECONCILIATION") return fallback;
         return displayLabels[raw.toUpperCase()] || raw;
     }
 
     function isOverdueInvoice(invoice, today = "") {
-        const dueDate = date(String(invoice?.HanThanhToan ?? "").slice(0, 10), "parse");
-        if (!dueDate || Number(invoice?.ConNo) <= 0 || invoice?.TrangThaiThanhToan === "Đã hủy") return false;
-        const currentDate = today || (() => {
-            const now = new Date();
-            return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-        })();
-        return dueDate < currentDate;
+        return invoicePaymentLabel(invoice, today || vietnamToday()) === "Trễ hạn";
     }
 
     function filterFinancialRows(rows, type, filters = {}) {
         const search = String(filters.search || "").trim().toLocaleLowerCase("vi");
         const status = String(filters.status || (type === "receipts" ? "ALL" : "ACTION_REQUIRED"));
-        const receiptStatuses = ["Đã xác nhận", "Thiếu tiền", "Dư tiền (chờ hoàn)", "Đã hoàn tiền dư"];
+        const receiptStatuses = ["Đã xác nhận"];
         const method = String(filters.method || "ALL");
         const from = String(filters.from || "");
         const to = String(filters.to || "");
         return rows.filter(row => {
             const rowStatus = String(row.TrangThaiDanhSach || row.TrangThaiThanhToan || row.TrangThai || "");
+            if (String(rowStatus).toUpperCase() === "RECONCILIATION") return false;
             const normalizedStatus = displayLabel(rowStatus, "");
             if (type === "invoices" && ["Đã hủy", "Đã huỷ"].includes(normalizedStatus)) return false;
             if (type === "receipts" && !receiptStatuses.includes(normalizedStatus)) return false;
             if (filters.invoiceType && filters.invoiceType !== "ALL" && row.LoaiHoaDon !== filters.invoiceType) return false;
             const isActionRequired = type === "invoices"
-                ? invoicePaymentLabel(row) === "Còn nợ"
+                ? ["Còn nợ", "Trễ hạn"].includes(invoicePaymentLabel(row))
                 : type === "receipts"
                     ? false
                     : type === "payments"
-                            ? ["Cần đối soát", "Cần xác minh", "Chờ xác nhận"].includes(normalizedStatus)
+                            ? ["Chờ xác nhận"].includes(normalizedStatus)
                         : type === "expenses"
                             ? normalizedStatus === "Chưa lập hóa đơn"
                         : ["Chờ xác nhận", "Cần xử lý"].includes(normalizedStatus);
@@ -833,10 +851,11 @@
     }
 
     const utils = Object.freeze({
+        MAX_INCIDENT_EXPENSE_VND,
         escapeHtml, parseVnd, parseVndNonNegative, formatVnd, exceedsBalance,
         refundReasonRequired, invoicePersonLabel, amountInWords, date, dateTime, tierForRoom,
         displayLabel, statusClass, statusBadge, genderBadge, paymentMethodLabel, maskPaymentReference,
-        invoicePaymentLabel, invoicePaymentDisplayLabel, overdueDays,
+        invoicePaymentLabel, vietnamToday, refundDisplayNote, overdueDays,
         maskStudentId, maskStudentIdsInText, filterFinancialRows, isOverdueInvoice, serviceCanBeActive, canChangeRoomTier,
         roomGender, roomLabel, filterRoomsByGender, filterStudentsByRoomGender,
         contractRoomAvailability, contractRoomSelection, contractRoomsForStudents, contractMemberRowHtml, memberAddRequest, hasTierDraftChanges, filterDateInput, normalizeDateInput,

@@ -147,6 +147,9 @@ test("Express API keeps registration, login, and health public while protecting 
     });
 
     const { DiaChi, ...registrationWithoutAddress } = validRegistration;
+    const missingSchool = await post("/api/student/register", { ...registrationWithoutAddress, Truong: " " });
+    assert.equal(missingSchool.status, 400);
+    assert.match((await missingSchool.json()).message, /Tên trường là bắt buộc/);
     const registration = await post("/api/student/register", registrationWithoutAddress);
     assert.equal(registration.status, 201);
     assert.equal(state.accounts.length, 1);
@@ -164,7 +167,9 @@ test("registration validation accepts Vietnamese phone formats and normalizes ph
     const { DiaChi, ...registrationWithoutAddress } = validRegistration;
     assert.equal(validateRegistration(registrationWithoutAddress, now).error, undefined);
     assert.equal(validateRegistration({ ...validRegistration, SoDienThoai: "0901234567" }, now).error, undefined);
-    assert.equal(validateRegistration({ ...validRegistration, Truong: "" }, now).error, undefined);
+    assert.equal(validateRegistration({ ...validRegistration, Truong: "" }, now).error,
+        "Tên trường là bắt buộc và tối đa 150 ký tự.");
+    assert.equal(validateRegistration({ ...validRegistration, Truong: "  Đại học  " }, now).value.school, "Đại học");
     const passport = validateRegistration({ ...validRegistration, MaSinhVien: " ab12cd " }, now);
     assert.equal(passport.error, undefined);
     assert.equal(passport.value.studentId, "AB12CD");

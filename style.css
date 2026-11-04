@@ -415,6 +415,37 @@ input:-webkit-autofill:active {
 .dk-table { width: 100%; min-width: 1080px; text-align: left; border-collapse: collapse; }
 .dk-table th { background: var(--theme-background); color: var(--theme-text-muted); font-size: 12px; font-weight: 600; }
 .dk-table th, .dk-table td { padding: 16px; border-bottom: 1px solid #f1f5f9; }
+.dk-table td:has(.dk-contract-summary) { min-width: 320px; }
+.dk-contract-summary { display: grid; gap: 5px; min-width: 0; }
+.dk-contract-summary-row { display: grid; grid-template-columns: minmax(118px, auto) minmax(0, 1fr); align-items: baseline; gap: 8px; min-width: 0; }
+.dk-contract-summary-row > span { overflow: hidden; color: var(--theme-text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.dk-contract-summary-row > strong { overflow: hidden; color: var(--theme-text); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.admin-report-scroll { width: 100%; overflow-x: auto; overflow-y: hidden; }
+.admin-data-table.admin-report-table { width: max-content; min-width: 100%; table-layout: auto; }
+.admin-report-table th, .admin-report-table td { white-space: nowrap; }
+.admin-expense-field { display: flex; min-width: 0; flex-direction: column; align-items: stretch; margin: 0; color: #334155; font-size: 14px; font-weight: 600; line-height: 20px; }
+.admin-expense-field > span:first-child { display: block; margin: 0 0 6px; }
+.admin-expense-control { box-sizing: border-box; width: 100%; height: 42px; min-height: 0; margin: 0; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 12px; color: #0f172a; background: #fff; font-family: inherit; font-size: 14px; font-weight: 400; line-height: 20px; }
+.admin-expense-date-control { position: relative; display: flex; min-width: 0; gap: 4px; margin: 0; }
+.admin-expense-date-control [data-admin-date] { flex: 1 1 auto; min-width: 0; }
+.admin-expense-date-control [data-action="date-picker-open"] { box-sizing: border-box; height: 42px; flex: 0 0 auto; margin: 0; border: 1px solid #cbd5e1; border-radius: 7px; padding: 0 12px; background: #fff; color: #475569; }
+.admin-expense-date-control [data-date-picker] { position: absolute; top: 0; right: 0; width: 1px; height: 1px; opacity: 0; }
+.admin-expense-date-error,
+.admin-expense-field-error { display: none; margin: 4px 0 0; color: #b91c1c; font-size: 12px; font-weight: 400; line-height: 16px; }
+.admin-expense-date-error:not(:empty),
+.admin-expense-field-error:not(:empty) { display: block; }
+.admin-expense-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; column-gap: 16px; row-gap: 16px; margin: 0; }
+.admin-expense-form > .admin-expense-field { min-width: 0; margin: 0; }
+.admin-expense-form > .admin-expense-field > span:first-child { margin-bottom: 6px; }
+.admin-expense-form .admin-expense-note { grid-column: 1 / -1; }
+.admin-expense-form .admin-expense-note textarea { height: 72px; padding: 8px 12px; resize: vertical; }
+.admin-expense-dialog > [data-modal-error]:empty { display: none; }
+.admin-expense-dialog > [data-modal-error]:not(:empty) { min-height: 0; margin: 16px 0 0; }
+.admin-expense-dialog > footer { margin-top: 16px; padding-top: 16px; }
+@media (max-width: 600px) {
+    .admin-expense-form { grid-template-columns: minmax(0, 1fr); }
+    .admin-expense-form .admin-expense-note { grid-column: auto; }
+}
 .dk-table tbody tr:hover { background: var(--theme-background); }
 .dk-table small { display: block; margin-top: 5px; color: var(--theme-text-muted); }
 .dk-badge { display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; border-radius: 20px; padding: 5px 10px; font-size: 12px; font-weight: 600; }
@@ -560,6 +591,9 @@ body > header, #main-nav .dms-sidebar-logo { border-color: var(--theme-sidebar);
 #module-trangchu .home-request-announcement { border-top-color: #fde68a; border-right-color: #fde68a; border-bottom-color: #fde68a; border-left: 4px solid #d97706; background: #fffbeb; }
 #module-trangchu .home-request-announcement:hover { background: #fef3c7; }
 #module-trangchu .home-request-announcement i { color: #b45309; }
+#module-trangchu .home-managed-notice { border-left: 4px solid #2563eb; background: #eff6ff; }
+#module-trangchu .home-notice-label { display: inline-flex; border: 1px solid transparent; border-radius: 9999px; padding: 2px 8px; font-size: 11px; font-weight: 700; line-height: 1.4; }
+#module-trangchu .home-notice-label--management { border-color: #93c5fd; background: #dbeafe; color: #1d4ed8; }
 #module-trangchu .home-documents { min-width: 0; }
 #module-trangchu .home-documents .home-section-heading { margin-bottom: 16px; }
 #module-trangchu [data-contact-form] { min-width: 0; }

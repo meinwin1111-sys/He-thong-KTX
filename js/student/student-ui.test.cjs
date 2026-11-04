@@ -4,6 +4,7 @@ const { readFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
+const adminUtils = require('../module/AdminWorkflowUtils');
 
 const root = resolve(__dirname, '../..');
 const load = path => readFileSync(resolve(root, path), 'utf8');
@@ -218,7 +219,10 @@ test('invalid proposed end dates show the existing validation message and block 
         pages: {},
         helpers: {
             esc: value => String(value ?? ''),
-            date: value => String(value ?? ''),
+            date: value => {
+                const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value ?? ''));
+                return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value ?? '');
+            },
             badge: value => String(value ?? ''),
             card: (_title, content) => content,
             requestTable: () => ''
@@ -231,7 +235,11 @@ test('invalid proposed end dates show the existing validation message and block 
         ApiClient: {
             fetch: async (url, options = {}) => {
                 calls.push({ url, options });
-                return { json: async () => [] };
+                return { json: async () => url === '/api/student/contracts' ? [{
+                    TrangThaiHopDong: 'Còn hiệu lực',
+                    NgayBatDau: '2026-10-01',
+                    NgayKetThuc: '2027-09-30'
+                }] : [] };
             }
         },
         Date,
@@ -250,6 +258,8 @@ test('invalid proposed end dates show the existing validation message and block 
     window.document.body.append(root);
     await ui.pages.requests.load(root);
     const form = root.querySelector('#student-request-form');
+    assert.match(form.querySelector('[data-contract-dates]').textContent, /01\/10\/2026/);
+    assert.match(form.querySelector('[data-contract-dates]').textContent, /30\/09\/2027/);
     const dateInput = form.elements.extensionEndDateText;
     const dateError = form.querySelector('[data-date-error]');
     form.elements.content.value = 'Gia hạn hợp đồng';
@@ -326,6 +336,32 @@ test('early checkout request DOM requires a proposed date and a trimmed 10-chara
     dom.window.close();
 });
 
+test('student request history displays contract dates before the reason', () => {
+    const markup = ui.helpers.requestTable([{
+        id: 'YC00001',
+        type: 'Trả phòng sớm',
+        date: '2026-10-02',
+        contractStart: '2026-10-01',
+        contractEnd: '2027-09-30',
+        proposedEnd: '2026-10-14',
+        content: 'Xin trả phòng sớm vì chuyển nơi ở.',
+        status: 'Chờ duyệt',
+        reply: ''
+    }]);
+    const dom = new JSDOM(markup);
+    const table = dom.window.document.querySelector('table');
+    const headers = [...table.querySelectorAll('th')].map(cell => cell.textContent.trim());
+    const row = table.querySelector('tbody tr');
+    const dateColumn = row.cells[headers.indexOf('Ngày hợp đồng / đề xuất')];
+    const reasonColumn = row.cells[headers.indexOf('Lý do')];
+    assert.match(dateColumn.textContent, /01\/10\/2026/);
+    assert.match(dateColumn.textContent, /30\/09\/2027/);
+    assert.match(dateColumn.textContent, /14\/10\/2026/);
+    assert.match(reasonColumn.textContent, /Xin trả phòng sớm/);
+    assert.ok(headers.indexOf('Ngày hợp đồng / đề xuất') < headers.indexOf('Lý do'));
+    dom.window.close();
+});
+
 test('student registration birth-date input stays raw until blur normalizes it', () => {
     const dom = new JSDOM('<body><div><input id="birthday" data-date-error></div></body>', {
         url: 'http://localhost/'
@@ -359,6 +395,34 @@ test('student registration birth-date input stays raw until blur normalizes it',
     assert.equal(input.value, '11/11/2005');
     assert.equal(input.dataset.adminDate, 'true');
     assert.equal(input.dataset.dateBirth, 'true');
+    dom.window.close();
+});
+
+test('student registration requires a non-empty school and shows the inline error', () => {
+    const dom = new JSDOM('<body></body>', { url: 'http://localhost/' });
+    dom.window.HTMLDialogElement.prototype.showModal = function showModal() { this.open = true; };
+    const authContext = {
+        Date,
+        FormData: dom.window.FormData,
+        AdminWorkflowUtils: require('../module/AdminWorkflowUtils'),
+        document: dom.window.document,
+        localStorage: dom.window.localStorage,
+        sessionStorage: dom.window.sessionStorage,
+        console
+    };
+    authContext.window = authContext;
+    vm.runInNewContext(load('js/student/auth.js'), authContext, { filename: 'auth.js' });
+    vm.runInNewContext(load('js/student/DangKy.js'), authContext, { filename: 'DangKy.js' });
+    authContext.openStudentRegistration();
+    const dialog = dom.window.document.querySelector('.student-register-dialog');
+    const school = dialog.querySelector('[name="school"]');
+    assert.equal(school.required, true);
+    assert.match(dialog.querySelector('label[for="sr-school"]').textContent, /Tên trường\s*\*/);
+    const submit = new dom.window.Event('submit', { bubbles: true, cancelable: true });
+    dialog.querySelector('form').dispatchEvent(submit);
+    assert.equal(submit.defaultPrevented, true);
+    assert.equal(dialog.querySelector('[data-school-error]').textContent, 'Vui lòng nhập tên trường.');
+    assert.equal(school.validationMessage, 'Vui lòng nhập tên trường.');
     dom.window.close();
 });
 
@@ -456,8 +520,8 @@ test('backend invoice DOM offers QR or cash guidance and maps transaction status
             })
         },
         AdminWorkflowUtils: {
-            invoicePaymentLabel: () => 'Còn nợ',
-            isOverdueInvoice: () => false,
+            invoicePaymentLabel: invoice => adminUtils.invoicePaymentLabel(invoice, '2026-03-09'),
+            isOverdueInvoice: invoice => adminUtils.isOverdueInvoice(invoice, '2026-03-09'),
             overdueDays: () => 0,
             dateTime: () => '01/03/2026',
             date: (value, mode) => mode === 'format' ? value : value
@@ -493,6 +557,8 @@ test('backend invoice DOM offers QR or cash guidance and maps transaction status
         assert.equal(load('js/student/HoaDon.js').includes(emDash), false);
         assert.equal(load('js/student/app.js').includes(emDash), false);
         assert.equal(host.querySelector('[data-action="backend-invoice-pay"]').textContent.trim(), 'Thanh toán');
+        assert.match(host.textContent, /Trễ hạn/);
+        assert.ok(host.querySelector('.st-badge.st-danger'));
         assert.equal(testUi.backendPayments.statusLabel('PENDING'), 'Đang xử lý');
         assert.equal(testUi.backendPayments.statusLabel('SUCCESS'), 'Thành công');
         assert.equal(testUi.backendPayments.statusLabel('REJECTED'), 'Thất bại');
@@ -553,6 +619,7 @@ test('student registration form omits address and submits successfully without i
         gender: 'Nữ',
         phone: '0901234567',
         email: 'student@gmail.com',
+        school: '  Đại học kiểm thử  ',
         className: 'CNTT01',
         password: 'valid-password',
         confirm: 'valid-password'
@@ -565,6 +632,7 @@ test('student registration form omits address and submits successfully without i
     });
     assert.ok(registrationBody);
     assert.equal(Object.hasOwn(registrationBody, 'DiaChi'), false);
+    assert.equal(registrationBody.Truong, 'Đại học kiểm thử');
     assert.equal(dialog.open, false);
     dom.window.close();
 });
@@ -573,7 +641,6 @@ function createStudentAppHarness({
     demoEnabled = false,
     onDemoConfirm = async () => ({ success: true }),
     invoicePaid = false,
-    qrConfirmed = false,
     paymentMethod = 'ONLINE',
     invoiceDates = { NgayLap: '2026-03-01', KyThanhToan: '2026-03-01', HanThanhToan: '2026-03-08' }
 } = {}) {
@@ -599,7 +666,6 @@ function createStudentAppHarness({
     };
     const calls = [];
     let serverInvoicePaid = invoicePaid;
-    let qrPaymentConfirmed = qrConfirmed;
     let paymentStatus = invoicePaid ? 'SUCCESS' : 'PENDING';
     const response = (value, ok = true) => ({ ok, json: async () => value });
     const appUi = {
@@ -615,8 +681,6 @@ function createStudentAppHarness({
         StudentAuth: { session: () => ({ isBackend: true, code: 'SV001', name: 'Sinh viên thử nghiệm' }) },
         AdminWorkflowUtils: {
             invoicePaymentLabel: () => serverInvoicePaid ? 'Đã thanh toán' : 'Còn nợ',
-            invoicePaymentDisplayLabel: invoice => serverInvoicePaid && invoice?.DaXacNhanQR
-                ? 'Đã xác nhận thanh toán' : serverInvoicePaid ? 'Đã thanh toán' : 'Còn nợ',
             isOverdueInvoice: () => false,
             overdueDays: () => 0,
             dateTime: () => '01/03/2026',
@@ -632,7 +696,6 @@ function createStudentAppHarness({
                     MaHoaDon: 'INV-APP-UI', LoaiHoaDon: 'TIEN_PHONG',
                     ...invoiceDates, TongTien: 100, DaThu: serverInvoicePaid ? 100 : 0,
                     ConNo: serverInvoicePaid ? 0 : 100,
-                    DaXacNhanQR: qrPaymentConfirmed,
                     TrangThaiThanhToan: serverInvoicePaid ? 'Đã thanh toán' : 'Chưa thanh toán'
                 }]);
                 if (url === '/api/payments/history' || url.startsWith('/api/payments/history?')) {
@@ -654,7 +717,6 @@ function createStudentAppHarness({
                     const result = await onDemoConfirm(options);
                     if (result.success) {
                         serverInvoicePaid = true;
-                        qrPaymentConfirmed = true;
                         paymentStatus = 'SUCCESS';
                     }
                     return response(result, result.success === true);
@@ -780,17 +842,46 @@ test('QR demo visibility follows server configuration; success and polling use s
         const demoButton = enabled.dom.window.document.querySelector('[data-action="backend-payment-demo-confirm"]');
         assert.ok(demoButton);
         assert.equal(demoButton.textContent.trim(), 'Giả lập: đã chuyển khoản thành công (demo)');
+        const amountInput = enabled.dom.window.document.querySelector('[data-demo-amount]');
+        assert.equal(amountInput.value, '100');
         const invoiceReadsBeforeDemo = enabled.calls.filter(call => call.url === '/api/HoaDon').length;
+        amountInput.value = '99';
+        demoButton.click();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(enabled.calls.some(call => call.url === '/api/payments/demo-confirm'), false);
+        assert.match(enabled.dom.window.document.querySelector('[data-demo-error]').textContent,
+            /Bạn nhập thiếu 1\s*đ so với số tiền cần nộp \(100\s*đ\)/);
+        assert.ok(enabled.dom.window.document.querySelector('[data-demo-error]').classList.contains('st-payment-amount-warning'));
+        assert.equal(enabled.dom.window.document.getElementById('student-dialog').open, true);
+
+        amountInput.value = '101';
+        demoButton.click();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.match(enabled.dom.window.document.querySelector('[data-demo-error]').textContent,
+            /Bạn nhập dư 1\s*đ so với số tiền cần nộp \(100\s*đ\)/);
+        assert.equal(enabled.calls.some(call => call.url === '/api/payments/demo-confirm'), false);
+
+        amountInput.value = '';
+        demoButton.click();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.match(enabled.dom.window.document.querySelector('[data-demo-error]').textContent,
+            /Vui lòng nhập số tiền nguyên VND hợp lệ/);
+        assert.equal(enabled.calls.some(call => call.url === '/api/payments/demo-confirm'), false);
+
+        amountInput.value = '100';
         demoButton.click();
         await new Promise(resolve => setImmediate(resolve));
         assert.ok(enabled.calls.some(call => call.url === '/api/payments/demo-confirm'));
+        const demoRequest = enabled.calls.find(call => call.url === '/api/payments/demo-confirm');
+        assert.equal(JSON.parse(demoRequest.options.body).SoTien, 100);
         assert.equal(enabled.dom.window.document.getElementById('student-toast').textContent, 'Thanh toán thành công');
         assert.equal(enabled.dom.window.document.getElementById('student-dialog').open, false);
         await enabled.loadInvoices();
         assert.equal(enabled.calls.filter(call => call.url === '/api/HoaDon').length, invoiceReadsBeforeDemo + 1);
         const invoice = enabled.dom.window.document.querySelector('.st-invoice');
-        assert.match(invoice.textContent, /Đã xác nhận thanh toán/);
+        assert.match(invoice.textContent, /Đã thanh toán/);
         assert.match(invoice.textContent, /Thành công/);
+        assert.ok(invoice.querySelector('.st-badge.st-success'));
     } finally {
         enabled.dom.window.close();
     }
@@ -803,7 +894,8 @@ test('QR demo visibility follows server configuration; success and polling use s
         await cashPaid.loadInvoices();
         const invoice = cashPaid.dom.window.document.querySelector('.st-invoice');
         assert.match(invoice.textContent, /Đã thanh toán/);
-        assert.doesNotMatch(invoice.textContent, /Đã xác nhận thanh toán/);
+        assert.match(invoice.textContent, /Đã thanh toán/);
+        assert.ok(invoice.querySelector('.st-badge.st-success'));
     } finally {
         cashPaid.dom.window.close();
     }
@@ -819,8 +911,8 @@ test('QR demo visibility follows server configuration; success and polling use s
         failed.dom.window.document.querySelector('[data-action="backend-payment-demo-confirm"]').click();
         await new Promise(resolve => setImmediate(resolve));
         const dialog = failed.dom.window.document.getElementById('student-dialog');
-        assert.equal(dialog.querySelector('#student-dialog-title').textContent, 'Không thể xác nhận thanh toán');
-        assert.equal(dialog.querySelector('[role="alert"]').textContent, 'Giao dịch không thuộc hóa đơn.');
+        assert.equal(dialog.querySelector('#student-dialog-title').textContent, 'Chuyển khoản QR');
+        assert.equal(dialog.querySelector('[data-demo-error]').textContent, 'Giao dịch không thuộc hóa đơn.');
         assert.doesNotMatch(dialog.textContent, /Thất bại/);
     } finally {
         failed.dom.window.close();
@@ -873,10 +965,46 @@ test('merges payment and management notices in newest-first order and escapes co
         { TrangThai: 'SUCCESS', TenKhoan: 'Tiền phòng', MaHoaDon: 'INV1', SoTien: 1200, PhuongThuc: 'CASH', NgayTao: '2026-10-23T12:00:00.000Z' },
         { TrangThai: 'PENDING', TenKhoan: 'Bỏ qua', NgayTao: '2026-10-25T12:00:00.000Z' }
     ], [
-        { TieuDe: '<script>alert(1)</script>', NoiDung: 'Tin mới', NgayTao: '2026-10-24T12:00:00.000Z' }
+        { TieuDe: '<script>alert(1)</script>', NoiDung: 'Tin mới', NgayTao: '2026-10-24T12:00:00.000Z' },
+        { TieuDe: 'Yêu cầu trả phòng sớm', NoiDung: 'Xin trả phòng', MaSuKien: 'CHECKOUT:YC00001:SV001', NgayTao: '2026-10-22T12:00:00.000Z' }
     ]);
     assert.match(html, /Thông báo từ Quản lý/);
     assert.match(html, /Thanh toán/);
+    assert.match(html, /st-notification-kind--payment/);
+    assert.match(html, /st-notification-kind--management/);
+    assert.match(html, /st-notification-kind--request/);
+    assert.match(html, /sh-notice--payment/);
+    assert.match(html, /sh-notice--management/);
+    assert.match(html, /sh-notice--request/);
+    const noticeDom = new JSDOM(`<ul>${html}</ul>`);
+    const noticeButtons = [...noticeDom.window.document.querySelectorAll('button[data-action="student-notification"]')];
+    assert.equal(noticeButtons.length, 3);
+    assert.ok(noticeButtons.every(button => button.type === 'button' && button.tabIndex === 0));
+    assert.ok(noticeButtons.every(button => button.querySelector('.sh-notice-title')
+        && button.querySelector('.sh-notice-detail') && button.querySelector('time.sh-notice-time')));
+    assert.ok(noticeButtons.every(button => {
+        const content = button.querySelector('.sh-news-content');
+        return button.firstElementChild.matches('.st-notification-kind')
+            && content?.children[0]?.matches('.sh-notice-title')
+            && content?.children[1]?.matches('.sh-notice-detail')
+            && content?.children[2]?.matches('time.sh-notice-time')
+            && content?.children[3]?.matches('.sh-notice-action');
+    }));
+    assert.equal(noticeButtons[1].dataset.eventKey, 'INVOICE:INV1');
+    assert.equal(noticeButtons[2].dataset.eventKey, 'CHECKOUT:YC00001:SV001');
+    noticeDom.window.close();
+    const styles = readFileSync(resolve(root, 'student.css'), 'utf8');
+    assert.match(styles, /\.sh-notice--payment\s*\{[^}]*border-left-color:[^}]*background:/);
+    assert.match(styles, /\.sh-notice--management\s*\{[^}]*border-left-color:[^}]*background:/);
+    assert.match(styles, /\.sh-notice--request\s*\{[^}]*border-left-color:[^}]*background:/);
+    const noticeButtonCss = styles.match(/\.student-home-dashboard \.sh-notice-button\s*\{[^}]*\}/)?.[0] || '';
+    for (const declaration of ['appearance: none', 'background: transparent', 'border: 0',
+        'font: inherit', 'color: #334155', 'text-align: left', 'width: 100%', 'flex-direction: column']) {
+        assert.ok(noticeButtonCss.includes(declaration), declaration);
+    }
+    assert.match(styles, /\.sh-announcements li\.sh-notice\s*\{[^}]*margin: 0 0 11px/);
+    assert.match(styles, /\.sh-notice\s*\{[^}]*border-radius: 12px/);
+    assert.match(styles, /\.st-payment-amount-warning:not\(:empty\)\s*\{[^}]*border-left-width:\s*4px;[^}]*background:\s*#fffbeb/);
     assert.ok(html.indexOf('&lt;script&gt;') < html.indexOf('Đã thanh toán'));
     assert.doesNotMatch(html, /<script>/);
     assert.doesNotMatch(html, /Bỏ qua/);

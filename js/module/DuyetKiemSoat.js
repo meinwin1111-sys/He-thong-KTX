@@ -25,6 +25,8 @@
         reviewedAt: row.NgayXuLy,
         reviewer: row.TenNguoiXuLy,
         note: row.PhanHoi,
+        contractStartDate: row.NgayBatDauHopDong,
+        contractEndDate: row.NgayKetThucHopDong,
         extensionEndDate: row.NgayKetThucDeXuat
     }));
     const tableColumns = () => [
@@ -32,6 +34,17 @@
         { label: 'Sinh viên', render: row => `<span>${escape(row.student || '—')} · ${escape(window.AdminWorkflowUtils.maskStudentId(row.code))}</span>`, longText: true, title: row => `${row.student || '—'} · ${window.AdminWorkflowUtils.maskStudentId(row.code)}` },
         { label: 'Phòng', render: row => escape(row.room || '—') },
         { label: 'Loại yêu cầu', render: row => escape(row.type || '—'), longText: true, title: row => row.type || '—' },
+        { label: 'Ngày hợp đồng / lý do', width: 320, render: row => {
+            const dateOnly = value => value ? window.AdminWorkflowUtils.date(String(value).slice(0, 10), 'format') : '—';
+            const compactField = (label, value) => `<span class="dk-contract-summary-row" title="${escape(value)}"><span>${label}: </span><strong>${escape(value)}</strong></span>`;
+            const dateDetails = row.type === 'Gia hạn hợp đồng' || row.type === 'Trả phòng sớm'
+                ? `${compactField('Bắt đầu HĐ', dateOnly(row.contractStartDate))}
+                    ${compactField('Kết thúc HĐ hiện tại', dateOnly(row.contractEndDate))}
+                    ${compactField('Kết thúc đề xuất', dateOnly(row.extensionEndDate))}`
+                : '';
+            const reason = row.content || '—';
+            return `<div class="dk-contract-summary">${dateDetails}${compactField('Lý do', reason)}</div>`;
+        } },
         { label: 'Ngày gửi', render: row => escape(dateText(row.date)) },
         { label: 'Trạng thái', render: row => badge(row.status) },
         { label: 'Thao tác', render: row => `<button type="button" class="dk-button" data-detail="${escape(row.id)}">${row.status === pending ? 'Xử lý' : 'Chi tiết'}</button>` }
@@ -162,6 +175,11 @@
             return window.AdminWorkflowUtils.date(text, 'format') || '—';
         };
         const formatMoney = value => `${Number(value || 0).toLocaleString('vi-VN')} đ`;
+        const requestDates = !checkout && (row.type === 'Gia hạn hợp đồng' || row.type === 'Trả phòng sớm') ? `
+            ${field('Ngày bắt đầu hợp đồng', formatDateOnly(row.contractStartDate))}
+            ${field('Ngày kết thúc hợp đồng hiện tại', formatDateOnly(row.contractEndDate))}
+            ${field('Ngày kết thúc đề xuất', formatDateOnly(row.extensionEndDate))}
+        ` : '';
         const checkoutDetails = checkout ? `
             ${field('Hợp đồng', checkout.MaHopDong)}
             ${field('Ngày bắt đầu hợp đồng', formatDateOnly(checkout.NgayBatDauHopDong))}
@@ -177,7 +195,7 @@
         dialog.innerHTML = `<div class="dk-dialog-heading"><h3 id="dk-dialog-title">Chi tiết yêu cầu</h3><button type="button" class="dk-button" data-close aria-label="Đóng chi tiết">×</button></div>
             <div class="dk-dialog-content">${badge(row.status)}<dl class="dk-details">
                 ${field('Mã', row.id)}${field('Sinh viên', `${row.student} (${row.code})`)}${field('Phòng', row.room)}${field('Ngày gửi', dateText(row.date))}
-                ${field('Loại yêu cầu', row.type)}${row.extensionEndDate && !checkout ? field('Ngày kết thúc đề xuất', dateText(row.extensionEndDate)) : ''}
+                ${field('Loại yêu cầu', row.type)}${requestDates}
                 ${checkoutDetails}
                 ${row.reviewedAt ? field('Thời gian xử lý', dateText(row.reviewedAt)) : ''}
                 ${row.reviewer ? field('Người xử lý', row.reviewer) : ''}

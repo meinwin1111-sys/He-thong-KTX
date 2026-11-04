@@ -80,7 +80,7 @@ test('student payment method labels are limited to cash and QR transfer', () => 
     assert.equal(label('ONLINE'), 'Chuyển khoản QR');
     assert.equal(label('QR_DEMO'), 'Chuyển khoản QR');
     assert.equal(label('legacy-method'), 'Chuyển khoản QR');
-    assert.match(context.StudentUI.helpers.badge('Không ghi nhận'), /Cần xác minh/);
+    assert.match(context.StudentUI.helpers.badge('Không ghi nhận'), /Không ghi nhận/);
 });
 
 test('QR uses selected items, signed-in identity and UTF-8 content; opening does not pay', async () => {

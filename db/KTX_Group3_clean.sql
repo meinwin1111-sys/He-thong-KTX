@@ -8323,5 +8323,7 @@ GO
 GO
 :r db/migrations/030_early_checkout_request.sql
 GO
-PRINT N'KTX_Group3 schema, migrations 001-030, master data, and DNKTX permissions are ready.'
+:r db/migrations/031_incident_expense_modes.sql
+GO
+PRINT N'KTX_Group3 schema, migrations 001-031, master data, and DNKTX permissions are ready.'
 GO

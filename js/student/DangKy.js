@@ -34,7 +34,9 @@ function openStudentRegistration() {
             ${field('phone', 'Số điện thoại', 'tel', 'maxlength="20" autocomplete="tel" placeholder="0901234567 hoặc +84901234567"')}
         </div><div>
             ${field('email', 'Gmail', 'email', 'maxlength="100" autocomplete="username" placeholder="ten@gmail.com"')}
-            ${field('school', 'Trường', 'text', 'maxlength="150" autocomplete="organization"', false)}
+            <div class="sr-profile-field"><label for="sr-school">Tên trường <span>*</span></label>
+                <input id="sr-school" name="school" type="text" required maxlength="150" autocomplete="organization" aria-describedby="sr-school-error">
+                <small id="sr-school-error" data-school-error class="text-red-700" role="alert" aria-live="polite"></small></div>
             ${field('className', 'Lớp', 'text', 'maxlength="50" autocomplete="off"')}
             ${field('password', 'Mật khẩu', 'password', 'minlength="8" maxlength="72" autocomplete="new-password"')}
             ${field('confirm', 'Xác nhận mật khẩu', 'password', 'minlength="8" maxlength="72" autocomplete="new-password"')}
@@ -51,6 +53,25 @@ function openStudentRegistration() {
     dialog.querySelector('.sr-campus')?.addEventListener('error', event => {
         event.currentTarget.hidden = true;
     }, { once: true });
+    const schoolInput = dialog.querySelector('#sr-school');
+    const schoolError = dialog.querySelector('[data-school-error]');
+    const validateSchool = () => {
+        schoolInput.value = schoolInput.value.trim();
+        const message = schoolInput.value ? '' : 'Vui lòng nhập tên trường.';
+        schoolInput.setCustomValidity(message);
+        schoolError.textContent = message;
+        return !message;
+    };
+    schoolInput.addEventListener('blur', validateSchool);
+    schoolInput.addEventListener('invalid', () => {
+        schoolError.textContent = 'Vui lòng nhập tên trường.';
+    });
+    schoolInput.addEventListener('input', () => {
+        if (schoolInput.value.trim()) {
+            schoolInput.setCustomValidity('');
+            schoolError.textContent = '';
+        }
+    });
     dialog.addEventListener('click', event => {
         if (event.target === dialog) dialog.close();
     });
@@ -77,6 +98,14 @@ function openStudentRegistration() {
             for (const key of ['name', 'code', 'gender', 'phone', 'email', 'school', 'className']) {
                 student[key] = String(input[key] || '').trim();
             }
+            if (!student.school) {
+                schoolInput.setCustomValidity('Vui lòng nhập tên trường.');
+                schoolError.textContent = 'Vui lòng nhập tên trường.';
+                schoolInput.focus();
+                return;
+            }
+            schoolInput.setCustomValidity('');
+            schoolError.textContent = '';
             if (['name', 'code', 'gender', 'phone', 'email', 'className'].some(key => !student[key])) {
                 throw new Error('Vui lòng nhập đầy đủ các trường bắt buộc.');
             }

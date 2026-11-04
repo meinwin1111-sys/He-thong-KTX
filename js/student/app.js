@@ -119,6 +119,51 @@
                 '<div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>');
             return;
         }
+        if (action === 'student-notification') {
+            const eventKey = button.dataset.eventKey || '';
+            const title = button.dataset.title || 'Thông báo';
+            const detail = button.dataset.detail || '';
+            if (/^(?:INVOICE|CONTRACT):/.test(eventKey)) {
+                const [kind, id] = eventKey.split(':', 2);
+                location.hash = kind === 'CONTRACT' ? '#contract' : '#invoices';
+                await new Promise(resolve => setTimeout(resolve, 0));
+                if (kind === 'CONTRACT') {
+                    modal('Chi tiết hợp đồng lưu trú', ui.contractDetails() +
+                        '<div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>');
+                } else {
+                    await showBackendInvoiceDetail(id);
+                }
+                return;
+            }
+            if (/^PAYMENT:/.test(eventKey)) {
+                const receiptId = eventKey.slice('PAYMENT:'.length);
+                const response = await window.ApiClient.fetch('/api/payments/history');
+                const history = await response.json();
+                if (!response.ok) throw new Error(history.message || 'Không thể tìm hóa đơn của giao dịch.');
+                const payment = history.find(row => String(row.MaPhieuThu) === receiptId);
+                if (!payment?.MaHoaDon) throw new Error('Không tìm thấy hóa đơn của thông báo thanh toán.');
+                location.hash = '#invoices';
+                await new Promise(resolve => setTimeout(resolve, 0));
+                await showBackendInvoiceDetail(payment.MaHoaDon);
+                return;
+            }
+            if (/^(?:CHECKOUT|REQUEST):/.test(eventKey)) {
+                const requestId = eventKey.split(':', 2)[1];
+                const response = await window.ApiClient.fetch('/api/student/requests');
+                const requests = await response.json();
+                if (!response.ok) throw new Error(requests.message || 'Không thể tải yêu cầu.');
+                if (!Array.isArray(requests)) throw new Error('Dữ liệu yêu cầu không hợp lệ.');
+                ui.repository.data.requests = requests;
+                ui.pages.requests.render();
+                location.hash = '#requests';
+                await new Promise(resolve => setTimeout(resolve, 0));
+                modal('Chi tiết yêu cầu', ui.pages.requests.detail(requestId) +
+                    '<div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>');
+                return;
+            }
+            modal(title, `<p>${esc(detail)}</p><div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>`);
+            return;
+        }
         if (action === 'resume') {
             signedOut = false;
             document.querySelector('header').style.display = '';
@@ -186,6 +231,24 @@
         }
         return detail;
     }
+    async function showBackendInvoiceDetail(invoiceId) {
+        const detail = await backendInvoiceDetail(invoiceId);
+        const detailMarkup = ui.billing.backendInvoiceDetail?.(detail)
+            || ui.billing.detailFromBackend?.(detail);
+        if (detailMarkup) {
+            modal(`Hóa đơn ${esc(invoiceId)}`, detailMarkup +
+                '<div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>');
+            return;
+        }
+        modal(`Hóa đơn ${esc(invoiceId)}`, fields([
+            ['Mã hóa đơn', detail.MaHoaDon],
+            ['Loại hóa đơn', detail.LoaiHoaDon],
+            ['Tổng tiền', money(detail.TongTien)],
+            ['Đã thu', money(detail.DaThu)],
+            ['Còn nợ', money(detail.ConNo)],
+            ['Hạn thanh toán', detail.HanThanhToanApDung || detail.HanThanhToan]
+        ]) + '<div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>');
+    }
     async function showBackendPaymentDetail(invoiceId, transactionId) {
         try {
             const response = await window.ApiClient.fetch(
@@ -196,23 +259,13 @@
             if (!Array.isArray(history)) throw new Error('Dữ liệu lịch sử thanh toán không hợp lệ.');
             const payment = history.find(item => item.MaGiaoDich === transactionId);
             if (!payment) throw new Error('Không tìm thấy giao dịch trong lịch sử thanh toán.');
-            const requested = Number(payment.SoTienYeuCau ?? payment.SoTien);
-            const actual = payment.SoTienThucNhan == null ? null : Number(payment.SoTienThucNhan);
-            let difference = 'Chưa có';
-            if (actual !== null && Number.isFinite(actual) && Number.isFinite(requested)) {
-                const delta = actual - requested;
-                difference = delta < 0 ? `Thiếu ${money(Math.abs(delta))}`
-                    : delta > 0 ? `Dư ${money(delta)}` : 'Không chênh lệch';
-            }
             const paymentTime = payment.NgayThanhToan || payment.NgayTao;
             const formattedTime = window.AdminWorkflowUtils?.dateTime(String(paymentTime || ''));
             modal('Chi tiết giao dịch', fields([
                 ['Mã giao dịch', payment.MaGiaoDich],
                 ['Hóa đơn / phòng', `${payment.MaHoaDon || invoiceId} · ${payment.TenPhong || 'Chưa có'}`],
                 ['Người nộp', payment.HoTen || 'Chưa có'],
-                ['Số tiền yêu cầu', money(requested)],
-                ['Số tiền thực nhận', actual === null ? 'Chưa có' : money(actual)],
-                ['Chênh lệch', difference],
+                ['Số tiền', money(payment.SoTien)],
                 ['Phương thức', ui.helpers.paymentMethodLabel(payment.PhuongThuc) || 'Chưa xác định'],
                 ['Thời điểm', formattedTime || date(paymentTime) || 'Chưa có'],
                 ['Trạng thái', ui.backendPayments.statusLabel(payment.TrangThai)]
@@ -322,10 +375,13 @@
             }
             const confirmButton = payment.DemoPaymentEnabled === true
                 ? `<button type="button" class="st-button st-primary" data-action="backend-payment-demo-confirm"
-                        data-id="${esc(invoiceId)}" data-transaction-id="${esc(request.MaGiaoDich)}">Giả lập: đã chuyển khoản thành công (demo)</button>`
+                        data-id="${esc(invoiceId)}" data-transaction-id="${esc(request.MaGiaoDich)}"
+                        data-required-amount="${esc(payment.TongTien)}">Giả lập: đã chuyển khoản thành công (demo)</button>`
                 : '<span class="st-button st-payment-dialog-status" role="status" data-payment-status>Đang xử lý</span>';
             modal('Chuyển khoản QR', ui.backendPayments.qrModal(payment) +
-                `<div class="st-actions st-payment-dialog-actions"><button type="button" class="st-button" data-action="close">Đóng</button>${confirmButton}</div>`);
+                `<label class="st-field">Số tiền thanh toán (VND)<input type="number" min="1" step="1" inputmode="numeric" data-demo-amount value="${esc(payment.TongTien)}" ${payment.DemoPaymentEnabled === true ? '' : 'readonly'} class="st-input"></label>
+                ${payment.DemoPaymentEnabled === true ? '<p data-demo-error class="st-payment-amount-warning" role="alert" aria-live="polite"></p>' : ''}
+                <div class="st-actions st-payment-dialog-actions"><button type="button" class="st-button" data-action="close">Đóng</button>${confirmButton}</div>`);
             if (payment.DemoPaymentEnabled !== true) startBackendPaymentPolling(invoiceId, request.MaGiaoDich);
         } catch (error) {
             toast(error.message || 'Không thể tạo QR chuyển khoản.');
@@ -335,12 +391,31 @@
     }
     async function confirmBackendDemoPayment(invoiceId, transactionId, button) {
         if (!invoiceId || !transactionId || button.disabled) return;
+        const amountInput = dialog.querySelector('[data-demo-amount]');
+        const required = Number(button.dataset.requiredAmount);
+        const rawAmount = amountInput?.value?.trim() || '';
+        const amount = Number(rawAmount);
+        const errorNode = dialog.querySelector('[data-demo-error]');
+        let message = '';
+        if (!/^[1-9]\d*$/.test(rawAmount) || !Number.isSafeInteger(amount)) {
+            message = 'Vui lòng nhập số tiền nguyên VND hợp lệ.';
+        } else if (amount < required) {
+            message = `Bạn nhập thiếu ${money(required - amount)} so với số tiền cần nộp (${money(required)}).`;
+        } else if (amount > required) {
+            message = `Bạn nhập dư ${money(amount - required)} so với số tiền cần nộp (${money(required)}).`;
+        }
+        if (message) {
+            if (errorNode) errorNode.textContent = message;
+            amountInput?.focus();
+            return;
+        }
+        if (errorNode) errorNode.textContent = '';
         button.disabled = true;
         try {
             const response = await window.ApiClient.fetch('/api/payments/demo-confirm', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ MaHoaDon: invoiceId, MaGiaoDich: transactionId })
+                body: JSON.stringify({ MaHoaDon: invoiceId, MaGiaoDich: transactionId, SoTien: amount })
             });
             const result = await response.json();
             if (!response.ok) throw new Error(result.message || 'Không thể xác nhận thanh toán.');
@@ -348,9 +423,7 @@
             render();
             toast('Thanh toán thành công');
         } catch (error) {
-            dialog.close();
-            modal('Không thể xác nhận thanh toán',
-                `<p role="alert">${esc(error.message || 'Không thể xác nhận thanh toán.')}</p><div class="st-dialog-close"><button class="st-button" data-action="close">Đóng</button></div>`);
+            if (errorNode) errorNode.textContent = error.message || 'Không thể xác nhận thanh toán.';
         } finally {
             button.disabled = false;
         }

@@ -31,6 +31,10 @@
                         <button type="button" class="st-date-picker-button" data-open-date-picker aria-label="Chọn ngày kết thúc đề xuất" title="Chọn ngày"><i class="fa-regular fa-calendar" aria-hidden="true"></i></button>
                         <input class="st-native-date-picker" type="date" data-date-picker tabindex="-1" aria-hidden="true">
                     </span>
+                    <span class="st-request-contract-dates" data-contract-dates>
+                        <span>Ngày bắt đầu hợp đồng: <strong data-contract-start>Đang tải...</strong></span>
+                        <span>Ngày kết thúc hợp đồng hiện tại: <strong data-contract-end>Đang tải...</strong></span>
+                    </span>
                     <input type="hidden" name="extensionEndDate">
                     <span class="st-field-error" id="extension-date-error" data-date-error aria-live="polite"></span>
                 </label>
@@ -53,6 +57,10 @@
                         <button type="button" class="st-date-picker-button" data-open-date-picker aria-label="Chọn ngày kết thúc đề xuất" title="Chọn ngày"><i class="fa-regular fa-calendar" aria-hidden="true"></i></button>
                         <input class="st-native-date-picker" type="date" data-date-picker tabindex="-1" aria-hidden="true">
                     </span>
+                    <span class="st-request-contract-dates" data-contract-dates>
+                        <span>Ngày bắt đầu hợp đồng: <strong data-contract-start>Chưa có hợp đồng</strong></span>
+                        <span>Ngày kết thúc hợp đồng hiện tại: <strong data-contract-end>Chưa có hợp đồng</strong></span>
+                    </span>
                     <input type="hidden" name="extensionEndDate">
                     <span class="st-field-error" id="extension-date-error" data-date-error aria-live="polite"></span>
                 </label>
@@ -70,7 +78,10 @@
         date: String(request.NgayTao ?? request.date ?? '').slice(0, 10),
         content: request.NoiDung ?? request.content ?? '',
         status: request.TrangThai ?? request.status,
-        reply: request.PhanHoi ?? request.reply ?? ''
+        reply: request.PhanHoi ?? request.reply ?? '',
+        contractStart: request.NgayBatDauHopDong ?? request.contractStart ?? '',
+        contractEnd: request.NgayKetThucHopDong ?? request.contractEnd ?? '',
+        proposedEnd: request.NgayKetThucDeXuat ?? request.proposedEnd ?? ''
     });
     const setRequests = requests => {
         const rows = requests.map(normalizeRequest);
@@ -94,6 +105,9 @@
                 <div><dt>Loại yêu cầu</dt><dd>${esc(request.type || '—')}</dd></div>
                 <div><dt>Ngày gửi</dt><dd>${esc(date(request.date))}</dd></div>
                 <div><dt>Trạng thái</dt><dd>${badge(request.status)}</dd></div>
+                ${request.contractStart ? `<div><dt>Ngày bắt đầu hợp đồng</dt><dd>${esc(date(request.contractStart))}</dd></div>` : ''}
+                ${request.contractEnd ? `<div><dt>Ngày kết thúc hợp đồng hiện tại</dt><dd>${esc(date(request.contractEnd))}</dd></div>` : ''}
+                ${request.proposedEnd ? `<div><dt>Ngày kết thúc đề xuất</dt><dd>${esc(date(request.proposedEnd))}</dd></div>` : ''}
                 <div class="st-request-full"><dt>Nội dung</dt><dd>${esc(request.content || '—')}</dd></div>
                 <div class="st-request-full"><dt>Phản hồi</dt><dd>${esc(request.reply || 'Chưa có phản hồi')}</dd></div>
             </dl>`;
@@ -110,6 +124,8 @@
             const updateCounter = () => {
                 form.querySelector('[data-content-count]').textContent = `${contentInput.value.length.toLocaleString('vi-VN')}/1.000 ký tự`;
             };
+            const contractStartLabel = form.querySelector('[data-contract-start]');
+            const contractEndLabel = form.querySelector('[data-contract-end]');
             StudentDate.bindInput(dateInput);
             const updateExtensionDate = () => {
                 isoDateInput.value = '';
@@ -189,7 +205,19 @@
             if (!backendStudent()) return;
             const content = root.querySelector('[data-student-requests]');
             try {
-                const response = await ApiClient.fetch('/api/student/requests');
+                const [contractResponse, response] = await Promise.all([
+                    ApiClient.fetch('/api/student/contracts'),
+                    ApiClient.fetch('/api/student/requests')
+                ]);
+                const contracts = await contractResponse.json();
+                const currentContract = Array.isArray(contracts)
+                    ? contracts.find(contract => contract.TrangThaiHopDong === 'Còn hiệu lực')
+                    : null;
+                const contractStart = currentContract?.NgayBatDauThanhVien || currentContract?.NgayBatDau;
+                contractStartLabel.textContent = contractStart
+                    ? date(String(contractStart).slice(0, 10)) : 'Chưa có hợp đồng hiệu lực';
+                contractEndLabel.textContent = currentContract?.NgayKetThuc
+                    ? date(String(currentContract.NgayKetThuc).slice(0, 10)) : 'Chưa có hợp đồng hiệu lực';
                 const result = await response.json();
                 if (!root.isConnected) return;
                 if (!Array.isArray(result)) throw new Error('Dữ liệu yêu cầu không hợp lệ.');

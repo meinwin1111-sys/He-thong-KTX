@@ -51,7 +51,26 @@ test("Admin status badges use one consistent status color mapping", () => {
     assert.match(utils.statusBadge("Đã kết thúc"), /admin-status--neutral/);
     assert.match(utils.statusBadge("Trễ hạn"), /admin-status--danger/);
     assert.match(utils.statusBadge("Chờ xác nhận"), /admin-status--warning/);
-    assert.match(utils.statusBadge("Cần đối soát"), /admin-status--warning/);
+    assert.doesNotMatch(utils.statusBadge("RECONCILIATION"), /RECONCILIATION|Cần đối soát/);
+});
+
+test("shared invoice status is due-date-aware and overdue remains action-required", () => {
+    const invoice = { MaHoaDon: "INV-LATE", ConNo: 500, HanThanhToan: "2026-11-03" };
+    assert.equal(utils.invoicePaymentLabel(invoice, "2026-11-03"), "Còn nợ");
+    assert.equal(utils.invoicePaymentLabel(invoice, "2026-11-04"), "Trễ hạn");
+    assert.equal(utils.invoicePaymentLabel({
+        ...invoice, ConNo: 0, TrangThaiThanhToan: "Đã thanh toán"
+    }, "2026-11-04"), "Đã thanh toán");
+    const rows = [
+        { ...invoice, HanThanhToan: "2000-01-01" },
+        { ...invoice, MaHoaDon: "INV-PAID", ConNo: 0, TrangThaiThanhToan: "Đã thanh toán" }
+    ];
+    assert.deepEqual(utils.filterFinancialRows(rows, "invoices", {
+        status: "Trễ hạn"
+    }).map(row => row.MaHoaDon), ["INV-LATE"]);
+    assert.deepEqual(utils.filterFinancialRows(rows, "invoices", {
+        status: "ACTION_REQUIRED"
+    }).map(row => row.MaHoaDon), ["INV-LATE"]);
 });
 
 test("Shared table filters, pagination, grouping, and rendering preserve row and column counts", () => {
@@ -252,7 +271,7 @@ async function setupAdminWorkflowDom({
             }, {
                 MaGiaoDich: "PAY-RECON", MaHoaDon: "INV-DOM", MaPhieuThu: 902,
                 MaSinhVien: "AB12CD34",
-                TenPhong: "T5-/67EB123/F-A", HoTen: "Sinh viên cần đối soát", SoTien: 100, TongTien: 100, PhuongThuc: "ONLINE",
+                TenPhong: "T5-/67EB123/F-A", HoTen: "Sinh viên thử nghiệm", SoTien: 100, TongTien: 100, PhuongThuc: "ONLINE",
                 SoTienYeuCau: 100, SoTienThucNhan: 90,
                 TrangThai: "RECONCILIATION", TrangThaiPhieuThu: "Chờ xác nhận", NgayTao: "2026-03-02",
                 LyDoDoiSoat: "Số tiền hoặc nội dung chuyển khoản không khớp."
@@ -277,6 +296,13 @@ async function setupAdminWorkflowDom({
                 SoTienThucNhan: 55, SoTienDu: 5, TrangThaiHoanDu: "DA_HOAN",
                 TrangThai: "SUCCESS", TrangThaiPhieuThu: "Hợp lệ", NgayTao: "2026-03-06T09:15:00"
             }];
+            else if (financialFixture && url === "/api/phieuchi") body = [{
+                MaPhieuChi: 49, MaChiTiet: "CT-49", SoTienDaDong: 1200000,
+                SoTienDaSuDung: 560000, KhauTru: 0, SoTien: 640000,
+                NgayRa: "2026-10-14", LyDo: "Trả phòng sớm", TrangThai: "Chờ xác nhận",
+                NgayChi: "2026-10-14", MaSinhVien: "SV-49", HoTen: "Sinh viên trả phòng",
+                GhiChu: "Gợi ý 0.00; Hoàn tiền theo ngày, yêu cầu YC00049", SoNgayDaO: 14
+            }];
             else if (financialFixture && url === "/api/phieuthu") body = [{
                 MaPhieuThu: 901, MaHoaDon: "INV-DOM", MaGiaoDich: "PAY-TEST-1",
                 MaSinhVienNop: "012345678901", TenPhong: "A101",
@@ -285,7 +311,7 @@ async function setupAdminWorkflowDom({
             }, {
                 MaPhieuThu: 902, MaHoaDon: "INV-DOM", MaGiaoDich: "PAY-RECON",
                 MaSinhVienNop: "AB12CD34", TenPhong: "T5-/67EB123/F-A",
-                TenNguoiNop: "Sinh viên cần đối soát", SoTien: 100,
+                TenNguoiNop: "Sinh viên thử nghiệm", SoTien: 100,
                 PhuongThuc: "ONLINE", TrangThai: "Chờ xác nhận", NgayThu: "2026-03-02"
             }, {
                 MaPhieuThu: 903, MaHoaDon: "INV-DOM", MaGiaoDich: "PAY-LONG",
@@ -334,6 +360,123 @@ async function waitForDom(predicate) {
     }
     assert.fail("DOM workflow did not reach the expected state");
 }
+
+test("Incident expense form aligns date controls and gives inline Vietnamese amount errors", async () => {
+    const { dom, window, calls } = await setupAdminWorkflowDom({ financialFixture: true });
+    try {
+        await window.renderHoaDonModule();
+        window.document.querySelector('[data-action="invoice-tab"][data-tab="expenses"]').click();
+        window.document.querySelector('[data-action="expense-create-open"]').click();
+        const form = window.document.querySelector('form[data-form="expense-create"]');
+        assert.ok(form);
+        const dialog = form.closest('[role="dialog"]');
+        assert.ok(dialog.classList.contains("admin-expense-dialog"));
+        const amount = form.querySelector('[data-expense-amount]');
+        assert.ok(amount);
+        assert.equal(amount.required, false);
+        assert.match(form.querySelector("label").textContent, /Hợp đồng/);
+        assert.doesNotMatch(form.textContent, /tối đa 50\.000\.000/);
+        const dateLabels = [...form.querySelectorAll(".admin-expense-date-field")];
+        assert.equal(dateLabels.length, 2);
+        assert.deepEqual(dateLabels.map(label => label.firstElementChild.textContent.trim()),
+            ["Ngày phát sinh *", "Hạn đóng *"]);
+        assert.ok(dateLabels.every(label => label.querySelector("[data-admin-date]")?.type === "text"
+            && label.querySelector('[data-action="date-picker-open"]')
+            && label.querySelector("[data-date-picker]")));
+        assert.deepEqual([...form.children].map(element => element.matches(".admin-expense-note")
+            ? "Ghi chú" : element.querySelector("[name]")?.name),
+        ["maHopDong", "maChiTiet", "cheDoLap", "noiDung", "soTien", "ngayPhatSinh", "hanDong", "Ghi chú"]);
+        assert.ok([...form.children].every(element => element.classList.contains("admin-expense-field")));
+        assert.ok([...form.querySelectorAll("select, input:not([type=date]), textarea")]
+            .filter(control => control.name)
+            .every(control => control.classList.contains("admin-expense-control")));
+        assert.equal(form.querySelector(".admin-expense-date-field").style.gridColumn, "");
+        assert.equal(form.querySelector('[name="hanDong"]').closest(".admin-expense-field").style.gridColumn, "");
+        assert.match(form.querySelector(".admin-expense-note").className, /admin-expense-note/);
+        assert.equal(form.querySelector(".admin-expense-note textarea").getAttribute("maxlength"), "255");
+        const styles = fs.readFileSync(path.join(__dirname, "..", "..", "style.css"), "utf8");
+        const style = window.document.createElement("style");
+        style.textContent = styles;
+        window.document.head.append(style);
+        assert.match(styles, /\.admin-expense-form\s*\{[^}]*align-items:\s*start;[^}]*column-gap:\s*16px;[^}]*row-gap:\s*16px/);
+        assert.match(styles, /\.admin-expense-field\s*\{[^}]*margin:\s*0;[^}]*font-size:\s*14px;[^}]*font-weight:\s*600/);
+        assert.match(styles, /\.admin-expense-field > span:first-child\s*\{\s*display:\s*block;\s*margin:\s*0 0 6px;/);
+        assert.match(styles, /\.admin-expense-control\s*\{[^}]*height:\s*42px;[^}]*min-height:\s*0;\s*margin:\s*0/);
+        assert.match(styles, /\.admin-expense-date-control \[data-action="date-picker-open"\]\s*\{[^}]*height:\s*42px/);
+        assert.match(styles, /\.admin-expense-date-error,\s*\.admin-expense-field-error\s*\{\s*display:\s*none;\s*margin:\s*4px 0 0;/);
+        assert.match(styles, /\.admin-expense-date-error:not\(:empty\),\s*\.admin-expense-field-error:not\(:empty\)\s*\{\s*display:\s*block;/);
+        assert.match(styles, /\.admin-expense-form \.admin-expense-note\s*\{\s*grid-column:\s*1 \/ -1;/);
+        assert.match(styles, /\.admin-expense-form \.admin-expense-note textarea\s*\{[^}]*height:\s*72px;[^}]*padding:\s*8px 12px;[^}]*resize:\s*vertical/);
+        assert.match(styles, /\.admin-expense-dialog > footer\s*\{\s*margin-top:\s*16px;\s*padding-top:\s*16px;/);
+        assert.match(styles, /\.admin-expense-dialog > \[data-modal-error\]:empty\s*\{\s*display:\s*none;/);
+        const fieldLabels = [...form.querySelectorAll(":scope > .admin-expense-field")];
+        assert.ok(fieldLabels.every(label => window.getComputedStyle(label).fontSize === "14px"
+            && window.getComputedStyle(label).fontWeight === "600"));
+        assert.ok(fieldLabels.every(label => window.getComputedStyle(label.firstElementChild).marginBottom === "6px"));
+        assert.equal(window.getComputedStyle(form).alignItems, "start");
+        assert.equal(window.getComputedStyle(form).columnGap, "16px");
+        assert.equal(window.getComputedStyle(form).rowGap, "16px");
+        const controls = [...form.querySelectorAll(".admin-expense-control")];
+        assert.equal(controls.length, 8);
+        assert.ok(controls.filter(control => control.tagName !== "TEXTAREA")
+            .every(control => window.getComputedStyle(control).height === "42px"));
+        assert.equal(window.getComputedStyle(form.querySelector(".admin-expense-date-control [data-action='date-picker-open']")).height, "42px");
+        assert.equal(window.getComputedStyle(form.querySelector(".admin-expense-note textarea")).height, "72px");
+        assert.equal(window.getComputedStyle(form.querySelector(".admin-expense-note textarea")).marginTop, "0px");
+        assert.equal(window.getComputedStyle(form.querySelector(".admin-expense-date-error")).display, "none");
+        assert.equal(window.getComputedStyle(form.querySelector(".admin-expense-field-error")).display, "none");
+
+        amount.value = String(utils.MAX_INCIDENT_EXPENSE_VND + 1);
+        amount.dispatchEvent(new window.Event("input", { bubbles: true }));
+        assert.match(form.querySelector("[data-expense-amount-error]").textContent, /Không được vượt 50\.000\.000 đ/);
+        amount.value = "";
+        form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+        assert.equal(form.querySelector("[data-expense-amount-error]").textContent, "Vui lòng nhập số tiền");
+        assert.equal(calls.some(call => call.url === "/api/ChiPhiPhatSinh" && call.options.method === "POST"), false);
+    } finally {
+        dom.window.close();
+    }
+});
+
+test("Admin revenue report keeps month and amount columns on one line inside a horizontal scroller", async () => {
+    const { dom, window } = await setupAdminWorkflowDom();
+    try {
+        const originalFetch = window.ApiClient.fetch;
+        window.ApiClient.fetch = async (url, options) => {
+            if (url.startsWith("/api/doanhthu/")) {
+                return {
+                    ok: true, status: 200,
+                    json: async () => ({
+                        thang: Array.from({ length: 12 }, (_, index) => ({
+                            Nam: 2026, Thang: index + 1,
+                            ThuTienPhong: 1234567, ChiTienPhong: 0, DoanhThuTienPhong: 1234567,
+                            ThuDichVu: 0, ChiDichVu: 0, DoanhThuDichVu: 0,
+                            ThuPhatSinh: 0, ChiPhatSinh: 0, DoanhThuPhatSinh: 0,
+                            TongThu: 1234567, TongChi: 0, TongDoanhThu: 1234567
+                        }))
+                    })
+                };
+            }
+            if (url === "/api/congno") return { ok: true, status: 200, json: async () => [] };
+            return originalFetch(url, options);
+        };
+        const style = window.document.createElement("style");
+        style.textContent = fs.readFileSync(path.join(__dirname, "..", "..", "style.css"), "utf8");
+        window.document.head.append(style);
+        await window.renderBaoCaoThongKeModule();
+        const wrapper = window.document.querySelector("[data-report-revenue]");
+        const table = wrapper.querySelector(".admin-report-table");
+        assert.ok(table);
+        assert.equal(wrapper.dataset.noAdminFilters, "");
+        assert.equal(window.getComputedStyle(wrapper).overflowX, "auto");
+        assert.match(table.textContent, /10\/2026/);
+        assert.equal(window.getComputedStyle(table).tableLayout, "auto");
+        const styles = fs.readFileSync(path.join(__dirname, "..", "..", "style.css"), "utf8");
+        assert.match(styles, /\.admin-report-table th,\s*\.admin-report-table td\s*\{\s*white-space:\s*nowrap;/);
+    } finally {
+        dom.window.close();
+    }
+});
 
 test("Admin contract and member-add popups render conflict warning and open the selected student's move form in DOM", async () => {
     const { dom, window } = await setupAdminWorkflowDom();
@@ -493,7 +636,7 @@ test("Admin invoice page contains the receipt tab without a separate receipt pag
     }
 });
 
-test("Admin receipt table shows only four realized-payment states and opens details by clicking the row", async () => {
+test("Admin receipt table excludes discrepancy transactions and opens valid receipt details", async () => {
     const { dom, window } = await setupAdminWorkflowDom({ financialFixture: true });
     try {
         await window.renderHoaDonModule();
@@ -504,68 +647,37 @@ test("Admin receipt table shows only four realized-payment states and opens deta
         assert.equal(window.document.querySelector('[data-action="payments-refresh"]').textContent.trim(), "↻");
         const statusFilter = window.document.querySelector('[data-form="financial-filter"] [name="status"]');
         assert.equal(statusFilter.value, "ALL");
-        assert.deepEqual([...statusFilter.options].map(option => option.textContent), [
-            "Tất cả", "Đã xác nhận", "Thiếu tiền", "Dư tiền (chờ hoàn)", "Đã hoàn tiền dư"
-        ]);
+        assert.deepEqual([...statusFilter.options].map(option => option.textContent), ["Tất cả", "Đã xác nhận"]);
         assert.match(table.textContent, /INV-DOM/);
-        assert.match(table.textContent, /Sinh viên cần đối soát/);
         assert.equal(table.querySelector("table").style.tableLayout, "fixed");
-        assert.equal(table.querySelectorAll("colgroup col").length, 9);
-        assert.match(table.querySelector("thead").textContent, /Mã hóa đơn\s*Phòng\s*Người nộp\s*Số tiền yêu cầu\s*Số tiền thực nhận\s*Chênh lệch\s*Phương thức\s*Thời điểm\s*Trạng thái/);
+        assert.equal(table.querySelectorAll("colgroup col").length, 7);
+        assert.match(table.querySelector("thead").textContent, /Mã hóa đơn\s*Phòng\s*Người nộp\s*Số tiền\s*Phương thức\s*Thời điểm\s*Trạng thái/);
         assert.doesNotMatch(table.querySelector("thead").textContent, /Thao tác/);
         assert.ok(table.querySelector("colgroup col:nth-child(2)").style.width === "150px");
-        assert.equal(table.querySelectorAll("tbody tr").length, 4);
+        assert.equal(table.querySelectorAll("tbody tr").length, 1);
         assert.equal(table.textContent.includes("PAY-TEST-1"), false);
         assert.equal(table.textContent.includes("PAY-LONG"), false);
         assert.equal(table.textContent.includes("012345678901"), false);
         assert.equal(table.textContent.includes("AB12CD34"), false);
-        assert.equal(table.textContent.includes("Chờ xác nhận"), false);
-        assert.equal(table.textContent.includes("Đã từ chối"), false);
-        assert.equal(table.textContent.includes("Cần đối soát"), false);
-        assert.equal(table.textContent.includes("Lệch số tiền"), false);
-        assert.equal(table.textContent.includes("tự động"), false);
-        assert.equal(table.textContent.includes("đối chiếu"), false);
-        assert.equal(table.textContent.includes("sao kê"), false);
+        assert.doesNotMatch(table.textContent, /Chờ xác nhận|Đã từ chối|Cần đối soát|Lệch số tiền|tự động|đối chiếu|sao kê|PAY-RECON|PAY-AUTO|PAY-RETURNED/);
         assert.equal(table.querySelectorAll('[data-action="receipt-reject-open"]').length, 0);
-        assert.equal(table.querySelectorAll("thead th")[5].textContent.trim(), "Chênh lệch");
-        const shortRow = table.querySelector('tbody tr[data-receipt-row="902"]');
-        assert.ok(shortRow);
-        assert.match(shortRow.cells[4].textContent, /90\s*đ/);
-        assert.match(shortRow.cells[5].textContent, /Thiếu\s*10/);
-        assert.match(shortRow.cells[8].textContent, /Thiếu tiền/);
-        const surplusRow = table.querySelector('tbody tr[data-receipt-row="904"]');
-        assert.ok(surplusRow);
-        assert.match(surplusRow.cells[5].textContent, /Dư\s*5/);
-        assert.match(surplusRow.cells[8].textContent, /Dư tiền \(chờ hoàn\)/);
         const exactRow = table.querySelector('tbody tr[data-receipt-row="905"]');
         assert.ok(exactRow);
-        assert.match(exactRow.cells[8].textContent, /Đã xác nhận/);
-        assert.match(exactRow.cells[4].textContent, /40\s*đ/);
-        assert.match(exactRow.cells[5].textContent, /—/);
-        const returnedRow = table.querySelector('tbody tr[data-receipt-row="906"]');
-        assert.match(returnedRow.cells[8].textContent, /Đã hoàn tiền dư/);
+        assert.match(exactRow.cells[3].textContent, /40\s*đ/);
+        assert.match(exactRow.cells[6].textContent, /Đã xác nhận/);
         assert.equal(table.querySelectorAll("tbody tr button").length, 0);
-        assert.equal([...table.querySelectorAll("tbody tr")].some(row =>
-            row.dataset.receiptRow === "901" || row.dataset.receiptRow === "903"), false);
         assert.equal(window.document.querySelector('[data-financial-summary="receipts"]').textContent.includes("cần xử lý"), false);
 
-        shortRow.click();
+        exactRow.click();
         await waitForDom(() => window.document.querySelector('[data-admin-drawer] [role="dialog"]'));
         const detail = window.document.querySelector("[data-admin-drawer]");
-        assert.equal(detail.querySelectorAll("dt").length, 9);
-        for (const label of ["Mã giao dịch", "Hóa đơn/phòng", "Người nộp", "Số tiền yêu cầu",
-            "Số tiền thực nhận", "Chênh lệch", "Phương thức", "Thời điểm", "Trạng thái"]) {
+        assert.equal(detail.querySelectorAll("dt").length, 6);
+        for (const label of ["Mã giao dịch", "Hóa đơn/phòng", "Người nộp",
+            "Phương thức", "Thời điểm", "Trạng thái"]) {
             assert.ok([...detail.querySelectorAll("dt")].some(item => item.textContent === label), label);
         }
-        assert.doesNotMatch(detail.textContent, /Xác nhận|Từ chối|tự động|đối chiếu|sao kê/);
+        assert.doesNotMatch(detail.textContent, /Đã trả lại|hoàn trả|chênh lệch/i);
         assert.equal(detail.querySelector('[data-action="surplus-return-open"]'), null);
-        assert.equal([...detail.querySelectorAll("button")].some(button =>
-            ["Xác nhận", "Từ chối"].includes(button.textContent.trim())), false);
-        detail.querySelector('[data-action="drawer-close"]').click();
-        await waitForDom(() => window.document.querySelector("[data-admin-drawer]").classList.contains("hidden"));
-        returnedRow.click();
-        await waitForDom(() => window.document.querySelector("[data-admin-drawer]").textContent.includes("Sinh viên đã nhận hoàn tiền"));
-        assert.equal(window.document.querySelector("[data-admin-drawer] [data-action=\"surplus-return-open\"]"), null);
         assert.equal([...window.document.querySelectorAll("[data-financial-tabs] button")]
             .some(tab => tab.textContent.includes("Giao dịch")), false);
     } finally {
@@ -573,36 +685,47 @@ test("Admin receipt table shows only four realized-payment states and opens deta
     }
 });
 
-test("Only a surplus receipt in waiting-return state exposes the return action", async () => {
-    const { dom, window, calls, toasts } = await setupAdminWorkflowDom({ financialFixture: true });
+test("Admin refund table and detail show paid/refunded amounts and readable early-checkout notes", async () => {
+    const { dom, window } = await setupAdminWorkflowDom({ financialFixture: true });
+    try {
+        await window.renderHoaDonModule();
+        window.document.querySelector('[data-action="invoice-tab"][data-tab="refunds"]').click();
+        await waitForDom(() => window.document.querySelector("[data-refund-table] tbody tr td"));
+        const table = window.document.querySelector("[data-refund-table]");
+        const headers = [...table.querySelectorAll("thead th")].map(cell => cell.textContent.trim());
+        assert.ok(headers.includes("Đã đóng"));
+        assert.ok(headers.includes("Đã hoàn"));
+        assert.equal(headers.includes("Đã dùng"), false);
+        assert.equal(headers.includes("Khấu trừ"), false);
+        assert.match(table.textContent, /1\.200\.000/);
+        assert.match(table.textContent, /640\.000/);
+
+        table.querySelector('[data-detail-type="refund"]').click();
+        await waitForDom(() => window.document.querySelector("[data-admin-drawer]")?.textContent.includes("YC00049"));
+        const popup = window.document.querySelector("[data-admin-drawer]");
+        assert.match(popup.textContent, /Đã đóng/);
+        assert.match(popup.textContent, /Đã hoàn/);
+        assert.match(popup.textContent, /Trả phòng sớm theo yêu cầu YC00049: ở 14 ngày, hoàn 640\.000 đ/);
+        assert.doesNotMatch(popup.textContent, /Đã dùng|Khấu trừ|Gợi ý 0\.00/);
+    } finally {
+        dom.window.close();
+    }
+});
+
+test("Admin receipt UI keeps discrepancy transactions and return controls hidden", async () => {
+    const { dom, window, calls } = await setupAdminWorkflowDom({ financialFixture: true });
     try {
         await window.renderHoaDonModule();
         window.document.querySelector('[data-action="invoice-tab"][data-tab="receipts"]').click();
-        await waitForDom(() => window.document.querySelector('[data-receipt-row="904"]'));
-        const row = window.document.querySelector('[data-receipt-row="904"]');
-        assert.equal(row.querySelectorAll("button").length, 0);
-        row.click();
-        await waitForDom(() => window.document.querySelector('[data-admin-drawer] [data-action="surplus-return-open"]'));
-        const drawer = window.document.querySelector("[data-admin-drawer]");
-        assert.match(drawer.textContent, /Số tiền yêu cầu\s*50/);
-        assert.match(drawer.textContent, /Số tiền thực nhận\s*55/);
-        assert.match(drawer.textContent, /Dư 5/);
-        assert.equal([...drawer.querySelectorAll("button")].filter(button =>
-            button.textContent.trim() === "Đã trả lại").length, 1);
-        drawer.querySelector('[data-action="surplus-return-open"]').click();
-        await waitForDom(() => window.document.querySelector('[data-action="surplus-return-submit"]'));
-        window.document.querySelector('[data-action="modal-close"]').click();
-        assert.equal(calls.filter(call => call.url.includes("/surplus/")).length, 0);
-
-        drawer.querySelector('[data-action="surplus-return-open"]').click();
-        await waitForDom(() => window.document.querySelector('[data-action="surplus-return-submit"]'));
-        window.document.querySelector('[data-action="surplus-return-submit"]').click();
-        await waitForDom(() => calls.some(call =>
-            call.url === "/api/payments/surplus/PAY-AUTO/return" && call.options.method === "POST"));
-        assert.equal(calls.filter(call =>
-            call.url === "/api/payments/surplus/PAY-AUTO/return" && call.options.method === "POST").length, 1);
-        await waitForDom(() => window.document.querySelector("[data-admin-modal]").classList.contains("hidden"));
-        assert.ok(toasts.some(toast => toast.message === "Đã ghi nhận trả lại tiền dư."));
+        await waitForDom(() => window.document.querySelector('[data-receipt-row="905"]'));
+        const table = window.document.querySelector("[data-receipt-table]");
+        assert.equal(table.querySelector('[data-receipt-row="902"]'), null);
+        assert.equal(table.querySelector('[data-receipt-row="903"]'), null);
+        assert.equal(table.querySelector('[data-receipt-row="904"]'), null);
+        assert.equal(table.querySelector('[data-receipt-row="906"]'), null);
+        assert.equal(window.document.querySelector('[data-action="surplus-return-open"]'), null);
+        assert.equal(window.document.querySelector('[data-action="surplus-return-submit"]'), null);
+        assert.equal(calls.some(call => call.url.includes("/surplus/")), false);
     } finally {
         dom.window.close();
     }
@@ -613,8 +736,8 @@ test("Receipt and invoice payment views expose no confirmation or rejection cont
     try {
         await window.renderHoaDonModule();
         window.document.querySelector('[data-action="invoice-tab"][data-tab="receipts"]').click();
-        await waitForDom(() => window.document.querySelector('[data-receipt-row="902"]'));
-        const receiptRow = window.document.querySelector('[data-receipt-row="902"]');
+        await waitForDom(() => window.document.querySelector('[data-receipt-row="905"]'));
+        const receiptRow = window.document.querySelector('[data-receipt-row="905"]');
         assert.equal(receiptRow.querySelectorAll("button").length, 0);
         receiptRow.click();
         await waitForDom(() => window.document.querySelector('[data-admin-drawer] [role="dialog"]'));
@@ -641,13 +764,11 @@ test("Admin invoice detail provides direct cash collection defaulted to the outs
         assert.match(drawer.textContent, /Lịch sử thanh toán/);
         assert.equal(drawer.querySelector('[data-action="receipt-confirm"]'), null);
         assert.equal(drawer.querySelector('[data-action="receipt-reject-open"]'), null);
-        assert.doesNotMatch(drawer.textContent, /Chờ xác nhận|Đã từ chối|Cần đối soát|Lệch số tiền/);
+        assert.doesNotMatch(drawer.textContent, /Chờ xác nhận|Đã từ chối|Lệch số tiền|PAY-RECON|RECONCILIATION|Cần đối soát/);
         const history = drawer.querySelector("h4:nth-of-type(3)")?.nextElementSibling;
         const reconciliationPayment = [...(history?.querySelectorAll("tbody tr") || [])]
             .find(row => row.textContent.includes("PAY-RECON"));
-        assert.ok(reconciliationPayment);
-        assert.equal(reconciliationPayment.querySelector('[data-action="receipt-confirm"]'), null);
-        assert.equal(reconciliationPayment.querySelector('[data-action="receipt-reject-open"]'), null);
+        assert.equal(reconciliationPayment, undefined);
         assert.match(drawer.textContent, /Cả phòng · Thành viên/);
         assert.equal(form.elements.phuongThuc, undefined);
         assert.equal(form.elements.maThamChieu, undefined);
@@ -658,6 +779,42 @@ test("Admin invoice detail provides direct cash collection defaulted to the outs
         assert.match(drawer.textContent, /Hạn thanh toán:\s*10\/03\/2026/);
         assert.match(drawer.textContent, /Tổng:\s*300/);
         assert.equal(drawer.textContent.includes("— → —"), false);
+    } finally {
+        dom.window.close();
+    }
+});
+
+test("Admin cash collection warns in the invoice drawer and never submits a mismatched amount", async () => {
+    const { dom, window, calls } = await setupAdminWorkflowDom({ financialFixture: true });
+    try {
+        await window.renderHoaDonModule();
+        await waitForDom(() => window.document.querySelector('[data-invoice-table] tbody tr[data-detail-id="INV-DOM"]'));
+        window.document.querySelector('[data-invoice-table] tbody tr[data-detail-id="INV-DOM"]').click();
+        await waitForDom(() => window.document.querySelector('[data-admin-drawer] [data-form="receipt-create"]'));
+        const form = window.document.querySelector('[data-form="receipt-create"]');
+        const amount = form.elements.soTien;
+        const warning = form.querySelector("[data-cash-amount-warning]");
+        const submits = () => calls.filter(call =>
+            call.url === "/api/HoaDon/INV-DOM/phieuthu" && call.options.method === "POST").length;
+
+        amount.value = "299";
+        form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+        await new Promise(resolve => setImmediate(resolve));
+        assert.match(warning.textContent, /Bạn nhập thiếu 1\s*đ so với số tiền cần nộp \(300\s*đ\)/);
+        assert.equal(warning.classList.contains("hidden"), false);
+        assert.equal(submits(), 0);
+
+        amount.value = "301";
+        form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+        await new Promise(resolve => setImmediate(resolve));
+        assert.match(warning.textContent, /Bạn nhập dư 1\s*đ so với số tiền cần nộp \(300\s*đ\)/);
+        assert.equal(submits(), 0);
+
+        amount.value = "";
+        form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+        await new Promise(resolve => setImmediate(resolve));
+        assert.match(warning.textContent, /Vui lòng nhập số tiền nguyên VND hợp lệ/);
+        assert.equal(submits(), 0);
     } finally {
         dom.window.close();
     }
@@ -816,6 +973,10 @@ test("Admin student-notice form styles and toggles the room and student targets 
             HoTen: `Sinh viên yêu cầu ${index}`,
             TenPhong: `A10${index}`,
             Loai: index % 2 ? "Yêu cầu khác" : "Gia hạn hợp đồng",
+            NgayBatDauHopDong: "2026-10-01",
+            NgayKetThucHopDong: "2027-09-30",
+            NgayKetThucDeXuat: "2028-09-30",
+            NoiDung: `Lý do xin gia hạn ${index}`,
             NgayTao: `2026-11-${String(index + 1).padStart(2, "0")}T09:00:00.000Z`
         })),
         "/api/Phong": [],
@@ -889,9 +1050,11 @@ test("Admin student-notice form styles and toggles the room and student targets 
         const notice = window.document.querySelector("[data-notice-list] li");
         const heading = notice.querySelector("strong");
         const hideButton = notice.querySelector("[data-notice-delete]");
+        assert.ok(notice.classList.contains("home-managed-notice"));
+        assert.ok(notice.querySelector(".home-notice-label--management"));
         assert.ok(heading.classList.contains("break-words"));
         assert.ok(hideButton.classList.contains("shrink-0"));
-        assert.equal(heading.parentElement.contains(hideButton), true);
+        assert.equal(heading.closest(".flex").contains(hideButton), true);
 
         assert.match(window.document.querySelector(".home-section-heading").textContent,
             /Thanh toán và yêu cầu mới từ sinh viên/);
@@ -901,10 +1064,17 @@ test("Admin student-notice form styles and toggles the room and student targets 
         assert.equal(cards[0].classList.contains("home-request-announcement"), true);
         assert.equal(cards[0].textContent.includes("Yêu cầu"), true);
         assert.equal(cards[0].textContent.includes("0123456789"), false);
+        const extensionCard = cards.find(card => card.dataset.requestAnnouncement === "YC00005");
+        assert.match(extensionCard.textContent, /Ngày bắt đầu hợp đồng: 01\/10\/2026/);
+        assert.match(extensionCard.textContent, /Ngày kết thúc hợp đồng hiện tại: 30\/09\/2027/);
+        assert.match(extensionCard.textContent, /Ngày kết thúc đề xuất: 30\/09\/2028/);
+        assert.match(extensionCard.textContent, /Lý do: Lý do xin gia hạn 4/);
         assert.equal(cards.some(card => card.classList.contains("home-payment-announcement")), true);
         assert.equal(cards.some(card => card.classList.contains("home-request-announcement")), true);
         assert.match(fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8"),
             /#module-trangchu \.home-request-announcement[^}]*#fffbeb/);
+        assert.match(fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8"),
+            /#module-trangchu \.home-managed-notice[^}]*#eff6ff/);
         cards[0].click();
         await new Promise(resolve => setImmediate(resolve));
         assert.equal(openedRequest.page, "Duyet & Kiem soat");
@@ -929,6 +1099,9 @@ test("Admin request announcement opens the matching request detail after loading
         TenPhong: "A101",
         Loai: "Gia hạn hợp đồng",
         NgayTao: "2026-11-02T09:00:00",
+        NgayBatDauHopDong: "2026-10-01",
+        NgayKetThucHopDong: "2027-09-30",
+        NgayKetThucDeXuat: "2028-09-30",
         NoiDung: "Xin gia hạn."
     };
     const context = {
@@ -936,7 +1109,8 @@ test("Admin request announcement opens the matching request detail after loading
         document: window.document,
         AdminWorkflowUtils: {
             dateTime: value => String(value),
-            renderTable: () => "<table></table>",
+            date: value => `${String(value).slice(8, 10)}/${String(value).slice(5, 7)}/${String(value).slice(0, 4)}`,
+            renderTable: (...args) => utils.renderTable(...args),
             maskStudentId: () => "0123****8901"
         },
         ApiClient: { fetch: async () => ({ json: async () => [request] }) },
@@ -953,9 +1127,22 @@ test("Admin request announcement opens the matching request detail after loading
         await new Promise(resolve => setImmediate(resolve));
         const dialog = window.document.querySelector("#dk-dialog");
         assert.equal(dialog.open, true);
+        const requestRow = window.document.querySelector("#dk-table-wrap tbody tr");
+        const summaryRows = [...requestRow.querySelectorAll(".dk-contract-summary-row")];
+        assert.deepEqual(summaryRows.map(row => row.querySelector("span").textContent.trim()),
+            ["Bắt đầu HĐ:", "Kết thúc HĐ hiện tại:", "Kết thúc đề xuất:", "Lý do:"]);
+        assert.equal(summaryRows[3].title, "Xin gia hạn.");
+        assert.match(requestRow.textContent, /01\/10\/2026/);
+        assert.match(requestRow.textContent, /30\/09\/2027/);
+        assert.match(requestRow.textContent, /30\/09\/2028/);
+        assert.ok(requestRow.textContent.indexOf("30/09/2028")
+            < requestRow.textContent.indexOf("Lý do: Xin gia hạn."));
         assert.match(dialog.textContent, /Chi tiết yêu cầu/);
         assert.match(dialog.textContent, /YC00001/);
         assert.match(dialog.textContent, /Nguyễn An/);
+        assert.match(dialog.textContent, /01\/10\/2026/);
+        assert.match(dialog.textContent, /30\/09\/2027/);
+        assert.match(dialog.textContent, /30\/09\/2028/);
         assert.equal(window.pendingAdminRequestId, undefined);
     } finally {
         window.close();
@@ -1172,8 +1359,7 @@ test("Admin display labels translate persisted payment and workflow codes withou
     assert.equal(utils.displayLabel("ONLINE"), "Chuyển khoản QR");
     assert.equal(utils.displayLabel("CHUYEN_DOI"), "Chuyển khoản QR");
     assert.equal(utils.displayLabel("Chưa thanh toán"), "Còn nợ");
-    assert.equal(utils.displayLabel("RECONCILIATION"), "Cần đối soát");
-    assert.equal(utils.displayLabel("Cần đối soát"), "Cần đối soát");
+    assert.equal(utils.displayLabel("RECONCILIATION"), "—");
     assert.equal(utils.displayLabel("PENDING"), "Chờ xác nhận");
     assert.equal(utils.displayLabel("VALID"), "Hợp lệ");
     assert.equal(utils.displayLabel("OVERDUE"), "Còn nợ");
@@ -1190,28 +1376,26 @@ test("Admin display labels translate persisted payment and workflow codes withou
     assert.equal(utils.maskStudentId("012345678901"), "0123****8901");
     assert.equal(utils.maskStudentId("OLD-ID"), "OL****ID");
     assert.equal(utils.maskPaymentReference("QR-DEMO:012345678901"), "QR-DEMO:012345678901");
-    assert.equal(utils.invoicePaymentLabel({ TrangThaiThanhToan: "Trễ hạn", ConNo: 20 }), "Còn nợ");
+    assert.equal(utils.invoicePaymentLabel({
+        TrangThaiThanhToan: "Trễ hạn", ConNo: 20, HanThanhToan: "2026-10-10"
+    }, "2026-10-11"), "Trễ hạn");
     assert.equal(utils.invoicePaymentLabel({ TrangThaiThanhToan: "Đã thanh toán", ConNo: 0 }), "Đã thanh toán");
-    assert.equal(utils.invoicePaymentDisplayLabel({
-        TrangThaiThanhToan: "Đã thanh toán", ConNo: 0, DaXacNhanQR: true
-    }), "Đã xác nhận thanh toán");
-    assert.equal(utils.invoicePaymentDisplayLabel({
-        TrangThaiThanhToan: "Đã thanh toán", ConNo: 0, DaXacNhanQR: false
-    }), "Đã thanh toán");
+    assert.equal(utils.refundDisplayNote({
+        LyDo: "Trả phòng sớm", GhiChu: "Gợi ý 0.00; Hoàn tiền theo ngày, yêu cầu YC00049",
+        SoNgayDaO: 14, SoTien: 640000
+    }), "Trả phòng sớm theo yêu cầu YC00049: ở 14 ngày, hoàn 640.000 đ");
 });
 
-test("Receipt filters expose only the four realized-payment states and default to all", () => {
+test("Receipt filters exclude discrepancy records and default to confirmed receipts", () => {
     const receipts = [
-        { MaPhieuThu: "PT01", TrangThaiDanhSach: "Thiếu tiền" },
+        { MaPhieuThu: "PT01", TrangThaiDanhSach: "RECONCILIATION" },
         { MaPhieuThu: "PT02", TrangThaiDanhSach: "Đã xác nhận" },
-        { MaPhieuThu: "PT03", TrangThaiDanhSach: "Dư tiền (chờ hoàn)" },
-        { MaPhieuThu: "PT04", TrangThaiDanhSach: "Đã hoàn tiền dư" },
+        { MaPhieuThu: "PT03", TrangThai: "RECONCILIATION" },
+        { MaPhieuThu: "PT04", TrangThaiDanhSach: "SUCCESS" },
         { MaPhieuThu: "PT05", TrangThai: "Chờ xác nhận" }
     ];
-    assert.deepEqual(utils.filterFinancialRows(receipts, "receipts").map(row => row.MaPhieuThu), ["PT01", "PT02", "PT03", "PT04"]);
-    assert.deepEqual(utils.filterFinancialRows(receipts, "receipts", { status: "Thiếu tiền" })
-        .map(row => row.MaPhieuThu), ["PT01"]);
-    assert.equal(utils.filterFinancialRows(receipts, "receipts", { status: "ALL" }).length, 4);
+    assert.deepEqual(utils.filterFinancialRows(receipts, "receipts").map(row => row.MaPhieuThu), ["PT02"]);
+    assert.equal(utils.filterFinancialRows(receipts, "receipts", { status: "ALL" }).length, 1);
     assert.deepEqual(utils.filterFinancialRows(receipts, "receipts", { status: "ACTION_REQUIRED" }), []);
     assert.deepEqual(utils.filterFinancialRows([
         { MaHoaDon: "OWED", ConNo: 100, TrangThaiThanhToan: "Chưa thanh toán" },
@@ -1219,7 +1403,7 @@ test("Receipt filters expose only the four realized-payment states and default t
     ], "invoices").map(row => row.MaHoaDon), ["OWED"]);
 });
 
-test("Invoice filters expose only debt and paid labels and omit canceled rows", () => {
+test("Invoice filters distinguish debt, overdue, and paid labels while omitting canceled rows", () => {
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const rows = [
@@ -1233,7 +1417,9 @@ test("Invoice filters expose only debt and paid labels and omit canceled rows", 
     assert.equal(utils.isOverdueInvoice(rows[2], today), false);
     assert.equal(utils.isOverdueInvoice(rows[3], today), false);
     assert.deepEqual(utils.filterFinancialRows(rows, "invoices", { status: "Còn nợ" })
-        .map(row => row.MaHoaDon), ["OLD-OWED", "TODAY"]);
+        .map(row => row.MaHoaDon), ["TODAY"]);
+    assert.deepEqual(utils.filterFinancialRows(rows, "invoices", { status: "Trễ hạn" })
+        .map(row => row.MaHoaDon), ["OLD-OWED"]);
     assert.deepEqual(utils.filterFinancialRows(rows, "invoices", { status: "ALL" })
         .map(row => row.MaHoaDon), ["OLD-OWED", "TODAY", "PAID"]);
 });
