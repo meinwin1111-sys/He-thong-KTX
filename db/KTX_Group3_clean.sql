@@ -8325,5 +8325,11 @@ GO
 GO
 :r db/migrations/031_incident_expense_modes.sql
 GO
-PRINT N'KTX_Group3 schema, migrations 001-031, master data, and DNKTX permissions are ready.'
+:r db/migrations/032_per_member_contract_renewals.sql
+GO
+:r db/migrations/033_member_renewal_expiry_and_refunds.sql
+GO
+:r db/migrations/034_checkout_refund_base_period.sql
+GO
+PRINT N'KTX_Group3 schema, migrations 001-034, master data, and DNKTX permissions are ready.'
 GO

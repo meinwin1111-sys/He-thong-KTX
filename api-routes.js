@@ -1186,7 +1186,7 @@ function registerApiRoutes(app, {
                     return res.json({ success: true, ...result.recordset[0] });
                 }
             } catch (error) {
-                if ([53020, 53021, 53022, 53025].includes(Number(error?.number))) {
+                if ([53020, 53021, 53022, 53025, 53312].includes(Number(error?.number))) {
                     const statusCode = Number(error.number) === 53020 ? 404
                         : Number(error.number) === 53025 ? 400 : 409;
                     return respondRequestError(res, statusCode,

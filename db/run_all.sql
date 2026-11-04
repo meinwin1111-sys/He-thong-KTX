@@ -129,5 +129,17 @@ PRINT N'=== Migration 031 ==='
 GO
 :r db/migrations/031_incident_expense_modes.sql
 GO
+PRINT N'=== Migration 032 ==='
+GO
+:r db/migrations/032_per_member_contract_renewals.sql
+GO
+PRINT N'=== Migration 033 ==='
+GO
+:r db/migrations/033_member_renewal_expiry_and_refunds.sql
+GO
+PRINT N'=== Migration 034 ==='
+GO
+:r db/migrations/034_checkout_refund_base_period.sql
+GO
 PRINT N'=== Hết run_all (master seed chạy riêng: db/seed/run_master.sql) ==='
 GO
