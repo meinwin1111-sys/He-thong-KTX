@@ -176,7 +176,7 @@
             return "admin-status--warning";
         }
         if (["đang ở", "còn hiệu lực", "đã thanh toán", "hợp lệ", "thành công",
-            "đang áp dụng", "đã xác nhận", "đã xác nhận (tự động)"].includes(label)) {
+            "đang áp dụng", "đã xác nhận (tự động)"].includes(label)) {
             return "admin-status--success";
         }
         if (["đã rời", "đã rời khỏi", "trễ hạn", "quá hạn", "thất bại", "từ chối"].includes(label)) {
@@ -702,7 +702,7 @@
     function filterFinancialRows(rows, type, filters = {}) {
         const search = String(filters.search || "").trim().toLocaleLowerCase("vi");
         const status = String(filters.status || (type === "receipts" ? "ALL" : "ACTION_REQUIRED"));
-        const receiptStatuses = ["Đã xác nhận"];
+        const receiptStatuses = ["Đã thanh toán"];
         const method = String(filters.method || "ALL");
         const from = String(filters.from || "");
         const to = String(filters.to || "");

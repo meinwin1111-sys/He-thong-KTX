@@ -76,7 +76,7 @@
         const requested = Number(merged.SoTienYeuCau);
         const received = Number(merged.SoTienThucNhan);
         if (!Number.isFinite(requested) || !Number.isFinite(received) || requested !== received) return "";
-        return "Đã xác nhận";
+        return "Đã thanh toán";
     };
     const receiptStatusBadge = label =>
         `<span class="inline-flex rounded-full px-2 py-1 text-xs font-semibold bg-emerald-100 text-emerald-800">${esc(label || "—")}</span>`;
@@ -962,7 +962,7 @@
         const statuses = type === "invoices"
             ? ["Còn nợ", "Trễ hạn", "Đã thanh toán"]
             : type === "receipts"
-                ? ["Đã xác nhận"]
+                ? ["Đã thanh toán"]
             : [...new Set(rows.map(row => display(row.TrangThaiThanhToan || row.TrangThai, "")).filter(Boolean))];
         const selected = state.financeFilters[type] || {};
         return `<form data-form="financial-filter" data-finance-type="${type}" class="mb-1 flex flex-wrap items-end gap-2 rounded-xl border bg-white p-3">

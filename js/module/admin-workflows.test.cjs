@@ -89,6 +89,7 @@ test("Admin status badges use one consistent status color mapping", () => {
     assert.match(utils.statusBadge("Trống"), /admin-status--neutral/);
     assert.match(utils.statusBadge("Đầy"), /admin-status--info/);
     assert.match(utils.statusBadge("Còn hiệu lực"), /admin-status--success/);
+    assert.match(utils.statusBadge("Đã thanh toán"), /admin-status--success/);
     assert.match(utils.statusBadge("Đã kết thúc"), /admin-status--neutral/);
     assert.match(utils.statusBadge("Trễ hạn"), /admin-status--danger/);
     assert.match(utils.statusBadge("Chờ xác nhận"), /admin-status--warning/);
@@ -331,6 +332,12 @@ async function setupAdminWorkflowDom({
                 SoTienDu: 5, TrangThaiHoanDu: "CHO_HOAN",
                 TrangThaiPhieuThu: "Hợp lệ", NgayTao: "2026-03-04T09:15:00"
             }, {
+                MaGiaoDich: "PAY-QR-PAID", MaHoaDon: "INV-DOM", MaPhieuThu: 907,
+                MaSinhVien: "QRPAIDSTUDENT", TenPhong: "A101", HoTen: "Sinh viên QR đã thanh toán",
+                SoTien: 60, PhuongThuc: "ONLINE", TrangThai: "SUCCESS",
+                TongTien: 60, SoTienYeuCau: 60, SoTienThucNhan: 60,
+                TrangThaiPhieuThu: "Hợp lệ", NgayTao: "2026-03-07T09:15:00"
+            }, {
                 MaGiaoDich: "PAY-RETURNED", MaHoaDon: "INV-DOM", MaPhieuThu: 906,
                 MaSinhVien: "RETURNED-STUDENT", TenPhong: "A101", HoTen: "Sinh viên đã nhận hoàn tiền",
                 SoTien: 50, PhuongThuc: "ONLINE", TongTien: 50, SoTienYeuCau: 50,
@@ -367,6 +374,10 @@ async function setupAdminWorkflowDom({
                 MaPhieuThu: 905, MaHoaDon: "INV-DOM", MaGiaoDich: null,
                 MaSinhVienNop: "SV-CASH", TenPhong: "A101", TenNguoiNop: "Sinh viên nộp tiền mặt",
                 SoTien: 40, PhuongThuc: "CASH", TrangThai: "Hợp lệ", NgayThu: "2026-03-05T10:00:00"
+            }, {
+                MaPhieuThu: 907, MaHoaDon: "INV-DOM", MaGiaoDich: "PAY-QR-PAID",
+                MaSinhVienNop: "QRPAIDSTUDENT", TenPhong: "A101", TenNguoiNop: "Sinh viên QR đã thanh toán",
+                SoTien: 60, PhuongThuc: "ONLINE", TrangThai: "Hợp lệ", NgayThu: "2026-03-07T09:15:00"
             }, {
                 MaPhieuThu: 906, MaHoaDon: "INV-DOM", MaGiaoDich: "PAY-RETURNED",
                 MaSinhVienNop: "RETURNED-STUDENT", TenPhong: "A101", TenNguoiNop: "Sinh viên đã nhận hoàn tiền",
@@ -688,14 +699,14 @@ test("Admin receipt table excludes discrepancy transactions and opens valid rece
         assert.equal(window.document.querySelector('[data-action="payments-refresh"]').textContent.trim(), "↻");
         const statusFilter = window.document.querySelector('[data-form="financial-filter"] [name="status"]');
         assert.equal(statusFilter.value, "ALL");
-        assert.deepEqual([...statusFilter.options].map(option => option.textContent), ["Tất cả", "Đã xác nhận"]);
+        assert.deepEqual([...statusFilter.options].map(option => option.textContent), ["Tất cả", "Đã thanh toán"]);
         assert.match(table.textContent, /INV-DOM/);
         assert.equal(table.querySelector("table").style.tableLayout, "fixed");
         assert.equal(table.querySelectorAll("colgroup col").length, 7);
         assert.match(table.querySelector("thead").textContent, /Mã hóa đơn\s*Phòng\s*Người nộp\s*Số tiền\s*Phương thức\s*Thời điểm\s*Trạng thái/);
         assert.doesNotMatch(table.querySelector("thead").textContent, /Thao tác/);
         assert.ok(table.querySelector("colgroup col:nth-child(2)").style.width === "150px");
-        assert.equal(table.querySelectorAll("tbody tr").length, 1);
+        assert.equal(table.querySelectorAll("tbody tr").length, 2);
         assert.equal(table.textContent.includes("PAY-TEST-1"), false);
         assert.equal(table.textContent.includes("PAY-LONG"), false);
         assert.equal(table.textContent.includes("012345678901"), false);
@@ -705,7 +716,11 @@ test("Admin receipt table excludes discrepancy transactions and opens valid rece
         const exactRow = table.querySelector('tbody tr[data-receipt-row="905"]');
         assert.ok(exactRow);
         assert.match(exactRow.cells[3].textContent, /40\s*đ/);
-        assert.match(exactRow.cells[6].textContent, /Đã xác nhận/);
+        assert.match(exactRow.cells[6].textContent, /Đã thanh toán/);
+        const qrRow = table.querySelector('tbody tr[data-receipt-row="907"]');
+        assert.ok(qrRow);
+        assert.match(qrRow.cells[4].textContent, /Chuyển khoản QR/);
+        assert.match(qrRow.cells[6].textContent, /Đã thanh toán/);
         assert.equal(table.querySelectorAll("tbody tr button").length, 0);
         assert.equal(window.document.querySelector('[data-financial-summary="receipts"]').textContent.includes("cần xử lý"), false);
 
@@ -1427,16 +1442,20 @@ test("Admin display labels translate persisted payment and workflow codes withou
     }), "Trả phòng sớm theo yêu cầu YC00049: ở 14 ngày, hoàn 640.000 đ");
 });
 
-test("Receipt filters exclude discrepancy records and default to confirmed receipts", () => {
+test("Receipt filters exclude discrepancy records and default to paid receipts", () => {
     const receipts = [
         { MaPhieuThu: "PT01", TrangThaiDanhSach: "RECONCILIATION" },
-        { MaPhieuThu: "PT02", TrangThaiDanhSach: "Đã xác nhận" },
+        { MaPhieuThu: "PT02", TrangThaiDanhSach: "Đã thanh toán" },
         { MaPhieuThu: "PT03", TrangThai: "RECONCILIATION" },
         { MaPhieuThu: "PT04", TrangThaiDanhSach: "SUCCESS" },
-        { MaPhieuThu: "PT05", TrangThai: "Chờ xác nhận" }
+        { MaPhieuThu: "PT05", TrangThai: "Chờ xác nhận" },
+        { MaPhieuThu: "PT06", TrangThaiDanhSach: "Đã xác nhận" }
     ];
     assert.deepEqual(utils.filterFinancialRows(receipts, "receipts").map(row => row.MaPhieuThu), ["PT02"]);
     assert.equal(utils.filterFinancialRows(receipts, "receipts", { status: "ALL" }).length, 1);
+    assert.deepEqual(utils.filterFinancialRows(receipts, "receipts", { status: "Đã thanh toán" })
+        .map(row => row.MaPhieuThu), ["PT02"]);
+    assert.deepEqual(utils.filterFinancialRows(receipts, "receipts", { status: "Đã xác nhận" }), []);
     assert.deepEqual(utils.filterFinancialRows(receipts, "receipts", { status: "ACTION_REQUIRED" }), []);
     assert.deepEqual(utils.filterFinancialRows([
         { MaHoaDon: "OWED", ConNo: 100, TrangThaiThanhToan: "Chưa thanh toán" },
