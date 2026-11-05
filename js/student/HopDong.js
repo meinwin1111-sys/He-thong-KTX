@@ -7,7 +7,7 @@
     const backendStudent = () => window.StudentAuth?.session()?.isBackend;
     const formatDate = value => value ? date(String(value).slice(0, 10)) : 'Chưa cập nhật';
 
-    ui.contractDetails = () => fields([['Mã hợp đồng', data.contract.id], ['Mã sinh viên', data.profile.code], ['Sinh viên', data.profile.name], ['Số phòng', data.contract.roomNumber], ['Khu/Tòa', data.room.building], ['Ngày bắt đầu', date(data.contract.start)], ['Ngày kết thúc', date(data.contract.end)], ['Thời hạn hợp đồng', ui.helpers.contractTerm()], ['Trạng thái hợp đồng', ui.helpers.contractStatus()], ['Tiền phòng / tháng', money(data.contract.fee)]]);
+    ui.contractDetails = () => fields([['Mã hợp đồng', data.contract.id], ['Số CCCD', data.profile.code], ['Sinh viên', data.profile.name], ['Số phòng', data.contract.roomNumber], ['Khu/Tòa', data.room.building], ['Ngày bắt đầu', date(data.contract.start)], ['Ngày kết thúc', date(data.contract.end)], ['Thời hạn hợp đồng', ui.helpers.contractTerm()], ['Trạng thái hợp đồng', ui.helpers.contractStatus()], ['Tiền phòng / tháng', money(data.contract.fee)]]);
     ui.pages.contract = {
         title: 'Hợp đồng',
         render: () => backendStudent()
@@ -32,7 +32,7 @@
                 const active = contracts.find(contract => contract.TrangThaiHopDong === 'Còn hiệu lực') || contracts[0];
                 ui.contractDetails = () => active ? fields([
                     ['Mã hợp đồng', active.MaHopDong],
-                    ['Mã sinh viên', active.MaSinhVien],
+                    ['Số CCCD', active.MaSinhVien],
                     ['Sinh viên', window.StudentAuth.session().name],
                     ['Số phòng', active.TenPhong],
                     ['Khu/Tòa', active.Khu || 'Chưa cập nhật'],
@@ -54,7 +54,7 @@
                             ['Tiền phòng / tháng', money(Number(contract.GiaPhong || 0))]
                         ]) + `<div class="st-actions"><button type="button" class="st-button" data-action="contract-detail" ${active !== contract ? 'disabled' : ''}>Xem chi tiết</button>${contract.TrangThaiHopDong === 'Còn hiệu lực' ? '<a href="#requests" class="st-button st-primary">Yêu cầu gia hạn</a>' : ''}</div>`
                     )).join('')
-                    : '<p class="st-muted">Bạn hiện chưa có hợp đồng.</p>';
+                    : '<article class="st-card"><h2>Hợp đồng lưu trú</h2><p class="st-empty-state" role="status">Chưa có hợp đồng.</p><p class="st-muted">Khi được xếp phòng, vui lòng liên hệ Ban quản lý để hoàn tất thủ tục hợp đồng. Bạn có thể gửi câu hỏi tại <a href="#requests">Yêu cầu &amp; Hỗ trợ</a>.</p></article>';
             } catch (error) {
                 if (root.isConnected) content.innerHTML = `<p class="st-notice" role="alert">${esc(error.message || 'Không thể tải hợp đồng.')}</p>`;
             }

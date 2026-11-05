@@ -1,5 +1,8 @@
 ﻿node_modules/
 .env
+/dist/
+files/cay-bang.png
+files/ky-tuc-xa.png
 server_out.txt
 server_err.txt
 _extract/

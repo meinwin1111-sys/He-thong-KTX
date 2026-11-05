@@ -1,5 +1,6 @@
 const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
 const GENERIC_REGISTRATION_ERROR = "Không thể đăng ký với thông tin này, vui lòng liên hệ quản lý";
+const studentIdentity = require("./js/student-identity");
 
 function stringValue(value) {
     return typeof value === "string" ? value.trim() : "";
@@ -16,7 +17,7 @@ function validateRegistration(body, now = new Date()) {
         return { error: "Request body phải là một đối tượng JSON." };
     }
     const registration = {
-        studentId: stringValue(body.MaSinhVien).toUpperCase(),
+        studentId: stringValue(body.MaSinhVien),
         name: stringValue(body.HoTen),
         birthday: stringValue(body.NgaySinh),
         gender: stringValue(body.GioiTinh),
@@ -28,9 +29,9 @@ function validateRegistration(body, now = new Date()) {
         password: typeof body.MatKhau === "string" ? body.MatKhau : ""
     };
 
-    if (!/^[A-Z0-9][A-Z0-9_-]{2,19}$/.test(registration.studentId)) {
-        return { error: "Mã sinh viên phải dài từ 3 đến 20 ký tự và chỉ gồm chữ, số, dấu gạch ngang hoặc gạch dưới." };
-    }
+    const identity = studentIdentity.validateStudentIdentity(registration.studentId);
+    if (!identity.valid) return { error: identity.message };
+    registration.studentId = identity.value;
     if (!registration.name || registration.name.length > 100) return { error: "Họ tên là bắt buộc và tối đa 100 ký tự." };
     if (!["Nam", "Nữ", "Khác"].includes(registration.gender)) return { error: "Giới tính không hợp lệ." };
     if (registration.phone.startsWith("+84")) registration.phone = `0${registration.phone.slice(3)}`;
@@ -48,7 +49,9 @@ function validateRegistration(body, now = new Date()) {
     const latest = new Date(Date.UTC(today.getUTCFullYear() - 15, today.getUTCMonth(), today.getUTCDate()));
     if (birthday > latest || birthday < earliest) return { error: "Tuổi phải từ 15 đến 100 và ngày sinh không được ở tương lai." };
     if (registration.address.length > 255) return { error: "Địa chỉ tối đa 255 ký tự." };
-    if (!registration.school || registration.school.length > 150) return { error: "Tên trường là bắt buộc và tối đa 150 ký tự." };
+    if (!registration.school || registration.school.length > 150) {
+        return { error: "Tên trường là bắt buộc và tối đa 150 ký tự." };
+    }
     if (!registration.className || registration.className.length > 50) return { error: "Lớp là bắt buộc và tối đa 50 ký tự." };
     if (registration.password.length < 8 || Buffer.byteLength(registration.password, "utf8") > 72) {
         return { error: "Mật khẩu phải có ít nhất 8 ký tự và tối đa 72 byte khi mã hóa." };
@@ -105,25 +108,26 @@ function createRegistrationHandler({ getPool, sql, bcrypt, logDatabaseError }) {
         try {
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
             const studentResult = await new sql.Request(transaction)
-                .input("MaSinhVien", sql.NVarChar(20), registration.studentId)
+                .input("MaSinhVien", sql.NVarChar(30), registration.studentId)
                 .query(`
                     SELECT MaSinhVien, NgaySinh, SoDienThoai
                     FROM dbo.SinhVien WITH (UPDLOCK, HOLDLOCK)
-                    WHERE MaSinhVien = @MaSinhVien
+                    WHERE UPPER(LTRIM(RTRIM(MaSinhVien))) = @MaSinhVien
                 `);
             const existingStudent = studentResult.recordset[0] || null;
             const duplicate = await new sql.Request(transaction)
-                .input("MaSinhVien", sql.NVarChar(20), registration.studentId)
+                .input("MaSinhVien", sql.NVarChar(30), registration.studentId)
                 .input("Email", sql.VarChar(100), registration.email)
                 .query(`
                     SELECT TOP (1) MaSinhVien
                     FROM dbo.SinhVien WITH (UPDLOCK, HOLDLOCK)
                     WHERE LOWER(LTRIM(RTRIM(Email))) = @Email
-                      AND MaSinhVien <> @MaSinhVien
+                      AND UPPER(LTRIM(RTRIM(MaSinhVien))) <> @MaSinhVien
                     UNION ALL
                     SELECT TOP (1) MaSinhVien
                     FROM dbo.TaiKhoan WITH (UPDLOCK, HOLDLOCK)
-                    WHERE MaSinhVien = @MaSinhVien OR LOWER(LTRIM(RTRIM(Email))) = @Email
+                    WHERE UPPER(LTRIM(RTRIM(MaSinhVien))) = @MaSinhVien
+                       OR LOWER(LTRIM(RTRIM(Email))) = @Email
                 `);
             if (duplicate.recordset.length) {
                 await transaction.rollback();
@@ -141,14 +145,14 @@ function createRegistrationHandler({ getPool, sql, bcrypt, logDatabaseError }) {
                 }
             } else {
                 await new sql.Request(transaction)
-                    .input("MaSinhVien", sql.NVarChar(20), registration.studentId)
+                    .input("MaSinhVien", sql.NVarChar(30), registration.studentId)
                     .input("HoTen", sql.NVarChar(100), registration.name)
                     .input("NgaySinh", sql.Date, registration.birthday)
                     .input("GioiTinh", sql.NVarChar(10), registration.gender)
                     .input("SoDienThoai", sql.VarChar(10), registration.phone)
                     .input("Email", sql.NVarChar(100), registration.email)
                     .input("DiaChi", sql.NVarChar(255), registration.address || null)
-                    .input("Truong", sql.NVarChar(150), registration.school)
+                    .input("Truong", sql.NVarChar(150), registration.school || null)
                     .input("Lop", sql.NVarChar(50), registration.className)
                     .query(`
                         INSERT INTO dbo.SinhVien
@@ -166,7 +170,7 @@ function createRegistrationHandler({ getPool, sql, bcrypt, logDatabaseError }) {
                 .input("TenHienThi", sql.NVarChar(100), registration.name)
                 .input("SoDienThoai", sql.VarChar(10), registration.phone)
                 .input("VaiTro", sql.NVarChar(20), "Sinh viên")
-                .input("MaSinhVien", sql.NVarChar(20), registration.studentId)
+                .input("MaSinhVien", sql.NVarChar(30), existingStudent?.MaSinhVien || registration.studentId)
                 .query(`
                     INSERT INTO dbo.TaiKhoan
                         (Email, MatKhau, TenHienThi, SoDienThoai, VaiTro, MaSinhVien)

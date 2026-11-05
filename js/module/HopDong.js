@@ -80,14 +80,19 @@ function renderHopDongModule() {
 
     <button id="tab-warning" onclick="filterHopDong('warning')"
         class="tab-item py-2 px-6 font-semibold text-slate-500 transition-all flex items-center gap-2">
-        ⚠️ Sắp hết hạn
+        Sắp hết hạn
     </button>
 </div>
 
 
 <!-- ================= TABLE ================= -->
-<div class="bg-white rounded-xl border overflow-x-auto">
-<table class="min-w-[1200px] w-full">
+<p id="showingHD" class="admin-list-summary text-sm text-slate-600" aria-live="polite"></p>
+<div data-no-admin-filters class="bg-white rounded-xl border overflow-x-auto">
+<table class="min-w-[1500px] w-full table-fixed">
+<colgroup>
+    <col class="w-[140px]"><col class="w-[180px]"><col class="w-[190px]"><col class="w-[120px]">
+    <col class="w-[155px]"><col class="w-[155px]"><col class="w-[150px]"><col class="w-[150px]"><col class="w-[260px]">
+</colgroup>
 
 
 <!-- Header bảng (render bằng JS) -->
@@ -103,8 +108,6 @@ function renderHopDongModule() {
 
 <!-- ================= FOOTER ================= -->
 <div class="px-6 py-4 flex justify-between items-center text-sm text-slate-500">
-    <!-- Hiển thị số dòng -->
-    <span id="showingHD"></span>
 <div id="paginationHD" class="flex items-center gap-2"></div>
 </div>
 
@@ -136,7 +139,7 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
 <!-- MSSV -->
 <div>
     <label class="font-semibold text-slate-900">
-    Mã sinh viên <span class="text-red-500">*</span>
+    Số CCCD <span class="text-red-500">*</span>
 </label>
 
 
@@ -144,7 +147,7 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
     <input id="mssvInput"
     oninput="handleMSSVInput()"
     class="w-full border rounded-lg px-4 py-2 mt-2"
-    placeholder="Nhập MSSV">
+    placeholder="Nhập Số CCCD">
 </div>
 
 
@@ -247,7 +250,7 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
 
 
     <div>
-        <label class="text-sm font-semibold text-slate-900">Mã sinh viên</label>
+        <label class="text-sm font-semibold text-slate-900">Số CCCD</label>
         <input id="extendMSSV" disabled class="w-full border rounded-lg px-4 py-2 bg-slate-50">
     </div>
 
@@ -416,7 +419,7 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
 
     <!-- HEADER -->
     <div class="px-6 py-4 border-b flex justify-between items-center">
-        <h2 class="text-2xl font-bold text-slate-900">Lịch sử hợp đồng</h2>
+        <h2 class="text-2xl font-bold text-slate-900">Chi tiết hợp đồng</h2>
         <button onclick="closeHistoryModal()"
             class="text-slate-500 text-xl hover:text-slate-500">✕</button>
     </div>
@@ -424,6 +427,7 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
 
     <!-- TABLE (SCROLL) -->
     <div class="flex-1 overflow-y-auto">
+        <p id="historyCount" class="px-6 py-2 text-sm text-slate-600" aria-live="polite"></p>
         <table class="w-full text-sm">
 
 
@@ -431,7 +435,7 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
                 <tr>
                     <th class="px-6 py-3 text-left">MÃ LS</th>
                     <th class="px-6 py-3 text-left">MÃ HD</th>
-                    <th class="px-6 py-3 text-left">MSSV</th>
+                    <th class="px-6 py-3 text-left">Số CCCD</th>
                     <th class="px-6 py-3 text-left">TÊN SV</th>
                     <th class="px-6 py-3 text-left">PHÒNG</th>
                     <th class="px-6 py-3 text-left">NGÀY BD</th>
@@ -452,9 +456,6 @@ class="absolute right-5 top-4 text-slate-500 text-xl">×</button>
 
     <!-- FOOTER (KHÔNG SCROLL) -->
     <div class="px-6 py-4 flex justify-between items-center text-sm text-slate-500 border-t">
-
-
-        <span id="historyCount"></span>
 
 
         <div class="flex items-center gap-2">
@@ -727,7 +728,7 @@ function renderHeader(type) {
         head.innerHTML = `
         <tr>
             <th class="px-6 py-3 text-left">MÃ HD</th>
-            <th class="px-6 py-3 text-left">MSSV</th>
+            <th class="px-6 py-3 text-left">Số CCCD</th>
             <th class="px-6 py-3 text-left">HỌ TÊN SV</th>
             <th class="px-6 py-3 text-left">TÊN PHÒNG</th>
             <th class="px-6 py-3 text-left">NGÀY BẮT ĐẦU</th>
@@ -745,7 +746,7 @@ function renderHeader(type) {
         head.innerHTML = `
         <tr>
             <th class="px-6 py-3 text-left">MÃ HD</th>
-            <th class="px-6 py-3 text-left">MSSV</th>
+            <th class="px-6 py-3 text-left">Số CCCD</th>
             <th class="px-6 py-3 text-left">HỌ TÊN SV</th>
             <th class="px-6 py-3 text-left">TÊN PHÒNG</th>
             <th class="px-6 py-3 text-left">NGÀY BẮT ĐẦU</th>
@@ -775,6 +776,7 @@ function renderTableWarning() {
 
 
     tbody.innerHTML = data.map((h) => {
+        const status = String(h.TrangThai || "").trim() || "Chưa xác định";
 
 
         let rowClass = "";
@@ -789,23 +791,17 @@ function renderTableWarning() {
         <tr class="${rowClass} ${highlight} border-t">
 
 
-            <td class="px-6 py-4 font-semibold">${h.MaHD}</td>
-            <td class="px-6 py-4">${h.MSSV}</td>
-            <td class="px-6 py-4">${h.TenSV}</td>
-            <td class="px-6 py-4">${h.TenPhong}</td>
-            <td class="px-6 py-4">${formatDate(h.NgayBatDau)}</td>
-            <td class="px-6 py-4">${formatDate(h.NgayKetThuc)}</td>
+            <td class="px-6 py-4 font-semibold whitespace-nowrap">${h.MaHD}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${window.AdminWorkflowUtils.maskStudentId(h.MSSV)}</td>
+            <td class="px-6 py-4 truncate" title="${h.TenSV}">${h.TenSV}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${h.TenPhong}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${formatDate(h.NgayBatDau)}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${formatDate(h.NgayKetThuc)}</td>
 
 
             <td class="px-6 py-4">
-                <span class="px-3 py-1 rounded-full text-xs font-semibold
-                    ${h.TrangThai === "Còn hiệu lực"
-                        ? "bg-green-100 text-green-600"
-                        : h.TrangThai === "Sắp hết hạn"
-                            ? "bg-orange-100 text-orange-500"
-                            : "bg-slate-200 text-slate-500"
-                    }">
-                    ${h.TrangThai}
+                <span class="admin-status-badge ${window.AdminWorkflowUtils.statusClass(status)}">
+                    ${status}
                 </span>
             </td>
 
@@ -817,7 +813,7 @@ function renderTableWarning() {
 
 
             <td class="px-6 py-4 text-center">
-                <div class="flex justify-center gap-2 whitespace-nowrap">
+                <div class="flex flex-wrap justify-center gap-2">
 
 
                     <button
@@ -847,10 +843,6 @@ function renderTableWarning() {
     }).join("");
 
 
-    document.getElementById("showingHD").innerText =
-        `Hiển thị ${data.length}/${filteredHopDong.length} hợp đồng`;
-
-
     renderPaginationHD();
 }
 
@@ -865,6 +857,7 @@ function renderHopDongTable() {
 
 
     tbody.innerHTML = data.map((h) => {
+        const status = String(h.TrangThai || "").trim() || "Chưa xác định";
 
 
         const highlight = h.MaHD === lastUpdatedHD ? "bg-slate-200" : "";
@@ -877,45 +870,39 @@ function renderHopDongTable() {
         >
 
 
-            <td class="px-6 py-4 font-semibold">${h.MaHD}</td>
+            <td class="px-6 py-4 font-semibold whitespace-nowrap">${h.MaHD}</td>
 
 
-            <td class="px-6 py-4">${h.MSSV}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${window.AdminWorkflowUtils.maskStudentId(h.MSSV)}</td>
 
 
-            <td class="px-6 py-4 whitespace-normal break-words min-w-[180px]">
+            <td class="px-6 py-4 truncate" title="${h.TenSV}">
                 ${h.TenSV}
             </td>
 
 
-            <td class="px-6 py-4">${h.TenPhong}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${h.TenPhong}</td>
 
 
-            <td class="px-6 py-4">${formatDate(h.NgayBatDau)}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${formatDate(h.NgayBatDau)}</td>
 
 
-            <td class="px-6 py-4">${formatDate(h.NgayKetThuc)}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${formatDate(h.NgayKetThuc)}</td>
 
 
             <td class="px-6 py-4">
-                <span class="px-3 py-1 rounded-full text-xs font-semibold inline-block
-                    ${h.TrangThai === "Còn hiệu lực"
-                        ? "bg-green-100 text-green-600"
-                        : h.TrangThai === "Sắp hết hạn"
-                            ? "bg-orange-100 text-orange-500"
-                            : "bg-slate-200 text-slate-500"
-                    }">
-                    ${h.TrangThai}
+                <span class="admin-status-badge ${window.AdminWorkflowUtils.statusClass(status)}">
+                    ${status}
                 </span>
             </td>
 
 
-            <td class="px-6 py-4 text-slate-500 text-center whitespace-normal break-words">
+            <td class="px-6 py-4 text-slate-500 text-center truncate" title="${h.GhiChu || "-"}">
                 ${h.GhiChu || "-"}
             </td>
 
 
-            <td class="px-6 py-4 text-center min-w-[180px]">
+            <td class="px-6 py-4 text-center min-w-[260px]">
                 ${
                     h.TrangThai === "Đã kết thúc"
                         ? `<span class="text-slate-500 italic">-</span>`
@@ -952,10 +939,6 @@ function renderHopDongTable() {
     }).join("");
 
 
-    document.getElementById("showingHD").innerText =
-        `Hiển thị ${start + 1}-${start + data.length}/${filteredHopDong.length} hợp đồng`;
-
-
     renderPaginationHD();
 }
 
@@ -966,13 +949,10 @@ function renderPaginationHD() {
     const totalPages = Math.ceil(totalRows / rowsPerPageHD) || 1;
 
 
-    const start = totalRows === 0 ? 0 : (currentPageHD - 1) * rowsPerPageHD + 1;
-    const end = Math.min(currentPageHD * rowsPerPageHD, totalRows);
-
-
-    // TEXT: Hiển thị 1-10/135
+    const activeCount = rawHopDong.filter(contract => contract.TrangThai === "Còn hiệu lực").length;
+    const endedCount = rawHopDong.filter(contract => contract.TrangThai === "Đã kết thúc").length;
     document.getElementById("showingHD").innerText =
-        `Hiển thị ${start}-${end}/${totalRows} hợp đồng`;
+        `Tổng: ${rawHopDong.length} hợp đồng · ${activeCount} đang hiệu lực · ${endedCount} đã kết thúc · ${totalRows} phù hợp`;
 
 
     // UI pagination giống phòng
@@ -1404,12 +1384,12 @@ async function confirmEnd() {
 }
 // ======================= MỞ MODAL LỊCH SỬ =======================
 async function openHistoryModal() {
-    const res = await fetch(`${BASE_URL}/api/history`);
+    const res = await fetch(`${BASE_URL}/api/chitiethopdong`);
     const data = await res.json();
 
 
     if (data.length === 0) {
-        showToast("Không có lịch sử hợp đồng", "error");
+        showToast("Không có chi tiết hợp đồng", "error");
         return;
     }
 
@@ -1441,14 +1421,16 @@ function renderHistoryTable() {
 
 
     tbody.innerHTML = pageData
-        .map(
-            (h) => `
+        .map((h) => {
+            const status = String(h.TrangThaiHopDong || "").trim() || "Chưa xác định";
+            const action = String(h.ThaoTac || "").trim() || "—";
+            return `
         <tr class="border-t hover:bg-slate-50 transition">
 
 
             <td class="px-6 py-4 font-semibold whitespace-nowrap">${h.MaLS}</td>
             <td class="px-6 py-4 whitespace-nowrap">${h.MaHopDong}</td>
-            <td class="px-6 py-4 whitespace-nowrap">${h.MaSinhVien}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${window.AdminWorkflowUtils.maskStudentId(h.MaSinhVien)}</td>
             <td class="px-6 py-4">${h.HoTen}</td>
             <td class="px-6 py-4 whitespace-nowrap">${h.TenPhong}</td>
             <td class="px-6 py-4 whitespace-nowrap">${formatDate(h.NgayBatDau)}</td>
@@ -1456,27 +1438,21 @@ function renderHistoryTable() {
 
 
             <td class="px-6 py-4 whitespace-nowrap">
-                <span class="px-3 py-1 rounded-full text-xs font-semibold
-                ${h.TrangThaiHopDong === "Còn hiệu lực"
-                    ? "bg-green-100 text-green-600"
-                    : h.TrangThaiHopDong === "Sắp hết hạn"
-                        ? "bg-orange-100 text-orange-500"
-                        : "bg-slate-200 text-slate-500"
-                }">
-                    ${h.TrangThaiHopDong}
+                <span class="admin-status-badge ${window.AdminWorkflowUtils.statusClass(status)}">
+                    ${status}
                 </span>
             </td>
 
 
             <td class="px-6 py-4 whitespace-nowrap">
-                <span class="px-3 py-1 rounded-full text-xs font-semibold text-white
-                    ${h.ThaoTac === "Tạo mới"
+                <span class="inline-flex items-center justify-center whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold text-white
+                    ${action === "Tạo mới"
                     ? "bg-green-500"
-                    : h.ThaoTac === "Gia hạn"
+                    : action === "Gia hạn"
                         ? "bg-orange-500"
-                        : "bg-red-500"
+                        : action === "—" ? "bg-slate-100 text-slate-600" : "bg-red-500"
                 }">
-                    ${h.ThaoTac}
+                    ${action}
                 </span>
             </td>
 
@@ -1487,14 +1463,14 @@ function renderHistoryTable() {
 
 
         </tr>
-    `,
-        )
+    `;
+        })
         .join("");
 
 
     // update footer
     document.getElementById("historyCount").innerText =
-        `Hiển thị ${start + 1}-${Math.min(end, historyHD.length)}/${historyHD.length} hợp đồng`;
+        `Tổng: ${historyHD.length} sự kiện lịch sử hợp đồng`;
 
 
     const totalPages = Math.ceil(historyHD.length / historyPageSize);
@@ -1523,7 +1499,7 @@ function prevHistoryPage() {
 
 
 async function openHistoryModal() {
-    const res = await fetch(`${BASE_URL}/api/history`);
+    const res = await fetch(`${BASE_URL}/api/chitiethopdong`);
     const data = await res.json();
 
 

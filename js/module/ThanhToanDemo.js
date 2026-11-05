@@ -9,6 +9,7 @@
     let tab = 'cash';
     let message = '';
     let generation = 0;
+    const escapeStudentId = value => escape(window.AdminWorkflowUtils.maskStudentId(value));
     async function render() {
         if (!host?.isConnected) return;
         const token = ++generation;
@@ -17,18 +18,18 @@
             const history = await store.listHistory();
             if (token !== generation || !host?.isConnected) return;
             const cash = tab === 'cash';
-            const headers = cash ? ['Mã hóa đơn', 'Hạng mục', 'Mã sinh viên', 'Họ tên', 'Phòng', 'Số tiền', 'Ngày đăng ký', 'Trạng thái', 'Thao tác'] :
+            const headers = cash ? ['Mã hóa đơn', 'Hạng mục', 'Số CCCD', 'Họ tên', 'Phòng', 'Số tiền', 'Ngày đăng ký', 'Trạng thái', 'Thao tác'] :
                 ['Mã GD', 'Mã HĐ', 'Hạng mục', 'Sinh viên', 'Số tiền', 'Phương thức', 'Thời gian', 'Trạng thái', 'Người xác nhận'];
             const rows = (cash ? waiting : history).map(p => cash ? `<tr>
-                <td>${esc(p.invoiceId)}</td><td class="st-long">${esc(itemsOf(p))}</td><td>${esc(p.studentId)}</td><td>${esc(p.studentName)}</td><td>${esc(p.room)}</td>
+                <td>${esc(p.invoiceId)}</td><td class="st-long">${esc(itemsOf(p))}</td><td>${escapeStudentId(p.studentId)}</td><td>${esc(p.studentName)}</td><td>${esc(p.room)}</td>
                 <td>${money(p.amount)}</td><td>${esc(time(p.requestedAt))}</td><td><span class="dk-badge dk-pending">Chờ thanh toán tiền mặt</span></td>
                 <td class="dk-actions"><button type="button" class="dk-button dk-primary" data-cash-request="${esc(p.id)}" data-student="${esc(p.studentId)}">Xác nhận đã thu tiền</button>
                 <button type="button" class="dk-button dk-danger" data-cash-request="${esc(p.id)}" data-student="${esc(p.studentId)}" data-cash-reject="1">Từ chối/Hủy yêu cầu</button></td></tr>` :
-                `<tr><td>${esc(p.transactionId || p.id)}</td><td>${esc(p.invoiceId)}</td><td class="st-long">${esc(itemsOf(p))}</td><td>${esc(p.studentName)}<small>${esc(p.studentId)}</small></td>
-                <td>${money(p.amount)}</td><td>${p.paymentMethod === 'CASH' ? 'Tiền mặt' : 'Online'}</td><td>${esc(time(p.paymentTime))}</td>
-                <td><span class="dk-badge dk-approved">Thành công</span></td><td>${esc(p.confirmedBy?.name || (p.paymentMethod === 'ONLINE' ? 'Online DEMO tự động' : '—'))}</td></tr>`).join('');
+                `<tr><td>${esc(p.transactionId || p.id)}</td><td>${esc(p.invoiceId)}</td><td class="st-long">${esc(itemsOf(p))}</td><td>${esc(p.studentName)}<small>${escapeStudentId(p.studentId)}</small></td>
+                <td>${money(p.amount)}</td><td>${p.paymentMethod === 'CASH' ? 'Tiền mặt' : 'Chuyển khoản QR'}</td><td>${esc(time(p.paymentTime))}</td>
+                <td><span class="dk-badge dk-approved">Hợp lệ</span></td><td>${esc(p.confirmedBy?.name || (p.paymentMethod === 'ONLINE' ? 'Chuyển khoản QR tự động' : '—'))}</td></tr>`).join('');
             host.innerHTML = `<h3 class="text-xl font-bold mt-6 mb-2">Thanh toán Student · DEMO / SANDBOX</h3>
-                <p class="dk-demo">Dùng chung dữ liệu với Student trên cùng trình duyệt và địa chỉ website. Không ghi vào hóa đơn API/database thật. Online thành công được ghi nhận tự động; chỉ tiền mặt cần xác nhận.</p>
+                <p class="dk-demo">Dùng chung dữ liệu với Sinh viên trên cùng trình duyệt và địa chỉ website. Không ghi vào hóa đơn API/database thật. Chuyển khoản QR thành công được ghi nhận tự động; chỉ tiền mặt cần xác nhận.</p>
                 <div class="dk-panel"><div class="dk-tabs"><button type="button" data-demo-tab="cash" aria-pressed="${cash}" class="${cash ? 'dk-active' : ''}">Xác nhận thu tiền mặt (${waiting.length})</button>
                 <button type="button" data-demo-tab="history" aria-pressed="${!cash}" class="${!cash ? 'dk-active' : ''}">Lịch sử thanh toán (${history.length})</button></div>
                 <p role="status" class="p-4">${esc(message)}</p><div class="dk-table-wrap"><table class="dk-table"><thead><tr>${headers.map(h => `<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows || '<tr><td colspan="9" class="dk-empty">Chưa có giao dịch trong danh sách này.</td></tr>'}</tbody></table></div></div>`;

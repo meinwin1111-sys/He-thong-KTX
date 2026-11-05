@@ -1,5 +1,5 @@
-```bat
 @echo off
+setlocal
 title KTX System Launcher
 
 set "PROJECT=%~dp0"
@@ -12,11 +12,11 @@ cd /d "%PROJECT%"
 
 echo Checking backend...
 
-powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'http://localhost:3000/health' -TimeoutSec 3 -UseBasicParsing | Out-Null; exit 0 } catch { exit 1 }"
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'http://localhost:3000/api/health' -TimeoutSec 3 -UseBasicParsing | Out-Null; exit 0 } catch { exit 1 }"
 
 if errorlevel 1 (
     echo Starting KTX Backend...
-    start "KTX Backend" powershell.exe -NoExit -Command "Set-Location '%PROJECT%'; npm start"
+    start "KTX Backend" powershell.exe -NoExit -Command "Set-Location '%PROJECT%'; npm.cmd start"
 ) else (
     echo Backend is already running.
 )
@@ -37,4 +37,4 @@ if errorlevel 1 (
 echo.
 echo KTX launcher completed.
 pause
-```
+endlocal

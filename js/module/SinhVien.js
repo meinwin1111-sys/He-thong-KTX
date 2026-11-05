@@ -9,11 +9,21 @@ let totalPagesFromDB = 1;
 
 let students = [];
 let currentFilteredStudents = [];
+const rowsPerPage = 10;
+let currentPage = 1;
 let currentDetailIndex = null;
 let currentEditIndex = null;
 
 let validRooms = [];
 let roomCapacity = {};
+
+const studentIdentityValidationMessage = value => window.StudentIdentity.validateStudentIdentity(value).message;
+const studentIdentityDuplicateMessage = name =>
+    `Số CCCD/hộ chiếu đã được đăng ký cho sinh viên ${String(name || "khác").trim()}.`;
+window.AdminStudentValidation = Object.freeze({
+    studentIdentityValidationMessage,
+    studentIdentityDuplicateMessage
+});
 
 // Hàm khởi tạo để tải cấu hình phòng từ Server khi module được kích hoạt
 async function loadRoomConfig() {
@@ -94,7 +104,7 @@ async function renderSinhVienModule() {
                 </div>
             </div>
 
-            <div class="flex items-center gap-3 mb-6">
+            <div class="flex items-center gap-3 mb-2">
                 <input id="studentSearch" type="text" placeholder="Tìm tên sinh viên..."
                     class="border-none rounded px-4 py-2 w-64 outline-none bg-white shadow-sm focus:ring-1 focus:ring-emerald-400 text-sm">
 
@@ -110,21 +120,23 @@ async function renderSinhVienModule() {
                 </button>
             </div>
 
-            <div class="bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
-                <table class="w-full text-left table-fixed">
+            <p id="studentLoadError" class="mb-3 min-h-5 text-sm text-red-700" role="alert" aria-live="polite"></p>
+            <p id="studentCountText" class="admin-list-summary text-sm text-slate-600" aria-live="polite"></p>
+            <div data-no-admin-filters class="bg-white rounded-lg shadow-sm overflow-x-auto border border-slate-200">
+                <table class="min-w-[1620px] w-full text-left table-fixed">
                     <thead class="bg-slate-50 border-b border-slate-200">
                         <tr class="text-[12px] font-bold text-slate-500 uppercase tracking-wider">
-                            <th class="px-5 py-4 w-[95px]">MSSV</th>
-                            <th class="px-5 py-4 w-[180px]">Tên sinh viên</th>
-                            <th class="px-5 py-4 w-[110px]">Ngày sinh</th>
-                            <th class="px-5 py-4 w-[90px]">Giới tính</th>
-                            <th class="px-5 py-4 w-[125px]">Điện thoại</th>
-                            <th class="px-5 py-4 w-[210px]">Email</th>
-                            <th class="px-5 py-4 w-[140px]">Địa chỉ</th>
-                            <th class="px-5 py-4 w-[85px]">Phòng</th>
-                            <th class="px-5 py-4 w-[115px]">Trạng thái</th>
-                            <th class="px-5 py-4 w-[80px]">Ghi chú</th>
-                            <th class="px-5 py-4 w-[120px] text-center">Thao tác</th>
+                            <th class="px-5 py-4 w-[190px] whitespace-nowrap">Số CCCD</th>
+                            <th class="px-5 py-4 w-[190px]">Tên sinh viên</th>
+                            <th class="px-5 py-4 w-[120px] whitespace-nowrap">Ngày sinh</th>
+                            <th class="px-5 py-4 w-[85px] whitespace-nowrap">Giới tính</th>
+                            <th class="px-5 py-4 w-[130px] whitespace-nowrap">Điện thoại</th>
+                            <th class="px-5 py-4 w-[220px]">Email</th>
+                            <th class="px-5 py-4 w-[180px]">Địa chỉ</th>
+                            <th class="px-5 py-4 w-[95px] whitespace-nowrap">Phòng</th>
+                            <th class="px-5 py-4 w-[130px] whitespace-nowrap">Trạng thái</th>
+                            <th class="px-5 py-4 w-[130px]">Ghi chú</th>
+                            <th class="px-5 py-4 w-[150px] text-center">Thao tác</th>
                         </tr>
                     </thead>
                     <tbody id="studentTableBody" class="divide-y divide-slate-100">
@@ -132,7 +144,6 @@ async function renderSinhVienModule() {
                 </table>
 
                 <footer class="px-8 py-4 flex justify-between items-center text-slate-500 bg-white border-t border-slate-200 text-xs">
-                    <span id="studentCountText"></span>
                     <div class="flex items-center gap-3">
                         <button id="btnPrevPage" class="hover:text-emerald-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                             <i class="fa-solid fa-chevron-left"></i>
@@ -202,6 +213,7 @@ async function renderSinhVienModule() {
 function normalizeStudentFromAPI(item) {
     return {
         mssv: item.MaSinhVien || "",
+        school: item.Truong || "",
         name: item.HoTen || "",
         birthday: formatApiDateToDisplay(item.NgaySinh),
         gender: item.GioiTinh || "",
@@ -275,10 +287,15 @@ async function loadDanhSachSinhVien(
 
         const response = await ApiClient.fetch(url);
         const result = await response.json();
+        if (!result || !Array.isArray(result.data)) {
+            throw new Error("Dữ liệu danh sách sinh viên từ máy chủ không hợp lệ.");
+        }
 
         // Chuẩn hóa và lưu trữ danh sách
-        students = (result.data || []).map(normalizeStudentFromAPI);
+        students = result.data.map(normalizeStudentFromAPI);
         currentFilteredStudents = [...students];
+        const loadError = document.getElementById("studentLoadError");
+        if (loadError) loadError.textContent = "";
 
         // Cập nhật thông tin phân trang
         currentPage = result.page || 1;
@@ -288,10 +305,15 @@ async function loadDanhSachSinhVien(
         // Vẽ lại bảng dữ liệu
         renderTable(students);
     } catch (error) {
+        console.error("Lỗi tải danh sách sinh viên:", error);
         students = [];
         currentFilteredStudents = [];
-        renderTable(students);
-        showToast(error.message || "Không thể tải danh sách sinh viên.", "error");
+        const tableBody = document.getElementById("studentTableBody");
+        if (tableBody) tableBody.innerHTML = '<tr><td colspan="11" class="text-center py-10 text-red-700">Không thể tải danh sách sinh viên.</td></tr>';
+        const loadError = document.getElementById("studentLoadError");
+        const message = error.message || "Không thể tải danh sách sinh viên.";
+        if (loadError) loadError.textContent = message;
+        showToast(message, "error");
     }
 }
 
@@ -299,18 +321,8 @@ async function loadDanhSachSinhVien(
  * Tạo nhãn Badge màu sắc cho cột trạng thái
  */
 function getStatusBadge(status) {
-    if (status === "Đang ở") {
-        return `
-                <span class="inline-flex items-center justify-center min-w-[72px] h-[24px] px-3 rounded-full text-[11px] font-medium bg-[#DDF8E8] text-[#2BBE66]">
-                    ${status}
-                </span>
-            `;
-    }
-    return `
-            <span class="inline-flex items-center justify-center min-w-[72px] h-[24px] px-3 rounded-full text-[11px] font-medium bg-[#FFE3E3] text-[#FF6B6B]">
-                ${status}
-            </span>
-        `;
+    const label = window.AdminWorkflowUtils?.displayLabel(status, "Chưa xếp phòng") || "Chưa xếp phòng";
+    return window.AdminWorkflowUtils?.statusBadge(label, "min-w-[100px]") || escapeStudentHtml(label);
 }
 
 /**
@@ -336,63 +348,48 @@ function renderActionButtons(studentIndex) {
  * @param {Array} data - Mảng danh sách sinh viên
  */
 function renderTable(data) {
-    // --- KHAI BÁO CÁC PHẦN TỬ DOM ---
     const tableBody = document.getElementById("studentTableBody");
     const studentCountText = document.getElementById("studentCountText");
     const currentPageBox = document.getElementById("currentPageBox");
     const totalPageText = document.getElementById("totalPageText");
     if (!tableBody) return;
+    const U = window.AdminWorkflowUtils;
+    const columns = [
+        { label: "Số CCCD", width: 180, render: student => escapeStudentHtml(window.AdminWorkflowUtils.maskStudentId(student.mssv)), longText: true, title: student => window.AdminWorkflowUtils.maskStudentId(student.mssv) },
+        { label: "Tên sinh viên", width: 220, render: student => escapeStudentHtml(student.name || "—"), longText: true, title: student => student.name || "—" },
+        { label: "Ngày sinh", width: 130, render: student => escapeStudentHtml(student.birthday || "—") },
+        { label: "Giới tính", width: 100, render: student => escapeStudentHtml(U?.displayLabel(student.gender) || student.gender || "—") },
+        { label: "Điện thoại", width: 150, render: student => escapeStudentHtml(student.phone || "—") },
+        { label: "Email", width: 260, render: student => escapeStudentHtml(student.email || "—"), longText: true, title: student => student.email || "—" },
+        { label: "Địa chỉ", width: 260, render: student => escapeStudentHtml(student.address || "—"), longText: true, title: student => student.address || "—" },
+        { label: "Phòng", width: 130, render: student => escapeStudentHtml(student.room || "—") },
+        { label: "Trạng thái", width: 160, render: student => getStatusBadge(student.status) },
+        { label: "Ghi chú", width: 180, render: student => escapeStudentHtml(student.note || "—"), longText: true, title: student => student.note || "—" },
+        { label: "Thao tác", width: 150, render: (_, index) => renderActionButtons(index) }
+    ];
+    const table = tableBody.closest("table");
+    if (!table) return;
+    const tableHost = table.parentElement;
+    table.outerHTML = U.renderTable(columns, data, "Không có sinh viên phù hợp", () =>
+        'class="hover:bg-slate-50 transition-colors text-[13px] text-slate-500"', "min-w-[1620px] table-fixed");
+    const nextBody = tableHost.querySelector("table tbody");
+    if (nextBody) nextBody.id = "studentTableBody";
 
-    tableBody.innerHTML = "";
-
-    // Xử lý trường hợp không tìm thấy kết quả
-    if (data.length === 0) {
-        tableBody.innerHTML = `
-                <tr>
-                    <td colspan="11" class="text-center py-10 text-[13px] text-slate-500 italic">
-                        Không tìm thấy sinh viên phù hợp
-                    </td>
-                </tr>
-            `;
-        studentCountText.textContent = `Hiển thị 0-0/${totalStudentsFromDB} sinh viên`;
-        currentPageBox.textContent = currentPage;
-        totalPageText.textContent = totalPagesFromDB;
-        updatePaginationButtons(totalPagesFromDB);
-        return;
-    }
-
-    // Render từng dòng sinh viên vào tbody
-    data.forEach((s, index) => {
-        tableBody.innerHTML += `
-                <tr class="hover:bg-slate-50 border-b border-slate-200 transition-colors text-[13px] text-slate-500">
-                    <td class="px-5 py-4 text-left font-bold text-slate-900">${s.mssv}</td>
-                    <td class="px-5 py-4 text-left font-medium text-slate-900">${s.name}</td>
-                    <td class="px-5 py-4 text-left">${s.birthday}</td>
-                    <td class="px-5 py-4 text-left">${s.gender}</td>
-                    <td class="px-5 py-4 text-left">${s.phone}</td>
-                    <td class="px-5 py-4 text-left">${s.email}</td>
-                    <td class="px-5 py-4 text-left truncate max-w-[130px]" title="${s.address}">${s.address}</td>
-                    <td class="px-5 py-4 text-left font-bold text-emerald-600">${s.room}</td>
-                    <td class="px-5 py-4 text-left">${getStatusBadge(s.status)}</td>
-                    <td class="px-5 py-4 text-left text-slate-500 italic">${s.note}</td>
-                    <td class="px-5 py-4 text-center">
-                        ${renderActionButtons(index)}
-                    </td>
-                </tr>
-            `;
-    });
-
-    // Tính toán thông báo hiển thị dưới chân trang
     const displayStart =
         totalStudentsFromDB === 0 ? 0 : (currentPage - 1) * rowsPerPage + 1;
     const displayEnd = Math.min(currentPage * rowsPerPage, totalStudentsFromDB);
 
-    studentCountText.textContent = `Hiển thị ${displayStart}-${displayEnd}/${totalStudentsFromDB} sinh viên`;
+    studentCountText.textContent = `Tổng: ${totalStudentsFromDB} sinh viên`;
     currentPageBox.textContent = currentPage;
     totalPageText.textContent = totalPagesFromDB;
 
-    // Cập nhật trạng thái các nút phân trang (Next/Prev)
     updatePaginationButtons(totalPagesFromDB);
+}
+
+function escapeStudentHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, character => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+    })[character]);
 }
 
 // ====================================================================================================================
@@ -498,21 +495,22 @@ window.openDetailStudentModal = async function (index) {
         // 3. Render nội dung
         detailStudentContent.innerHTML = `
                 <div class="space-y-3 text-[13px]">
-                    ${renderDetailField("Mã số sinh viên", student.MaSinhVien || s.mssv)}
+                    ${renderDetailField("Số CCCD", student.MaSinhVien || s.mssv)}
                     ${renderDetailField("Họ và tên sinh viên", student.HoTen || s.name)}
                     ${renderDetailField("Ngày sinh", formatApiDateToDisplay(student.NgaySinh))}
-                    ${renderDetailField("Giới tính", student.GioiTinh || s.gender)}
+                    ${renderDetailField("Giới tính", window.AdminWorkflowUtils?.displayLabel(student.GioiTinh || s.gender) || student.GioiTinh || s.gender)}
                     ${renderDetailField("Số điện thoại", student.SoDienThoai || s.phone)}
                     ${renderDetailField("Email", student.Email || s.email)}
                     ${renderDetailField("Địa chỉ", student.DiaChi || s.address)}
+                    ${renderDetailField("Trường", student.Truong || s.school || "—")}
                     ${renderDetailField("Phòng", student.TenPhong || s.room)}
-                    ${renderDetailField("Trạng thái sinh viên", student.TrangThaiSinhVien || s.status)}
+                    ${renderDetailField("Trạng thái sinh viên", window.AdminWorkflowUtils?.displayLabel(student.TrangThaiSinhVien || s.status) || student.TrangThaiSinhVien || s.status)}
                     <div class="pt-2 border-t border-slate-200 mt-1">
                         <p class="font-semibold text-[#0f172a] mb-2">Thông tin hợp đồng:</p>
                         ${renderDetailField("Mã hợp đồng", contractData.code)}
                         ${renderDetailField("Ngày bắt đầu", contractData.start)}
                         ${renderDetailField("Ngày kết thúc", contractData.end)}
-                        ${renderDetailField("Trạng thái HĐ", contractData.status)}
+                        ${renderDetailField("Trạng thái HĐ", window.AdminWorkflowUtils?.displayLabel(contractData.status) || contractData.status)}
                     </div>
                     ${renderDetailField("Ghi chú", student.GhiChu || s.note || "-")}
                 </div>
@@ -599,6 +597,7 @@ function getFormData(form) {
             .trim(),
         email: (form.querySelector('[name="email"]')?.value || "").trim(),
         address: (form.querySelector('[name="address"]')?.value || "").trim(),
+        school: (form.querySelector('[name="school"]')?.value || "").trim(),
         room: (form.querySelector('[name="room"]')?.value || "").trim(),
         status: (form.querySelector('[name="status"]')?.value || "").trim(),
         note: (form.querySelector('[name="note"]')?.value || "").trim(),
@@ -615,18 +614,20 @@ function getFormData(form) {
 function validateStudentForm(formData, mode = "add", editIndex = null) {
     const errors = {};
 
-    // Kiểm tra Mã số sinh viên (MSSV)
+    // Kiểm tra số CCCD
     if (!formData.mssv) {
-        errors.mssv = "Vui lòng nhập mã số sinh viên";
+        errors.mssv = "Vui lòng nhập Số CCCD/Hộ chiếu.";
+    } else if (mode === "add" && studentIdentityValidationMessage(formData.mssv)) {
+        errors.mssv = studentIdentityValidationMessage(formData.mssv);
     } else {
-        // Kiểm tra xem MSSV có bị trùng lặp với sinh viên khác trong trang không
         const duplicateStudent = students.find((student, index) => {
             if (mode === "edit" && index === editIndex) return false;
-            return student.mssv.toLowerCase() === formData.mssv.toLowerCase();
+            return window.StudentIdentity.validateStudentIdentity(student.mssv).value
+                === window.StudentIdentity.validateStudentIdentity(formData.mssv).value;
         });
 
         if (duplicateStudent) {
-            errors.mssv = "Mã số sinh viên đã tồn tại trong trang hiện tại";
+            errors.mssv = studentIdentityDuplicateMessage(duplicateStudent.name);
         }
     }
 
@@ -639,12 +640,12 @@ function validateStudentForm(formData, mode = "add", editIndex = null) {
     if (!formData.birthday) {
         errors.birthday = "Vui lòng chọn ngày sinh";
     } else {
-        const birthDate = new Date(formData.birthday);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const birthDate = window.AdminWorkflowUtils?.date(formData.birthday, "parse");
+        const now = new Date();
+        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-        if (isNaN(birthDate.getTime()) || birthDate >= today) {
-            errors.birthday = "Ngày sinh không hợp lệ";
+        if (!birthDate || birthDate >= today || Number(birthDate.slice(0, 4)) < 1900) {
+            errors.birthday = "Ngày sinh không hợp lệ. Năm phải từ 1900 trở lên và không được ở tương lai.";
         }
     }
 
@@ -777,31 +778,16 @@ function showValidationErrors(form, errors, errorBoxId) {
  * Chuyển đổi Date từ API sang định dạng dd/mm/yyyy để hiển thị
  */
 function formatApiDateToDisplay(value) {
-    if (!value) return "--/--/----";
-
-    const date = new Date(value);
-    if (!isNaN(date.getTime())) {
-        const dd = String(date.getDate()).padStart(2, "0");
-        const mm = String(date.getMonth() + 1).padStart(2, "0");
-        const yyyy = date.getFullYear();
-        return `${dd}/${mm}/${yyyy}`;
-    }
-
-    if (typeof value === "string" && value.includes("/")) return value;
-    return String(value);
+    if (!value) return "—";
+    return window.AdminWorkflowUtils?.date(String(value).slice(0, 10), "format") || "—";
 }
 
 /**
- * Chuyển đổi dd/mm/yyyy sang yyyy-mm-dd cho input[type="date"]
+ * Normalize API dates for the shared dd/mm/yyyy text input.
  */
 function formatDateForInput(dateStr) {
     if (!dateStr) return "";
-    if (dateStr.includes("-") && !dateStr.includes("/")) return dateStr;
-
-    const parts = dateStr.split("/");
-    if (parts.length !== 3) return "";
-    const [dd, mm, yyyy] = parts;
-    return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+    return window.AdminWorkflowUtils?.date(String(dateStr).slice(0, 10), "format") || "";
 }
 
 /**
@@ -859,12 +845,13 @@ function renderStudentForm(data = "", isAdd = false) {
     const d = data || {};
 
     return `
-            ${renderInputRow("Mã số sinh viên", "text", "mssv", "SV001", d.mssv || "", true)}
+            ${renderInputRow(isAdd ? "Số CCCD/Hộ chiếu" : "Số CCCD", "text", "mssv", "12 chữ số hoặc hộ chiếu", d.mssv || "", true, isAdd ? 'maxlength="12" autocomplete="off"' : "")}
             ${renderInputRow("Họ và tên sinh viên", "text", "name", "Nguyễn Văn An", d.name || "", true)}
-            ${renderInputRow("Ngày sinh", "date", "birthday", "", formatDateForInput(d.birthday || ""), true)}
+            ${renderInputRow("Ngày sinh (dd/mm/yyyy)", "text", "birthday", "dd/mm/yyyy", formatDateForInput(d.birthday || ""), true)}
             ${renderSelectRow("Giới tính", "gender", ["Nam", "Nữ"], d.gender || "", true)}
             ${renderInputRow("Số điện thoại", "text", "phone", "0914268735", (d.phone || "").replace(/\s/g, ""), true)}
             ${renderInputRow("Email", "email", "email", "nguyenvanan@gmail.com", d.email || "", true)}
+            ${renderInputRow("Trường", "text", "school", "Tên trường (không bắt buộc)", d.school || "", false, 'maxlength="150"')}
             ${renderInputRow("Địa chỉ", "text", "address", "Đắk Lắk", d.address && d.address !== "-" ? d.address : "", false)}
             ${renderRoomSelectRow(d.room || "", d.gender || "")}
             ${renderSelectRow("Trạng thái sinh viên", "status", ["Đang ở", "Đã rời khỏi"], isAdd ? "Đang ở" : d.status || "Đang ở", true)}
@@ -884,18 +871,26 @@ function renderInputRow(
     placeholder,
     value,
     required = false,
+    attributes = "",
 ) {
+    if (name === "birthday" && window.AdminWorkflowUtils) {
+        window.AdminWorkflowUtils.bindDateInputs(document.body);
+        return window.AdminWorkflowUtils.dateField(label, name, value, { required, birthDate: true });
+    }
     return `
             <div class="grid grid-cols-[160px_1fr] items-center gap-3">
-                <label class="text-[13px] font-semibold text-[#0f172a]">
+                <label for="student-${name}" class="text-[13px] font-semibold text-[#0f172a]">
                     ${label} ${required ? '<span class="text-red-500">*</span>' : ""}
                 </label>
                 <div>
                     <input
+                        id="student-${name}"
                         type="${type}"
                         name="${name}"
-                        placeholder="${placeholder}"
-                        value="${value}"
+                        placeholder="${escapeStudentHtml(placeholder)}"
+                        value="${escapeStudentHtml(value)}"
+                        ${required ? "required" : ""}
+                        ${attributes}
                         class="w-full h-[34px] border border-[#e2e8f0] rounded-[4px] px-3 text-[12px] outline-none focus:border-emerald-400 transition-all"
                     />
                 </div>
@@ -1116,6 +1111,7 @@ function initStudentEvents() {
                 showValidationErrors(addStudentForm, validation.errors, "addStudentErrorBox");
                 return;
             }
+            formData.mssv = window.StudentIdentity.validateStudentIdentity(formData.mssv).value;
 
             try {
                 const response = await ApiClient.fetch(`${BASE_URL}/api/sinhvien`, {
@@ -1124,11 +1120,12 @@ function initStudentEvents() {
                     body: JSON.stringify({
                         MaSinhVien: formData.mssv,
                         HoTen: formData.name,
-                        NgaySinh: formData.birthday,
+                        NgaySinh: window.AdminWorkflowUtils.date(formData.birthday, "parse"),
                         GioiTinh: formData.gender,
                         SoDienThoai: formData.phone,
                         Email: formData.email,
                         DiaChi: formData.address || "",
+                        Truong: formData.school || "",
                         TenPhong: formData.room,
                         TrangThaiSinhVien: "Đang ở",
                         GhiChu: formData.note || "",
@@ -1176,11 +1173,12 @@ function initStudentEvents() {
                     body: JSON.stringify({
                         mssv: formData.mssv,
                         hoTen: formData.name,
-                        ngaySinh: formData.birthday,
+                        ngaySinh: window.AdminWorkflowUtils.date(formData.birthday, "parse"),
                         gioiTinh: formData.gender,
                         soDienThoai: formData.phone,
                         email: formData.email,
                         diaChi: formData.address || "",
+                        truong: formData.school || "",
                         tenPhong: formData.room,
                         trangThaiSinhVien: formData.status,
                         ghiChu: formData.note || "",

@@ -1,5 +1,5 @@
 -- Chạy từ thư mục gốc repo. Bắt buộc -I (QUOTED_IDENTIFIER ON).
--- sqlcmd -I -S 127.0.0.1,53606 -d KTX_Group3 -U DNKTX -i db/run_all.sql
+-- sqlcmd -E -I -S <server> -d KTX_Group3_test -i db/run_all.sql
 :on error exit
 SET ANSI_NULLS ON
 GO
@@ -44,6 +44,110 @@ GO
 PRINT N'=== Migration 010 ==='
 GO
 :r db/migrations/010_fixes.sql
+GO
+PRINT N'=== Migration 011 ==='
+GO
+:r db/migrations/011_student_registration_approval.sql
+GO
+PRINT N'=== Migration 012 ==='
+GO
+:r db/migrations/012_align_student_request_type_check.sql
+GO
+PRINT N'=== Migration 013 ==='
+GO
+:r db/migrations/013_room_classes_services.sql
+GO
+PRINT N'=== Migration 014 ==='
+GO
+:r db/migrations/014_contract_members.sql
+GO
+PRINT N'=== Migration 015 ==='
+GO
+:r db/migrations/015_invoice_types.sql
+GO
+PRINT N'=== Migration 016 ==='
+GO
+:r db/migrations/016_invoice_periods_and_details.sql
+GO
+PRINT N'=== Migration 017 ==='
+GO
+:r db/migrations/017_incident_costs.sql
+GO
+PRINT N'=== Migration 018 ==='
+GO
+:r db/migrations/018_receipts_and_refunds.sql
+GO
+PRINT N'=== Migration 041 (bootstrap ThongBao) ==='
+GO
+:r db/migrations/041_bootstrap_student_notifications.sql
+GO
+PRINT N'=== Migration 019 ==='
+GO
+:r db/migrations/019_payment_workflows.sql
+GO
+PRINT N'=== Migration 020 ==='
+GO
+:r db/migrations/020_grant_app_permissions.sql
+GO
+PRINT N'=== Migration 021 ==='
+GO
+:r db/migrations/021_money_api_permissions.sql
+GO
+PRINT N'=== Migration 022 ==='
+GO
+:r db/migrations/022_complete_financial_reports.sql
+GO
+PRINT N'=== Migration 023 ==='
+GO
+:r db/migrations/023_student_notifications.sql
+GO
+PRINT N'=== Migration 024 ==='
+GO
+:r db/migrations/024_invoice_reminder_reference.sql
+GO
+PRINT N'=== Migration 025 ==='
+GO
+:r db/migrations/025_contract_gender_errors.sql
+GO
+PRINT N'=== Migration 026 ==='
+GO
+:r db/migrations/026_incident_cost_due_date.sql
+GO
+PRINT N'=== Migration 027 ==='
+GO
+:r db/migrations/027_bank_transfer_surplus.sql
+GO
+PRINT N'=== Migration 028 ==='
+GO
+:r db/migrations/028_payment_lock_order.sql
+GO
+PRINT N'=== Migration 029 ==='
+GO
+:r db/migrations/029_vietnam_invoice_creation_date.sql
+GO
+PRINT N'=== Migration 030 ==='
+GO
+:r db/migrations/030_early_checkout_request.sql
+GO
+PRINT N'=== Migration 031 ==='
+GO
+:r db/migrations/031_incident_expense_modes.sql
+GO
+PRINT N'=== Migration 032 ==='
+GO
+:r db/migrations/032_per_member_contract_renewals.sql
+GO
+PRINT N'=== Migration 033 ==='
+GO
+:r db/migrations/033_member_renewal_expiry_and_refunds.sql
+GO
+PRINT N'=== Migration 034 ==='
+GO
+:r db/migrations/034_checkout_refund_base_period.sql
+GO
+PRINT N'=== Migration 037 ==='
+GO
+:r db/migrations/037_expired_renewal_notice_creator.sql
 GO
 PRINT N'=== Hết run_all (master seed chạy riêng: db/seed/run_master.sql) ==='
 GO

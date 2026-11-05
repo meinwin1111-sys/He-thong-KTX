@@ -2,21 +2,49 @@
     const ui = StudentUI;
     const data = ui.repository.data;
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    const money = value => value.toLocaleString('vi-VN', { style: 'currency', currency: 'VND' });
-    const date = value => {
-        const normalized = typeof value === 'string' ? value.slice(0, 10) : '';
-        return /^\d{4}-\d{2}-\d{2}$/.test(normalized)
-            ? normalized.split('-').reverse().join('/')
+    const money = value => {
+        if (value === null || value === undefined || value === '') return '—';
+        const amount = Number(value);
+        return Number.isFinite(amount)
+            ? `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(amount)}\u00a0đ`
             : '—';
+    };
+    const maskStudentId = value => window.StudentIdentity.maskStudentIdentity(value);
+    const maskStudentIdsInText = (value, knownIdentities = []) =>
+        window.StudentIdentity.maskStudentIdentitiesInText(value, knownIdentities);
+    const maskReference = value => String(value ?? '');
+    const paymentMethodLabel = value => ['CASH', 'TIỀN MẶT'].includes(String(value ?? '').trim().toUpperCase())
+        ? 'Tiền mặt' : String(value ?? '').trim() ? 'Chuyển khoản QR' : '—';
+    const date = value => {
+        const input = String(value ?? '').trim();
+        if (!input) return '—';
+        const shared = window.AdminWorkflowUtils?.date(input.slice(0, 10), 'format');
+        if (shared) return shared;
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input.slice(0, 10));
+        if (!match) return '—';
+        const [, year, month, day] = match;
+        return `${day}/${month}/${year}`;
     };
     const total = invoice => Array.isArray(invoice.items)
         ? invoice.items.reduce((sum, item) => sum + Number(item.amount || 0), 0)
         : Number(invoice.room) + Number(invoice.electricity) + Number(invoice.water);
-    const badge = status => `<span class="st-badge ${['Đã duyệt', 'Đã thanh toán', 'Đang hiệu lực'].includes(status) ? 'st-success' : status === 'Từ chối' ? 'st-danger' : 'st-warning'}">${esc(status)}</span>`;
-    const fields = entries => `<dl class="st-fields">${entries.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`;
+    const badge = status => {
+        const raw = String(status ?? '').trim() || '—';
+        if (raw.toUpperCase() === 'RECONCILIATION') return '';
+        const value = raw;
+        const tone = ['Đã duyệt', 'Đã thanh toán', 'Đang hiệu lực', 'Đã xử lý', 'Hoàn tất'].includes(value)
+            ? 'st-success'
+            : ['Từ chối', 'Đã hủy', 'Đã huỷ', 'Trễ hạn'].includes(value)
+                ? 'st-neutral'
+                : ['Chờ xác nhận', 'Còn nợ', 'Chờ duyệt', 'Chờ xử lý', 'Trễ hạn'].includes(value)
+                    ? 'st-warning'
+                    : 'st-neutral';
+        return `<span class="st-badge ${tone}">${esc(value)}</span>`;
+    };
+    const fields = entries => `<dl class="st-fields">${entries.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value === null || value === undefined || value === '' ? '—' : value)}</dd></div>`).join('')}</dl>`;
     const card = (title, content) => `<article class="st-card"><h2>${title}</h2>${content}</article>`;
     const table = (headers, rows) => `<div class="st-table-wrap"><table><thead><tr>${headers.map(h => `<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${headers.length}" class="st-empty">Chưa có dữ liệu.</td></tr>`}</tbody></table></div>`;
-    const requestTable = rows => table(['Mã yêu cầu', 'Loại yêu cầu', 'Ngày gửi', 'Nội dung', 'Trạng thái', 'Phản hồi'], rows.map(r => `<tr><td>${esc(r.id)}</td><td>${esc(r.type)}</td><td>${date(r.date)}</td><td class="st-long">${esc(r.content)}</td><td>${badge(r.status)}</td><td class="st-long">${esc(r.reply || 'Chưa có phản hồi')}</td></tr>`).join(''));
+    const requestTable = rows => table(['Mã yêu cầu', 'Loại yêu cầu', 'Ngày gửi', 'Ngày hợp đồng / đề xuất', 'Lý do', 'Trạng thái', 'Phản hồi', 'Chi tiết'], rows.map(r => `<tr><td>${esc(r.id || '—')}</td><td>${esc(r.type || '—')}</td><td>${date(r.date)}</td><td class="st-long">${r.contractStart ? `Bắt đầu: ${date(r.contractStart)}<br>` : ''}${r.contractEnd ? `Kết thúc hiện tại: ${date(r.contractEnd)}<br>` : ''}${r.proposedEnd ? `Đề xuất: ${date(r.proposedEnd)}` : '—'}</td><td class="st-long" title="${esc(r.content || '—')}">${esc(r.content || '—')}</td><td>${badge(r.status)}</td><td class="st-long" title="${esc(r.reply || 'Chưa có phản hồi')}">${esc(r.reply || 'Chưa có phản hồi')}</td><td><button type="button" class="st-button st-request-detail" data-action="request-detail" data-id="${esc(r.id)}">Xem</button></td></tr>`).join(''));
     const calendarDay = value => {
         const [year, month, day] = value.split('-').map(Number);
         return Date.UTC(year, month - 1, day) / 86400000;
@@ -28,6 +56,10 @@
     const contractStatus = () => remaining() < 0 ? 'Hợp đồng đã hết hạn' : remaining() <= 30 ? 'Sắp hết hạn' : 'Đang hiệu lực';
     const contractTerm = () => `${calendarDay(data.contract.end) - calendarDay(data.contract.start) + 1} ngày (tính cả ngày bắt đầu và kết thúc)`;
     const contractWarning = () => remaining() <= 30 ? `<p class="st-notice ${remaining() < 0 ? 'st-contract-expired' : ''}" role="status">${remaining() < 0 ? 'Hợp đồng đã hết hạn' : `Hợp đồng lưu trú của bạn sắp hết hạn vào ngày ${esc(date(data.contract.end))}. Còn ${remaining()} ngày.`} <a href="#requests">Gửi yêu cầu gia hạn tại Yêu cầu &amp; Hỗ trợ</a>.</p>` : '';
-    ui.helpers = { esc, money, date, total, badge, fields, card, table, requestTable, contractWarning, contractStatus, contractTerm, remaining };
+    ui.helpers = { esc, money, date, total, badge, fields, card, table, requestTable, contractWarning, contractStatus, contractTerm, remaining, maskStudentId, maskStudentIdsInText, maskReference, paymentMethodLabel };
+    ui.routeFromHash = (hash, pages = ui.pages) => {
+        const route = String(hash || '').replace(/^#/, '');
+        return Object.hasOwn(pages, route) ? route : 'home';
+    };
     ui.pages = {};
 })();

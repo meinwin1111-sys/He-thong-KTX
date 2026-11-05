@@ -50,9 +50,12 @@ LEFT JOIN GiaPhongTheoHoaDon g ON g.TenPhong = p.TenPhong AND g.ThuTu = 1;
 ';
         END;
 
-        IF COL_LENGTH(N'dbo.LichSuHopDong', N'MaLS') IS NULL
-            ALTER TABLE dbo.LichSuHopDong
-            ADD MaLS AS (N'LS' + RIGHT(N'000' + CAST(MaLichSu AS varchar(10)), 3)) PERSISTED;
+        IF OBJECT_ID(N'dbo.LichSuHopDong', N'U') IS NOT NULL
+           AND COL_LENGTH(N'dbo.LichSuHopDong', N'MaLS') IS NULL
+            EXEC sys.sp_executesql N'
+                ALTER TABLE dbo.LichSuHopDong
+                ADD MaLS AS (N''LS'' + RIGHT(N''000'' + CAST(MaLichSu AS varchar(10)), 3)) PERSISTED;
+            ';
 
         IF OBJECT_ID(N'tempdb..#FK_MaSinhVien') IS NOT NULL DROP TABLE #FK_MaSinhVien;
         CREATE TABLE #FK_MaSinhVien
@@ -167,8 +170,11 @@ LEFT JOIN GiaPhongTheoHoaDon g ON g.TenPhong = p.TenPhong AND g.ThuTu = 1;
 
         IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.HoaDon') AND name = N'IX_HoaDon_MaSinhVien_NgayLap')
             CREATE NONCLUSTERED INDEX IX_HoaDon_MaSinhVien_NgayLap ON dbo.HoaDon (MaSinhVien, NgayLap);
-        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.HopDong') AND name = N'IX_HopDong_MaSV_TrangThai')
-            CREATE NONCLUSTERED INDEX IX_HopDong_MaSV_TrangThai ON dbo.HopDong (MaSinhVien, TrangThaiHopDong);
+        IF COL_LENGTH(N'dbo.HopDong', N'MaSinhVien') IS NOT NULL
+            EXEC sys.sp_executesql N'
+                IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N''dbo.HopDong'') AND name = N''IX_HopDong_MaSV_TrangThai'')
+                    CREATE NONCLUSTERED INDEX IX_HopDong_MaSV_TrangThai ON dbo.HopDong (MaSinhVien, TrangThaiHopDong);
+            ';
         IF OBJECT_ID(N'dbo.TaiKhoan', N'U') IS NOT NULL
            AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.TaiKhoan') AND name = N'UQ_TaiKhoan_MaSinhVien')
             CREATE UNIQUE NONCLUSTERED INDEX UQ_TaiKhoan_MaSinhVien ON dbo.TaiKhoan (MaSinhVien) WHERE MaSinhVien IS NOT NULL;

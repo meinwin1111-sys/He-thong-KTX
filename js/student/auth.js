@@ -1,65 +1,162 @@
-// Demo only. Independent storage; never reads or changes Admin authentication.
+// Exposes the student's authenticated API session and optional development-only demo auth.
 (() => {
     const accountsKey = 'ktx.student.mock.accounts.v1';
     const sessionKey = 'ktx.student.mock.session.v1';
+    const cleanupKey = 'ktx.student.phase2.storage-cleanup.v1';
     const students = [
         { code: 'SV001', name: 'Nguyễn Văn An', email: 'student@ktx.com' },
         { code: 'SV003', name: 'Lê Minh Quân', email: 'quan.sv@ktx.com' },
         { code: 'SV005', name: 'Hoàng Đức Nam', email: 'nam.sv@ktx.com' }
     ];
     const normalize = email => String(email).trim().toLowerCase();
+    const demoAuthEnabled = () => window.KTX_CONFIG?.allowStudentDemoAuth === true;
+    function cleanLegacyStorage() {
+        try {
+            if (localStorage.getItem(cleanupKey) === '1') return;
+            localStorage.removeItem(accountsKey);
+            localStorage.removeItem(sessionKey);
+            for (let index = localStorage.length - 1; index >= 0; index--) {
+                const key = localStorage.key(index);
+                if (key?.startsWith('ktx.student.residence.') || key?.startsWith('ktx.billing.demo.')) {
+                    localStorage.removeItem(key);
+                }
+            }
+            localStorage.setItem(cleanupKey, '1');
+        } catch (error) {
+            console.error("Không thể xóa dữ liệu đăng nhập Student cũ khỏi trình duyệt:", error.name || "StorageError");
+        }
+    }
+    cleanLegacyStorage();
+    function clearStudentBrowserData() {
+        localStorage.removeItem(accountsKey);
+        localStorage.removeItem(sessionKey);
+        for (let index = localStorage.length - 1; index >= 0; index--) {
+            const key = localStorage.key(index);
+            if (key?.startsWith('ktx.student.') || key?.startsWith('ktx.billing.demo.')) {
+                localStorage.removeItem(key);
+            }
+        }
+        for (let index = sessionStorage.length - 1; index >= 0; index--) {
+            const key = sessionStorage.key(index);
+            if (key?.startsWith('ktx.student.') || key === sessionKey) sessionStorage.removeItem(key);
+        }
+    }
+
+    const sharedDates = () => window.AdminWorkflowUtils;
+    function parseDate(value) {
+        const iso = sharedDates()?.date(String(value || ''), 'parse');
+        if (!iso) return null;
+        const [year, month, day] = iso.split('-').map(Number);
+        return { year, month, day, iso };
+    }
+    function formatDateInput(value) {
+        return sharedDates()?.filterDateInput(value)
+            || String(value || '').replace(/[^\d/]/g, '').slice(0, 10);
+    }
+    function bindDateInput(input, { birth = false } = {}) {
+        input.maxLength = 10;
+        input.inputMode = 'numeric';
+        input.dataset.adminDate = 'true';
+        if (birth) input.dataset.dateBirth = 'true';
+        else delete input.dataset.dateBirth;
+        sharedDates()?.bindDateInputs(document.body);
+    }
+
+    window.StudentDate = Object.freeze({
+        parse: parseDate,
+        formatInput: formatDateInput,
+        bindInput: bindDateInput,
+        normalizeInput(value) {
+            return sharedDates()?.normalizeDateInput(value) || null;
+        },
+        formatIso(value) {
+            const formatted = sharedDates()?.date(String(value || ''), 'format');
+            if (!formatted) throw new Error('Ngày không hợp lệ.');
+            return formatted;
+        },
+        birthDateToIso(value) {
+            const validation = sharedDates()?.validateDateInput(value, { minYear: 1900 });
+            if (validation) throw new Error(validation);
+            const parsed = parseDate(value);
+            if (!parsed) throw new Error('Ngày sinh phải đúng định dạng dd/mm/yyyy.');
+            const today = new Date();
+            const todayParts = { year: today.getFullYear(), month: today.getMonth() + 1, day: today.getDate() };
+            let age = todayParts.year - parsed.year;
+            if (todayParts.month < parsed.month ||
+                (todayParts.month === parsed.month && todayParts.day < parsed.day)) age--;
+            if (parsed.iso > `${todayParts.year}-${String(todayParts.month).padStart(2, '0')}-${String(todayParts.day).padStart(2, '0')}` || parsed.year < 1900 || age < 15 || age > 100) {
+                throw new Error('Sinh viên phải từ 15 đến 100 tuổi và ngày sinh không được ở tương lai.');
+            }
+            return parsed.iso;
+        },
+        futureDateToIso(value) {
+            const validation = sharedDates()?.validateDateInput(value, { minYear: 1900 });
+            if (validation) throw new Error(validation);
+            const parsed = parseDate(value);
+            if (!parsed) throw new Error('Ngày phải đúng định dạng dd/mm/yyyy.');
+            const today = new Date();
+            const isoToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            if (parsed.iso <= isoToday) throw new Error('Ngày kết thúc đề xuất phải sau ngày hôm nay.');
+            return parsed.iso;
+        },
+        earlyCheckoutDateToIso(value) {
+            const validation = sharedDates()?.validateDateInput(value, { minYear: 1900 });
+            if (validation) throw new Error(validation);
+            const parsed = parseDate(value);
+            if (!parsed) throw new Error('Ngày phải đúng định dạng dd/mm/yyyy.');
+            const todayVN = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+            if (parsed.iso < todayVN) throw new Error('Ngày kết thúc đề xuất phải từ hôm nay trở đi.');
+            return parsed.iso;
+        }
+    });
+
     function accounts() {
+        if (!demoAuthEnabled()) return [];
         const saved = JSON.parse(localStorage.getItem(accountsKey) || '[]');
         if (!Array.isArray(saved)) throw new Error('Dữ liệu tài khoản demo không hợp lệ.');
-        return [{ code: 'SV001', name: 'Nguyễn Văn An', email: 'student@ktx.com', password: '123456', role: 'STUDENT' }, ...saved.filter(a => a && a.code !== 'SV001' && a.role === 'STUDENT' && typeof a.password === 'string' && typeof a.email === 'string').map(a => ({ ...students.find(s => s.code === a.code), ...a }))];
+        return saved.filter(a => a && a.role === 'STUDENT' && typeof a.password === 'string' && typeof a.email === 'string').map(a => ({ ...students.find(s => s.code === a.code), ...a }));
     }
     window.StudentAuth = {
         students,
         isStudentEmail(email) {
+            if (!demoAuthEnabled()) return false;
             try { return accounts().some(a => normalize(a.email) === normalize(email)); }
             catch { return false; } // Storage failure must not block the Admin API branch.
         },
         login(email, password) {
+            if (!demoAuthEnabled()) throw new Error('Đăng nhập demo chỉ khả dụng khi được bật trong cấu hình phát triển.');
             const account = accounts().find(a => a.email === normalize(email) && a.password === password);
             if (!account) throw new Error('Email hoặc mật khẩu Student không đúng, hoặc bạn chưa đăng ký.');
             const profile = account;
             const session = { code: profile.code, email: profile.email, role: 'STUDENT', expiresAt: Date.now() + 86400000 };
-            localStorage.setItem(sessionKey, JSON.stringify(session));
+            sessionStorage.setItem(sessionKey, JSON.stringify(session));
             return session;
         },
-        register(input) {
-            const student = {};
-            for (const key of ['name', 'code', 'birthday', 'gender', 'phone', 'email', 'school', 'className', 'address']) student[key] = String(input[key] || '').trim();
-            if (['name', 'code', 'birthday', 'gender', 'phone', 'email', 'school', 'className'].some(key => !student[key])) throw new Error('Vui lòng nhập đầy đủ các trường bắt buộc.');
-            student.email = normalize(student.email);
-            student.code = student.code.toUpperCase();
-            if (!/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@gmail\.com$/i.test(student.email)) throw new Error('Vui lòng nhập Gmail hợp lệ (ten@gmail.com).');
-            student.phone = student.phone.replace(/[\s.-]/g, '');
-            if (!/^(?:0|\+84)[35789]\d{8}$/.test(student.phone)) throw new Error('Số điện thoại phải là số di động Việt Nam hợp lệ (10 số hoặc +84).');
-            if (student.phone.startsWith('+84')) student.phone = `0${student.phone.slice(3)}`;
-            if (!['Nam', 'Nữ', 'Khác'].includes(student.gender)) throw new Error('Vui lòng chọn giới tính hợp lệ.');
-            const birthday = new Date(`${student.birthday}T00:00:00`);
-            const today = new Date(); today.setHours(0, 0, 0, 0);
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(student.birthday) || !Number.isFinite(birthday.getTime()) || birthday > today || birthday.getFullYear() !== Number(student.birthday.slice(0, 4)) || birthday.getMonth() + 1 !== Number(student.birthday.slice(5, 7)) || birthday.getDate() !== Number(student.birthday.slice(8, 10))) throw new Error('Ngày sinh không hợp lệ hoặc lớn hơn ngày hiện tại.');
-            const password = String(input.password || '');
-            if (password.length < 8 || password.length > 128) throw new Error('Mật khẩu cần từ 8 đến 128 ký tự.');
-            if (password !== input.confirm) throw new Error('Mật khẩu nhập lại không khớp.');
-            const list = accounts();
-            if (list.some(a => normalize(a.email) === student.email)) throw new Error('Gmail này đã được đăng ký.');
-            if (list.some(a => a.code.toUpperCase() === student.code)) throw new Error('Mã sinh viên này đã được đăng ký.');
-            list.push({ ...student, password, role: 'STUDENT' });
-            localStorage.setItem(accountsKey, JSON.stringify(list.filter(a => a.code !== 'SV001')));
-            return student.email;
-        },
         session() {
+            const backendUser = window.ApiClient?.getStudentSession()?.user;
+            if (backendUser?.studentId) {
+                return {
+                    id: backendUser.id,
+                    code: backendUser.studentId,
+                    email: backendUser.email,
+                    name: backendUser.fullName || backendUser.studentId,
+                    phone: backendUser.phone || '',
+                    role: 'STUDENT',
+                    isBackend: true
+                };
+            }
             try {
-                const session = JSON.parse(localStorage.getItem(sessionKey) || 'null');
+                if (!demoAuthEnabled()) return null;
+                const session = JSON.parse(sessionStorage.getItem(sessionKey) || 'null');
                 const student = accounts().find(s => s.code === session?.code && s.email === session?.email);
                 if (!student || session.role !== 'STUDENT' || session.expiresAt <= Date.now()) return null;
                 const { password, ...profile } = student;
                 return profile;
             } catch { return null; }
         },
-        logout() { localStorage.removeItem(sessionKey); }
+        logout() {
+            if (window.ApiClient?.getStudentSession()) window.ApiClient.clearStudentSession();
+            clearStudentBrowserData();
+        }
     };
 })();

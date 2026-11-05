@@ -7,7 +7,7 @@
     const backendStudent = () => window.StudentAuth?.session()?.isBackend;
     const formatDate = value => value ? date(String(value).slice(0, 10)) : 'Chưa cập nhật';
     const demoProfile = () => card('Hồ sơ sinh viên', fields([
-        ['Mã sinh viên', data.profile.code], ['Họ tên', data.profile.name],
+        ['Số CCCD', data.profile.code], ['Họ tên', data.profile.name],
         ['Ngày sinh', data.profile.birthday ? date(data.profile.birthday) : 'Chưa cập nhật'],
         ['Giới tính', data.profile.gender], ['Số điện thoại', data.profile.phone],
         ['Gmail', data.profile.email], ['Trường', data.profile.school],
@@ -27,14 +27,15 @@
                 const profile = await response.json();
                 if (!root.isConnected) return;
                 const attributes = fields([
-                    ['Mã sinh viên', profile.MaSinhVien],
+                    ['Số CCCD', profile.MaSinhVien],
                     ['Họ tên', profile.HoTen],
                     ['Ngày sinh', formatDate(profile.NgaySinh)],
                     ['Giới tính', profile.GioiTinh || 'Chưa cập nhật'],
                     ['Số điện thoại', profile.SoDienThoai || 'Chưa cập nhật'],
                     ['Gmail đăng nhập', profile.Email],
                     ['Email trường', profile.EmailTruong || 'Chưa cập nhật'],
-                    ['Trường / lớp', 'Chưa có dữ liệu trong hệ thống'],
+                    ['Trường', profile.Truong || 'Chưa cập nhật'],
+                    ['Lớp', profile.Lop || 'Chưa cập nhật'],
                     ['Địa chỉ', profile.DiaChi || 'Chưa cập nhật']
                 ]);
                 content.removeAttribute('role');

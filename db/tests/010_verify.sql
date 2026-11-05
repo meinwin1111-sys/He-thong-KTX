@@ -1,10 +1,15 @@
+:on error exit
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 SET XACT_ABORT ON;
 SET NOCOUNT ON;
 
-USE [KTX_Group3];
+IF DB_NAME() = N'master'
+    THROW 50210, N'Chạy kiểm thử bằng sqlcmd -d với database đích.', 1;
 GO
+
+IF EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'014')
+    THROW 50209, N'Test 010 dùng mô hình hợp đồng cũ; sau migration 014 hãy chạy 014_contract_members_verify.sql.', 1;
 
 BEGIN TRY
     BEGIN TRANSACTION;

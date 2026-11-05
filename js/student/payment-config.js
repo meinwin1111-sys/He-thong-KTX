@@ -1,5 +1,6 @@
-// Browser-only demo settings; authenticated Student QR data comes from the backend.
+const studentDemoPaymentsEnabled = window.KTX_CONFIG?.allowStudentDemoAuth === true;
+
 window.StudentPaymentConfig = Object.freeze({
-    mode: 'demo',
+    mode: studentDemoPaymentsEnabled ? 'demo' : 'backend',
     bank: Object.freeze({ bankId: '', accountNumber: '', accountName: '' })
 });

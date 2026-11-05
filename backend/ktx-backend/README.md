@@ -2,6 +2,7 @@
 
 ## Overview
 This project is a backend application for managing a student dormitory (KTX) system. It provides functionalities for user authentication, student management, room management, contract handling, and payment processing.
+This version calls the legacy contract procedures and will be incompatible after the contract schema conversion.
 
 ## Technologies Used
 - Node.js

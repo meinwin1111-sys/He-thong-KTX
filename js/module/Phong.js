@@ -115,20 +115,15 @@ function renderRoomTable() {
     // Chuyển đổi mảng dữ liệu thành chuỗi HTML
     tbody.innerHTML = paginatedData.map((r) => `
         <tr class="group border-b border-slate-200 hover:bg-emerald-50/30 transition-all">
-            <td class="px-6 py-4 font-bold text-slate-900">${r.TenPhong}</td>
-            <td class="px-6 py-4 text-slate-500">${r.Khu || '-'}</td>
-            <td class="px-6 py-4 text-slate-500">${r.LoaiPhong}</td>
-            <td class="px-6 py-4 text-slate-500 font-medium">${r.SoSinhVienHienTai}/${r.SucChuaToiDa}</td>
+            <td class="px-6 py-4 font-bold text-slate-900 whitespace-nowrap">${r.TenPhong || '—'}</td>
+            <td class="px-6 py-4 text-slate-500 whitespace-nowrap">${r.Khu || '—'}</td>
+            <td class="px-6 py-4 text-slate-500 whitespace-nowrap">${r.LoaiPhong || '—'}</td>
+            <td class="px-6 py-4 text-slate-500 font-medium whitespace-nowrap">${r.SoSinhVienHienTai ?? 0}/${r.SucChuaToiDa ?? '—'}</td>
             <td class="px-6 py-4">
-                <span class="font-bold text-xs ${
-                    r.TrangThaiPhong === 'Đầy' ? 'text-rose-500' :
-                    r.TrangThaiPhong === 'Trống' ? 'text-emerald-500' : 'text-orange-500'
-                }">
-                    ${r.TrangThaiPhong}
-                </span>
+                ${window.AdminWorkflowUtils.statusBadge(r.TrangThaiPhong || 'Chưa xác định')}
             </td>
-            <td class="px-6 py-4 text-slate-500 text-sm">
-                ${r.GhiChu && r.GhiChu.trim() !== "" ? r.GhiChu : "-"}
+            <td class="px-6 py-4 text-slate-500 text-sm truncate whitespace-nowrap" title="${r.GhiChu || ''}">
+                ${r.GhiChu && r.GhiChu.trim() !== "" ? r.GhiChu : "—"}
             </td>
             <td class="px-6 py-4">
                 ${renderButtons(r.TenPhong)}
@@ -171,12 +166,8 @@ async function showRoomDetail(roomName) {
     detNote.className = "text-slate-500 text-sm leading-relaxed";
 
     const badge = document.getElementById('detStatusBadge');
-    badge.innerText = room.TrangThaiPhong;
-    badge.className = `px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-        room.TrangThaiPhong === 'Đầy' ? 'bg-red-100 text-red-600' :
-        room.TrangThaiPhong === 'Trống' || room.TrangThaiPhong === 'Còn chỗ' ? 'bg-green-100 text-green-600' :
-        'bg-orange-100 text-orange-600'
-    }`;
+    badge.innerText = room.TrangThaiPhong || "Chưa xác định";
+    badge.className = `admin-status-badge ${window.AdminWorkflowUtils.statusClass(room.TrangThaiPhong || "Chưa xác định")}`;
 
     // --- PHẦN 2: LOAD SINH VIÊN TỪ DATABASE ---
     const studentTable = document.getElementById('detStudentList');
@@ -193,15 +184,14 @@ async function showRoomDetail(roomName) {
             if (Array.isArray(students) && students.length > 0) {
                 studentTable.innerHTML = students.map(sv => {
                     const statusHĐ = sv.TrangThaiHopDong || "Còn hiệu lực";
-                    const statusClass = statusHĐ === "Còn hiệu lực" ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600";
 
                     return `
                     <tr class="hover:bg-slate-50 border-b border-slate-200 last:border-0">
-                        <td class="p-3 pl-4 text-slate-500 text-sm">${sv.MaSinhVien || sv.MSSV}</td>
+                        <td class="p-3 pl-4 text-slate-500 text-sm">${window.AdminWorkflowUtils.maskStudentId(sv.MaSinhVien || sv.MSSV)}</td>
                         <td class="p-3 text-slate-900 text-sm font-semibold">${sv.HoTen || sv.TenSV}</td>
                         <td class="p-3 text-slate-500 text-sm">${sv.SoDienThoai || 'N/A'}</td>
                         <td class="p-3 pl-4">
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${statusClass}">
+                            <span class="admin-status-badge ${window.AdminWorkflowUtils.statusClass(statusHĐ)}">
                                 ${statusHĐ}
                             </span>
                         </td>
@@ -616,13 +606,9 @@ function renderPaginationFooter() {
     const totalRows = filteredPhong.length;
     const totalPages = Math.ceil(totalRows / rowsPerPage) || 1;
 
-    // 1. Cập nhật dòng thông báo số lượng
-    const start = totalRows === 0 ? 0 : (currentPage - 1) * rowsPerPage + 1;
-    const end = Math.min(currentPage * rowsPerPage, totalRows);
-
     const showingCountEl = document.getElementById('showingCount');
     if (showingCountEl) {
-        showingCountEl.innerText = `Hiển thị ${start}-${end}/${totalRows} phòng`;
+        showingCountEl.innerText = `Tổng: ${rawPhong.length} phòng · ${totalRows} phù hợp`;
     }
 
     // 2. Tạo HTML chỉ bao gồm: [Trước] [Số trang hiện tại / Tổng] [Sau]
@@ -761,11 +747,17 @@ const PhongHTML = `
                 </button>
             </div>
 
+            <p id="showingCount" class="admin-list-summary text-sm text-slate-600" aria-live="polite">Đang tải danh sách phòng...</p>
+
             <!-- ================= BẢNG DỮ LIỆU PHÒNG ================= -->
-            <div class="bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
+            <div data-no-admin-filters class="bg-white rounded-lg shadow-sm overflow-x-auto border border-slate-200">
 
                 <!-- Bảng hiển thị danh sách phòng -->
-                <table class="w-full text-left">
+                <table class="min-w-[1000px] w-full table-fixed text-left">
+                    <colgroup>
+                        <col class="w-[130px]"><col class="w-[100px]"><col class="w-[130px]">
+                        <col class="w-[120px]"><col class="w-[150px]"><col class="w-[180px]"><col class="w-[190px]">
+                    </colgroup>
                     <thead class="bg-slate-50 border-b border-slate-200">
                         <tr class="text-[12px] font-bold text-slate-500 uppercase">
                             <th class="px-5 py-4">Tên phòng</th>
@@ -784,7 +776,6 @@ const PhongHTML = `
 
                 <!-- Footer hiển thị phân trang -->
                 <footer class="px-8 py-4 flex justify-between items-center text-slate-500 bg-white border-t border-slate-200">
-                    <span id="showingCount">Đang tải dữ liệu...</span>
                     <div class="flex gap-1 text-xs" id="pagination"></div>
                 </footer>
             </div>
@@ -839,7 +830,7 @@ const PhongHTML = `
                     <table class="w-full text-[11px]">
                         <thead class="bg-slate-50 sticky top-0">
                             <tr class="text-left text-slate-500">
-                                <th class="p-3 pl-4">MSSV</th>
+                                <th class="p-3 pl-4">Số CCCD</th>
                                 <th class="p-3">Họ tên</th>
                                 <th class="p-3">SDT</th>
                                 <th class="p-3">Hợp đồng</th>
