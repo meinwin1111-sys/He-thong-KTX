@@ -5,7 +5,48 @@ const studentIdentity = require("../student-identity");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const { JSDOM } = require("jsdom");
+const { JSDOM, VirtualConsole } = require("jsdom");
+
+test("Admin table enhancement ignores detached tables and enhances connected tables", async () => {
+    const jsdomErrors = [];
+    const virtualConsole = new VirtualConsole();
+    virtualConsole.on("jsdomError", error => jsdomErrors.push(error));
+    const dom = new JSDOM("<main id='tables'></main>", { virtualConsole });
+    const previousDocument = global.document;
+    const previousMutationObserver = global.MutationObserver;
+    global.document = dom.window.document;
+    global.MutationObserver = dom.window.MutationObserver;
+
+    try {
+        const container = dom.window.document.getElementById("tables");
+        utils.enhanceAdminTables(container);
+
+        const detachedTable = dom.window.document.createElement("table");
+        detachedTable.innerHTML = "<thead><tr><th>Title</th></tr></thead><tbody><tr><td>Value</td></tr></tbody>";
+        container.append(detachedTable);
+        detachedTable.remove();
+        await new Promise(resolve => setImmediate(resolve));
+
+        assert.equal(jsdomErrors.length, 0);
+        assert.equal(detachedTable.dataset.adminFilterEnhanced, undefined);
+
+        const connectedTable = dom.window.document.createElement("table");
+        connectedTable.innerHTML = "<thead><tr><th>Title</th></tr></thead><tbody><tr><td>Value</td></tr></tbody>";
+        container.append(connectedTable);
+        await new Promise(resolve => setImmediate(resolve));
+
+        assert.equal(connectedTable.dataset.adminFilterEnhanced, "true");
+        assert.equal(connectedTable.previousElementSibling.matches("[data-admin-table-toolbar]"), true);
+        assert.equal(connectedTable.nextElementSibling.matches("footer"), true);
+        assert.equal(jsdomErrors.length, 0);
+    } finally {
+        if (previousDocument === undefined) delete global.document;
+        else global.document = previousDocument;
+        if (previousMutationObserver === undefined) delete global.MutationObserver;
+        else global.MutationObserver = previousMutationObserver;
+        dom.window.close();
+    }
+});
 
 test("Admin money helpers accept positive integer VND and format thousands", () => {
     assert.equal(utils.parseVnd("1.250.000"), 1250000);
@@ -48,6 +89,7 @@ test("Admin status badges use one consistent status color mapping", () => {
     assert.match(utils.statusBadge("Trống"), /admin-status--neutral/);
     assert.match(utils.statusBadge("Đầy"), /admin-status--info/);
     assert.match(utils.statusBadge("Còn hiệu lực"), /admin-status--success/);
+    assert.match(utils.statusBadge("Đã thanh toán"), /admin-status--success/);
     assert.match(utils.statusBadge("Đã kết thúc"), /admin-status--neutral/);
     assert.match(utils.statusBadge("Trễ hạn"), /admin-status--danger/);
     assert.match(utils.statusBadge("Chờ xác nhận"), /admin-status--warning/);
@@ -195,7 +237,8 @@ test("Selecting a room resolves its exact tier instead of defaulting to the firs
 async function setupAdminWorkflowDom({
     financialFixture = false,
     expenseFlow = null,
-    contractCreateResponse = null
+    contractCreateResponse = null,
+    renewalFlow = null
 } = {}) {
     const dom = new JSDOM('<main id="main-content"></main>', {
         runScripts: "outside-only",
@@ -208,7 +251,10 @@ async function setupAdminWorkflowDom({
         {
             MaHopDong: "HD-A", TenPhong: "A101", MaHangPhong: "HP4", SucChuaToiDa: 4,
             TrangThaiHopDong: "Còn hiệu lực",
-            sinhVien: [{ MaSinhVien: "MEMBER-A", HoTen: "Thành viên", TrangThai: "Đang ở" }]
+            sinhVien: [{
+                MaChiTiet: 8, MaSinhVien: "MEMBER-A", HoTen: "Thành viên",
+                NgayKetThucHieuLuc: "2027-10-01", TrangThai: "Đang ở"
+            }]
         },
         {
             MaHopDong: "HD-B", TenPhong: "A102", MaHangPhong: "HP4", SucChuaToiDa: 4,
@@ -244,6 +290,8 @@ async function setupAdminWorkflowDom({
             let body = [];
             if (url === "/api/HopDong" && options.method === "POST" && contractCreateResponse) {
                 body = contractCreateResponse;
+            } else if (renewalFlow && url === "/api/HopDong/HD-A/gia-han" && options.method === "PUT") {
+                body = renewalFlow.response;
             } else if (url.startsWith("/api/HopDong")) body = contracts;
             else if (url.startsWith("/api/sinhvien")) body = { data: students, totalPages: 1 };
             else if (url === "/api/Phong") body = rooms;
@@ -290,6 +338,12 @@ async function setupAdminWorkflowDom({
                 SoTienDu: 5, TrangThaiHoanDu: "CHO_HOAN",
                 TrangThaiPhieuThu: "Hợp lệ", NgayTao: "2026-03-04T09:15:00"
             }, {
+                MaGiaoDich: "PAY-QR-PAID", MaHoaDon: "INV-DOM", MaPhieuThu: 907,
+                MaSinhVien: "QRPAIDSTUDENT", TenPhong: "A101", HoTen: "Sinh viên QR đã thanh toán",
+                SoTien: 60, PhuongThuc: "ONLINE", TrangThai: "SUCCESS",
+                TongTien: 60, SoTienYeuCau: 60, SoTienThucNhan: null,
+                TrangThaiPhieuThu: "Hợp lệ", NgayTao: "2026-03-07T09:15:00"
+            }, {
                 MaGiaoDich: "PAY-RETURNED", MaHoaDon: "INV-DOM", MaPhieuThu: 906,
                 MaSinhVien: "RETURNED-STUDENT", TenPhong: "A101", HoTen: "Sinh viên đã nhận hoàn tiền",
                 SoTien: 50, PhuongThuc: "ONLINE", TongTien: 50, SoTienYeuCau: 50,
@@ -327,6 +381,10 @@ async function setupAdminWorkflowDom({
                 MaSinhVienNop: "SV-CASH", TenPhong: "A101", TenNguoiNop: "Sinh viên nộp tiền mặt",
                 SoTien: 40, PhuongThuc: "CASH", TrangThai: "Hợp lệ", NgayThu: "2026-03-05T10:00:00"
             }, {
+                MaPhieuThu: 907, MaHoaDon: "INV-DOM", MaGiaoDich: "PAY-QR-PAID",
+                MaSinhVienNop: "QRPAIDSTUDENT", TenPhong: "A101", TenNguoiNop: "Sinh viên QR đã thanh toán",
+                SoTien: 60, PhuongThuc: "ONLINE", TrangThai: "Hợp lệ", NgayThu: "2026-03-07T09:15:00"
+            }, {
                 MaPhieuThu: 906, MaHoaDon: "INV-DOM", MaGiaoDich: "PAY-RETURNED",
                 MaSinhVienNop: "RETURNED-STUDENT", TenPhong: "A101", TenNguoiNop: "Sinh viên đã nhận hoàn tiền",
                 SoTien: 50, PhuongThuc: "ONLINE", TrangThai: "Hợp lệ", NgayThu: "2026-03-06T09:15:00"
@@ -360,6 +418,50 @@ async function waitForDom(predicate) {
     }
     assert.fail("DOM workflow did not reach the expected state");
 }
+
+test("Admin direct renewal selects an active member and submits that member's invoice dates", async () => {
+    const { dom, window, calls, toasts } = await setupAdminWorkflowDom({
+        renewalFlow: {
+            response: {
+                success: true, MaGiaHan: 17, MaHoaDon: "INV-RENEWAL-17",
+                SoTien: 1250000, HanThanhToan: "2026-11-12"
+            }
+        }
+    });
+    try {
+        window.document.querySelector('[data-action="row-detail"][data-detail-type="contract"][data-detail-id="HD-A"]').click();
+        await waitForDom(() => window.document.querySelector('[data-action="contract-extend"]'));
+        const memberSearchLabel = window.document.querySelector('[name="contractMemberSearch"]').parentElement;
+        assert.ok(memberSearchLabel.classList.contains("inline-flex"));
+        assert.ok(memberSearchLabel.classList.contains("gap-2"));
+        window.document.querySelector('[data-action="contract-extend"]').click();
+
+        const form = window.document.querySelector('form[data-form="contract-extend"]');
+        assert.ok(form);
+        const member = form.elements.maChiTiet;
+        assert.equal(member.required, true);
+        assert.equal(member.options.length, 2);
+        assert.match(member.options[1].textContent, /Thành viên.*Hiệu lực đến 01\/10\/2027/);
+        const endDate = form.elements.ngayKetThucMoi;
+        assert.equal(endDate.required, true);
+        assert.equal(endDate.value, "");
+
+        member.value = "8";
+        endDate.value = "02/10/2027";
+        form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+        await waitForDom(() => calls.some(call => call.url === "/api/HopDong/HD-A/gia-han"));
+
+        const request = calls.find(call => call.url === "/api/HopDong/HD-A/gia-han");
+        assert.equal(request.options.method, "PUT");
+        assert.deepEqual(JSON.parse(request.options.body), {
+            maChiTiet: 8, ngayKetThucMoi: "2027-10-02"
+        });
+        await waitForDom(() => toasts.some(toast => toast.message.includes("INV-RENEWAL-17")));
+        assert.match(toasts.at(-1).message, /Thành viên.*1\.250\.000.*12\/11\/2026/);
+    } finally {
+        dom.window.close();
+    }
+});
 
 test("Incident expense form aligns date controls and gives inline Vietnamese amount errors", async () => {
     const { dom, window, calls } = await setupAdminWorkflowDom({ financialFixture: true });
@@ -647,14 +749,14 @@ test("Admin receipt table excludes discrepancy transactions and opens valid rece
         assert.equal(window.document.querySelector('[data-action="payments-refresh"]').textContent.trim(), "↻");
         const statusFilter = window.document.querySelector('[data-form="financial-filter"] [name="status"]');
         assert.equal(statusFilter.value, "ALL");
-        assert.deepEqual([...statusFilter.options].map(option => option.textContent), ["Tất cả", "Đã xác nhận"]);
+        assert.deepEqual([...statusFilter.options].map(option => option.textContent), ["Tất cả", "Đã thanh toán"]);
         assert.match(table.textContent, /INV-DOM/);
         assert.equal(table.querySelector("table").style.tableLayout, "fixed");
         assert.equal(table.querySelectorAll("colgroup col").length, 7);
         assert.match(table.querySelector("thead").textContent, /Mã hóa đơn\s*Phòng\s*Người nộp\s*Số tiền\s*Phương thức\s*Thời điểm\s*Trạng thái/);
         assert.doesNotMatch(table.querySelector("thead").textContent, /Thao tác/);
         assert.ok(table.querySelector("colgroup col:nth-child(2)").style.width === "150px");
-        assert.equal(table.querySelectorAll("tbody tr").length, 1);
+        assert.equal(table.querySelectorAll("tbody tr").length, 2);
         assert.equal(table.textContent.includes("PAY-TEST-1"), false);
         assert.equal(table.textContent.includes("PAY-LONG"), false);
         assert.equal(table.textContent.includes("012345678901"), false);
@@ -664,7 +766,11 @@ test("Admin receipt table excludes discrepancy transactions and opens valid rece
         const exactRow = table.querySelector('tbody tr[data-receipt-row="905"]');
         assert.ok(exactRow);
         assert.match(exactRow.cells[3].textContent, /40\s*đ/);
-        assert.match(exactRow.cells[6].textContent, /Đã xác nhận/);
+        assert.match(exactRow.cells[6].textContent, /Đã thanh toán/);
+        const qrRow = table.querySelector('tbody tr[data-receipt-row="907"]');
+        assert.ok(qrRow);
+        assert.match(qrRow.cells[4].textContent, /Chuyển khoản QR/);
+        assert.match(qrRow.cells[6].textContent, /Đã thanh toán/);
         assert.equal(table.querySelectorAll("tbody tr button").length, 0);
         assert.equal(window.document.querySelector('[data-financial-summary="receipts"]').textContent.includes("cần xử lý"), false);
 
@@ -1386,16 +1492,20 @@ test("Admin display labels translate persisted payment and workflow codes withou
     }), "Trả phòng sớm theo yêu cầu YC00049: ở 14 ngày, hoàn 640.000 đ");
 });
 
-test("Receipt filters exclude discrepancy records and default to confirmed receipts", () => {
+test("Receipt filters exclude discrepancy records and default to paid receipts", () => {
     const receipts = [
         { MaPhieuThu: "PT01", TrangThaiDanhSach: "RECONCILIATION" },
-        { MaPhieuThu: "PT02", TrangThaiDanhSach: "Đã xác nhận" },
+        { MaPhieuThu: "PT02", TrangThaiDanhSach: "Đã thanh toán" },
         { MaPhieuThu: "PT03", TrangThai: "RECONCILIATION" },
         { MaPhieuThu: "PT04", TrangThaiDanhSach: "SUCCESS" },
-        { MaPhieuThu: "PT05", TrangThai: "Chờ xác nhận" }
+        { MaPhieuThu: "PT05", TrangThai: "Chờ xác nhận" },
+        { MaPhieuThu: "PT06", TrangThaiDanhSach: "Đã xác nhận" }
     ];
     assert.deepEqual(utils.filterFinancialRows(receipts, "receipts").map(row => row.MaPhieuThu), ["PT02"]);
     assert.equal(utils.filterFinancialRows(receipts, "receipts", { status: "ALL" }).length, 1);
+    assert.deepEqual(utils.filterFinancialRows(receipts, "receipts", { status: "Đã thanh toán" })
+        .map(row => row.MaPhieuThu), ["PT02"]);
+    assert.deepEqual(utils.filterFinancialRows(receipts, "receipts", { status: "Đã xác nhận" }), []);
     assert.deepEqual(utils.filterFinancialRows(receipts, "receipts", { status: "ACTION_REQUIRED" }), []);
     assert.deepEqual(utils.filterFinancialRows([
         { MaHoaDon: "OWED", ConNo: 100, TrangThaiThanhToan: "Chưa thanh toán" },

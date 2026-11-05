@@ -176,7 +176,7 @@
             return "admin-status--warning";
         }
         if (["đang ở", "còn hiệu lực", "đã thanh toán", "hợp lệ", "thành công",
-            "đang áp dụng", "đã xác nhận", "đã xác nhận (tự động)"].includes(label)) {
+            "đang áp dụng", "đã xác nhận (tự động)"].includes(label)) {
             return "admin-status--success";
         }
         if (["đã rời", "đã rời khỏi", "trễ hạn", "quá hạn", "thất bại", "từ chối"].includes(label)) {
@@ -309,6 +309,8 @@
         container.dataset.adminTableObserver = "true";
         const enhance = table => {
             if (table.dataset.adminFilterEnhanced || table.closest("[data-no-admin-filters]") || !table.querySelector("thead")) return;
+            const parent = table.parentElement;
+            if (!parent || !table.isConnected) return;
             table.dataset.adminFilterEnhanced = "true";
             [...table.querySelectorAll("thead th")].forEach((header, index) => {
             header.classList.add("whitespace-nowrap", "align-middle");
@@ -320,7 +322,6 @@
                 cell.classList.toggle("text-left", !header.classList.contains("text-right"));
             });
             });
-            const parent = table.parentElement;
             const id = `admin-table-${Math.random().toString(36).slice(2)}`;
             const toolbar = document.createElement("div");
             toolbar.className = "mb-2 flex flex-wrap items-end gap-2 rounded-lg border bg-white p-3";
@@ -701,7 +702,7 @@
     function filterFinancialRows(rows, type, filters = {}) {
         const search = String(filters.search || "").trim().toLocaleLowerCase("vi");
         const status = String(filters.status || (type === "receipts" ? "ALL" : "ACTION_REQUIRED"));
-        const receiptStatuses = ["Đã xác nhận"];
+        const receiptStatuses = ["Đã thanh toán"];
         const method = String(filters.method || "ALL");
         const from = String(filters.from || "");
         const to = String(filters.to || "");

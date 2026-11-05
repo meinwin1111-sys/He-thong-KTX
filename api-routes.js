@@ -774,6 +774,7 @@ function registerApiRoutes(app, {
             return respondRequestError(res, 403, "Chỉ Sinh viên mới được xem hợp đồng của mình.");
         }
         try {
+            await expireOverdueRenewals();
             const result = await getPool().request()
                 .input("MaSinhVien", sql.NVarChar(20), req.auth.studentId)
                 .query(`
@@ -2455,6 +2456,7 @@ function registerApiRoutes(app, {
         SELECT hd.MaHopDong, hd.TenPhong, hd.MaHangPhong, hd.NgayBatDau, hd.NgayKetThuc,
                hd.TrangThaiHopDong, hd.GhiChu, hd.SoLanGiaHan, hd.NgayKetThucThucTe,
                c.MaChiTiet, c.MaSinhVien, sv.HoTen, c.NgayVao, c.NgayRa,
+               effectiveEnd.NgayKetThucHieuLuc,
                c.KyHanThanhToanPhong, c.GiaPhongApDung, c.GiaPhongThangApDung,
                c.LaNguoiDaiDienThanhToanDichVu, c.TrangThai AS TrangThaiThanhVien,
                counts.SoSinhVienHienTai, hp.SucChuaToiDa, hp.TenHangPhong
@@ -2462,6 +2464,8 @@ function registerApiRoutes(app, {
         INNER JOIN dbo.HangPhong hp ON hp.MaHangPhong = hd.MaHangPhong
         LEFT JOIN dbo.ChiTietHopDong c ON c.MaHopDong = hd.MaHopDong
         LEFT JOIN dbo.SinhVien sv ON sv.MaSinhVien = c.MaSinhVien
+        LEFT JOIN dbo.vw_NgayKetThucHieuLucThanhVien effectiveEnd
+            ON effectiveEnd.MaChiTiet = c.MaChiTiet
         OUTER APPLY (
             SELECT COUNT_BIG(*) AS SoSinhVienHienTai
             FROM dbo.ChiTietHopDong active
@@ -2520,6 +2524,7 @@ function registerApiRoutes(app, {
                         MaChiTiet: row.MaChiTiet,
                         MaSinhVien: row.MaSinhVien,
                         HoTen: row.HoTen,
+                        NgayKetThucHieuLuc: row.NgayKetThucHieuLuc,
                         NgayVao: row.NgayVao,
                         NgayRa: row.NgayRa,
                         KyHanThanhToanPhong: row.KyHanThanhToanPhong,

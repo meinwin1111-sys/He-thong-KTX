@@ -1,13 +1,13 @@
 :on error exit
-:setvar XacNhan "0"
-
 /*
   BACKUP DATABASE TRƯỚC KHI CHẠY. Dùng lệnh backup trong db/00_backup_note.md.
-  Mặc định chỉ đếm. Chỉ xóa thật với: sqlcmd ... -v XacNhan=1 -i db/maintenance/reset_operational_data.sql
-  Chạy từ thư mục gốc repo; database đích mặc định trong lệnh là KTX_Group3.
+  Luôn truyền -v XacNhan=0 để xem trước hoặc -v XacNhan=1 để xác nhận xóa.
+  Chỉ dành cho KTX_Group3_test. Chạy từ thư mục gốc repo; luôn chỉ rõ -d KTX_Group3_test.
 */
 IF DB_NAME() = N'master'
     THROW 51800, N'Chạy script bằng sqlcmd -d với database đích.', 1;
+IF DB_NAME() <> N'KTX_Group3_test'
+    THROW 51801, N'Script chỉ được chạy trên KTX_Group3_test.', 1;
 GO
 SET XACT_ABORT ON;
 SET NOCOUNT ON;
@@ -20,11 +20,16 @@ BEGIN
     UNION ALL SELECT N'PhieuChi', COUNT_BIG(*) FROM dbo.PhieuChi
     UNION ALL SELECT N'PhieuThu', COUNT_BIG(*) FROM dbo.PhieuThu
     UNION ALL SELECT N'GiaoDichThanhToan', COUNT_BIG(*) FROM dbo.GiaoDichThanhToan
+    UNION ALL SELECT N'HoanTienChuyenKhoanDu', COUNT_BIG(*) FROM dbo.HoanTienChuyenKhoanDu
     UNION ALL SELECT N'ChiPhiPhatSinh', COUNT_BIG(*) FROM dbo.ChiPhiPhatSinh
     UNION ALL SELECT N'ChiTietHoaDon', COUNT_BIG(*) FROM dbo.ChiTietHoaDon
+    UNION ALL SELECT N'ThongBao', COUNT_BIG(*) FROM dbo.ThongBao
+    UNION ALL SELECT N'GiaHanHopDong', COUNT_BIG(*) FROM dbo.GiaHanHopDong
+    UNION ALL SELECT N'DangKySinhVienChoDuyet', COUNT_BIG(*) FROM dbo.DangKySinhVienChoDuyet
     UNION ALL SELECT N'YeuCauSinhVien', COUNT_BIG(*) FROM dbo.YeuCauSinhVien
     UNION ALL SELECT N'ChiTietHopDong', COUNT_BIG(*) FROM dbo.ChiTietHopDong
     UNION ALL SELECT N'NhatKyHeThong', COUNT_BIG(*) FROM dbo.NhatKyHeThong
+    UNION ALL SELECT N'LichSuHopDong_Backup', COUNT_BIG(*) FROM dbo.LichSuHopDong_Backup
     UNION ALL SELECT N'HoaDon', COUNT_BIG(*) FROM dbo.HoaDon
     UNION ALL SELECT N'HopDong', COUNT_BIG(*) FROM dbo.HopDong
     UNION ALL SELECT N'MaHoaDonCounter', COUNT_BIG(*) FROM dbo.MaHoaDonCounter
@@ -44,7 +49,9 @@ BEGIN TRY
     DELETE FROM dbo.PhieuChi;
     ENABLE TRIGGER dbo.TRG_PhieuChi_HoaDon ON dbo.PhieuChi_HoaDon;
     ENABLE TRIGGER dbo.TRG_PhieuChi_BaoVe ON dbo.PhieuChi;
+    DELETE FROM dbo.ThongBao;
     DELETE FROM dbo.PhieuThu;
+    DELETE FROM dbo.HoanTienChuyenKhoanDu;
     DELETE FROM dbo.GiaoDichThanhToan;
 
     DISABLE TRIGGER dbo.TRG_ChiPhiPhatSinh_BaoVe ON dbo.ChiPhiPhatSinh;
@@ -55,8 +62,11 @@ BEGIN TRY
     DELETE FROM dbo.ChiTietHoaDon;
     ENABLE TRIGGER dbo.TRG_ChiTietHoaDon_BaoVe ON dbo.ChiTietHoaDon;
 
+    DELETE FROM dbo.GiaHanHopDong;
+    DELETE FROM dbo.DangKySinhVienChoDuyet;
     DELETE FROM dbo.YeuCauSinhVien;
     DELETE FROM dbo.NhatKyHeThong;
+    DELETE FROM dbo.LichSuHopDong_Backup;
     DELETE FROM dbo.HoaDon;
     DELETE FROM dbo.ChiTietHopDong;
     DELETE FROM dbo.HopDong;
