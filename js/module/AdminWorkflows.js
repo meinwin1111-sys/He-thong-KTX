@@ -513,7 +513,7 @@
             </dl>
             <div class="flex flex-wrap items-end gap-2">
                 ${select("Trạng thái sinh viên", "contractMemberStatus", [{value:"Đang ở",label:"Đang ở"},{value:"ALL",label:"Tất cả"},{value:"Đã rời",label:"Đã rời"},{value:"Đã chuyển phòng",label:"Đã chuyển phòng"}], state.contractMemberStatus)}
-                <label class="text-sm">Tìm sinh viên<input name="contractMemberSearch" value="" placeholder="Tên hoặc Số CCCD" class="mt-1 rounded border px-3 py-2"></label>
+                <label class="inline-flex items-center gap-2 text-sm">Tìm sinh viên<input name="contractMemberSearch" value="" placeholder="Tên hoặc Số CCCD" class="rounded border px-3 py-2"></label>
             </div>
             <h3 class="font-semibold">Sinh viên trong hợp đồng</h3>
             <div data-contract-members class="space-y-3"></div>${actions}
@@ -1842,9 +1842,20 @@
                 }
                 case "contract-extend": {
                     const contract = state.contracts.find(item => item.MaHopDong === actionButton.dataset.contract);
-                    modalShell("Gia hạn hợp đồng", `<form id="admin-workflow-form" data-form="contract-extend">
+                    const members = activeMembers(contract);
+                    if (!members.length) {
+                        modalShell("Gia hạn hợp đồng", '<p role="alert" class="text-sm text-red-700">Hợp đồng không có sinh viên đang ở để gia hạn.</p>');
+                        break;
+                    }
+                    const memberOptions = members.map(member => ({
+                        value: member.MaChiTiet,
+                        label: `${memberName(member)} · ${U.maskStudentId(member.MaSinhVien)} · Hiệu lực đến ${dateOnly(member.NgayKetThucHieuLuc || contract.NgayKetThuc)}`
+                    }));
+                    modalShell("Gia hạn hợp đồng", `<form id="admin-workflow-form" data-form="contract-extend" class="space-y-3">
                         <input type="hidden" name="contractId" value="${esc(contract.MaHopDong)}">
-                        ${field("Ngày kết thúc mới", "ngayKetThuc", "date", contract.NgayKetThuc ? dateOnly(contract.NgayKetThuc) : "", true)}
+                        ${select("Sinh viên", "maChiTiet", memberOptions, "", true)}
+                        ${field("Ngày kết thúc mới", "ngayKetThucMoi", "date", "", true)}
+                        <p class="text-sm text-slate-600">Chọn ngày kết thúc mới sau ngày hiệu lực của sinh viên. Hóa đơn gia hạn được gửi cho sinh viên đã chọn.</p>
                     </form>`);
                     break;
                 }
@@ -2672,12 +2683,31 @@
                         method: "PUT", body: json({ maSinhVien: values.get("maSinhVien"), tenPhong: values.get("tenPhong") })
                     });
                     closeModal(); await loadContracts(); break;
-                case "contract-extend":
-                    if (!window.confirm(`Gia hạn hợp đồng ${values.get("contractId")} đến ${dateOnly(apiDate(form, "ngayKetThuc"))}?`)) break;
-                    await request(`/api/HopDong/${encodeURIComponent(values.get("contractId"))}/gia-han`, {
-                        method: "PUT", body: json({ ngayKetThuc: apiDate(form, "ngayKetThuc") })
+                case "contract-extend": {
+                    const contractId = values.get("contractId");
+                    const detailId = Number(values.get("maChiTiet"));
+                    const contract = state.contracts.find(item => item.MaHopDong === contractId);
+                    const member = activeMembers(contract).find(item => Number(item.MaChiTiet) === detailId);
+                    if (!Number.isSafeInteger(detailId) || detailId < 1 || !member) {
+                        throw new Error("Vui lòng chọn sinh viên đang ở trong hợp đồng.");
+                    }
+                    const endDate = apiDate(form, "ngayKetThucMoi");
+                    const effectiveEnd = String(member.NgayKetThucHieuLuc || contract.NgayKetThuc || "").slice(0, 10);
+                    if (effectiveEnd && endDate <= effectiveEnd) {
+                        throw new Error("Ngày kết thúc mới phải sau ngày kết thúc hiệu lực của sinh viên.");
+                    }
+                    if (!window.confirm(`Gia hạn cho ${memberName(member)} đến ${dateOnly(endDate)}?`)) break;
+                    const renewal = await request(`/api/HopDong/${encodeURIComponent(contractId)}/gia-han`, {
+                        method: "PUT", body: json({ maChiTiet: detailId, ngayKetThucMoi: endDate })
                     });
-                    closeModal(); await loadContracts(); break;
+                    closeModal();
+                    await loadContracts();
+                    window.showToast?.(renewal?.MaHoaDon
+                        ? `Đã tạo hóa đơn gia hạn ${renewal.MaHoaDon} cho ${memberName(member)}, số tiền ${money(renewal.SoTien)}, hạn thanh toán ${dateOnly(renewal.HanThanhToan)}.`
+                        : `Gia hạn cho ${memberName(member)} đã xử lý nhưng chưa nhận được mã hóa đơn. Hãy kiểm tra hóa đơn của sinh viên.`,
+                    renewal?.MaHoaDon ? "success" : "error");
+                    break;
+                }
                 case "invoice-create": {
                     const type = values.get("loaiHoaDon");
                     const body = { loaiHoaDon: type, maHopDong: values.get("maHopDong"), kyThanhToan: apiDate(form, "kyThanhToan") };

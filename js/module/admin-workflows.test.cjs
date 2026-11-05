@@ -237,7 +237,8 @@ test("Selecting a room resolves its exact tier instead of defaulting to the firs
 async function setupAdminWorkflowDom({
     financialFixture = false,
     expenseFlow = null,
-    contractCreateResponse = null
+    contractCreateResponse = null,
+    renewalFlow = null
 } = {}) {
     const dom = new JSDOM('<main id="main-content"></main>', {
         runScripts: "outside-only",
@@ -250,7 +251,10 @@ async function setupAdminWorkflowDom({
         {
             MaHopDong: "HD-A", TenPhong: "A101", MaHangPhong: "HP4", SucChuaToiDa: 4,
             TrangThaiHopDong: "Còn hiệu lực",
-            sinhVien: [{ MaSinhVien: "MEMBER-A", HoTen: "Thành viên", TrangThai: "Đang ở" }]
+            sinhVien: [{
+                MaChiTiet: 8, MaSinhVien: "MEMBER-A", HoTen: "Thành viên",
+                NgayKetThucHieuLuc: "2027-10-01", TrangThai: "Đang ở"
+            }]
         },
         {
             MaHopDong: "HD-B", TenPhong: "A102", MaHangPhong: "HP4", SucChuaToiDa: 4,
@@ -286,6 +290,8 @@ async function setupAdminWorkflowDom({
             let body = [];
             if (url === "/api/HopDong" && options.method === "POST" && contractCreateResponse) {
                 body = contractCreateResponse;
+            } else if (renewalFlow && url === "/api/HopDong/HD-A/gia-han" && options.method === "PUT") {
+                body = renewalFlow.response;
             } else if (url.startsWith("/api/HopDong")) body = contracts;
             else if (url.startsWith("/api/sinhvien")) body = { data: students, totalPages: 1 };
             else if (url === "/api/Phong") body = rooms;
@@ -412,6 +418,50 @@ async function waitForDom(predicate) {
     }
     assert.fail("DOM workflow did not reach the expected state");
 }
+
+test("Admin direct renewal selects an active member and submits that member's invoice dates", async () => {
+    const { dom, window, calls, toasts } = await setupAdminWorkflowDom({
+        renewalFlow: {
+            response: {
+                success: true, MaGiaHan: 17, MaHoaDon: "INV-RENEWAL-17",
+                SoTien: 1250000, HanThanhToan: "2026-11-12"
+            }
+        }
+    });
+    try {
+        window.document.querySelector('[data-action="row-detail"][data-detail-type="contract"][data-detail-id="HD-A"]').click();
+        await waitForDom(() => window.document.querySelector('[data-action="contract-extend"]'));
+        const memberSearchLabel = window.document.querySelector('[name="contractMemberSearch"]').parentElement;
+        assert.ok(memberSearchLabel.classList.contains("inline-flex"));
+        assert.ok(memberSearchLabel.classList.contains("gap-2"));
+        window.document.querySelector('[data-action="contract-extend"]').click();
+
+        const form = window.document.querySelector('form[data-form="contract-extend"]');
+        assert.ok(form);
+        const member = form.elements.maChiTiet;
+        assert.equal(member.required, true);
+        assert.equal(member.options.length, 2);
+        assert.match(member.options[1].textContent, /Thành viên.*Hiệu lực đến 01\/10\/2027/);
+        const endDate = form.elements.ngayKetThucMoi;
+        assert.equal(endDate.required, true);
+        assert.equal(endDate.value, "");
+
+        member.value = "8";
+        endDate.value = "02/10/2027";
+        form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+        await waitForDom(() => calls.some(call => call.url === "/api/HopDong/HD-A/gia-han"));
+
+        const request = calls.find(call => call.url === "/api/HopDong/HD-A/gia-han");
+        assert.equal(request.options.method, "PUT");
+        assert.deepEqual(JSON.parse(request.options.body), {
+            maChiTiet: 8, ngayKetThucMoi: "2027-10-02"
+        });
+        await waitForDom(() => toasts.some(toast => toast.message.includes("INV-RENEWAL-17")));
+        assert.match(toasts.at(-1).message, /Thành viên.*1\.250\.000.*12\/11\/2026/);
+    } finally {
+        dom.window.close();
+    }
+});
 
 test("Incident expense form aligns date controls and gives inline Vietnamese amount errors", async () => {
     const { dom, window, calls } = await setupAdminWorkflowDom({ financialFixture: true });

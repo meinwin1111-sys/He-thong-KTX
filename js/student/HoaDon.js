@@ -340,7 +340,7 @@
                     : invoice.Thang !== null && invoice.Thang !== undefined
                         && invoice.Nam !== null && invoice.Nam !== undefined
                         ? `${invoice.Thang}/${invoice.Nam}` : 'Chưa có';
-                const paymentControls = balance > 0
+                const paymentControls = balance > 0 && invoice.TrangThaiThanhToan !== 'Đã hủy'
                     ? `<div class="st-payment-controls">
                         <label class="st-payment-method-control">Phương thức thanh toán
                             <select data-payment-method aria-label="Phương thức thanh toán cho hóa đơn ${esc(invoiceId)}">

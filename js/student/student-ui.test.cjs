@@ -641,6 +641,7 @@ function createStudentAppHarness({
     demoEnabled = false,
     onDemoConfirm = async () => ({ success: true }),
     invoicePaid = false,
+    invoiceCanceled = false,
     paymentMethod = 'ONLINE',
     invoiceDates = { NgayLap: '2026-03-01', KyThanhToan: '2026-03-01', HanThanhToan: '2026-03-08' },
     invoiceId = 'INV-APP-UI',
@@ -684,7 +685,8 @@ function createStudentAppHarness({
         KTXPaymentDemo: {},
         StudentAuth: { session: () => ({ isBackend: true, code: 'SV001', name: 'Sinh viên thử nghiệm' }) },
         AdminWorkflowUtils: {
-            invoicePaymentLabel: () => serverInvoicePaid ? 'Đã thanh toán' : 'Còn nợ',
+            invoicePaymentLabel: () => invoiceCanceled
+                ? 'Đã hủy' : serverInvoicePaid ? 'Đã thanh toán' : 'Còn nợ',
             isOverdueInvoice: () => false,
             overdueDays: () => 0,
             dateTime: () => '01/03/2026',
@@ -700,7 +702,8 @@ function createStudentAppHarness({
                     MaHoaDon: invoiceId, LoaiHoaDon: 'TIEN_PHONG',
                     ...invoiceDates, TongTien: invoiceAmount, DaThu: serverInvoicePaid ? invoiceAmount : 0,
                     ConNo: serverInvoicePaid ? 0 : invoiceAmount,
-                    TrangThaiThanhToan: serverInvoicePaid ? 'Đã thanh toán' : 'Chưa thanh toán'
+                    TrangThaiThanhToan: invoiceCanceled
+                        ? 'Đã hủy' : serverInvoicePaid ? 'Đã thanh toán' : 'Chưa thanh toán'
                 }]);
                 if (url === '/api/payments/history' || url.startsWith('/api/payments/history?')) {
                     return response([{
@@ -884,6 +887,29 @@ test('renewal invoice shows its amount and due date and opens payment for its ba
             '/api/payments/qr?MaHoaDon=INV-RENEWAL-UI&SoTien=1250000'), true);
         assert.match(harness.dom.window.document.getElementById('student-dialog').textContent,
             /QR được tạo đúng số tiền còn nợ của hóa đơn/);
+    } finally {
+        harness.dom.window.close();
+    }
+});
+
+test('canceled renewal invoice shows canceled status without payment controls', async () => {
+    const harness = createStudentAppHarness({
+        invoiceId: 'INV-RENEWAL-CANCELED',
+        invoiceAmount: 1250000,
+        invoiceCanceled: true,
+        invoiceDates: {
+            NgayLap: '2026-03-04',
+            KyThanhToan: '2026-03-01',
+            HanThanhToan: '2026-03-11'
+        }
+    });
+    try {
+        await harness.loadInvoices();
+        const invoice = harness.dom.window.document.querySelector('.st-invoice');
+        assert.match(invoice.querySelector('summary').textContent, /Đã hủy/);
+        assert.equal(invoice.querySelector('[data-action="backend-invoice-pay"]'), null);
+        assert.equal(invoice.querySelector('[data-payment-method]'), null);
+        assert.equal(harness.calls.some(call => call.url === '/api/payments/create'), false);
     } finally {
         harness.dom.window.close();
     }

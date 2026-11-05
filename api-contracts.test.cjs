@@ -509,6 +509,15 @@ test("real SQL member renewal approval leaves the effective end date unchanged",
     const invoice = await context.invoiceTotal(state.MaHoaDon);
     assert.equal(invoice.LoaiHoaDon, "TIEN_PHONG");
     assert.equal(Number(invoice.TongTien), 400000);
+    const studentInvoices = await context.call("GET", "/api/HoaDon", "Sinh viên", studentId);
+    assert.equal(studentInvoices.status, 200, JSON.stringify(studentInvoices.body));
+    const visibleInvoice = studentInvoices.body.find(row => row.MaHoaDon === state.MaHoaDon);
+    assert.ok(visibleInvoice, "The renewed member must see their invoice in the Student invoice list.");
+    assert.equal(visibleInvoice.LoaiHoaDon, "TIEN_PHONG");
+    assert.equal(Number(visibleInvoice.TongTien), 400000);
+    assert.equal(Number(visibleInvoice.ConNo), 400000);
+    assert.equal(String(visibleInvoice.HanThanhToan).slice(0, 10),
+        state.HanThanhToan.toISOString().slice(0, 10));
 }));
 
 test("real SQL member renewal activates through QR, webhook, and cash payment", {
@@ -622,6 +631,48 @@ test("real SQL overdue member renewal cancels before attempted QR payment", {
         .input("MaHoaDon", sql.NVarChar(20), renewal.body.MaHoaDon)
         .query("SELECT TrangThaiThanhToan FROM dbo.HoaDon WHERE MaHoaDon = @MaHoaDon");
     assert.equal(invoice.recordset[0].TrangThaiThanhToan, "Đã hủy");
+}));
+
+test("real SQL student contract access lazily cancels an overdue renewal and notifies once", {
+    skip: process.env.DB_NAME !== "KTX_Group3_test"
+        ? "Only runs when DB_NAME is explicitly set to KTX_Group3_test."
+        : false,
+    timeout: 120000
+}, async () => withSqlMemberRenewalFixture(1, async context => {
+    const studentId = context.members[0];
+    const renewal = await context.renew(studentId);
+    assert.equal(renewal.status, 201, JSON.stringify(renewal.body));
+    const before = (await context.renewalState(studentId)).recordset[0];
+    await context.pool.request()
+        .input("MaGiaHan", sql.Int, before.MaGiaHan)
+        .query(`
+            UPDATE dbo.GiaHanHopDong
+            SET HanThanhToan = DATEADD(day, -1, CONVERT(date, DATEADD(hour, 7, SYSUTCDATETIME())))
+            WHERE MaGiaHan = @MaGiaHan AND TrangThai = N'Chờ thanh toán'
+        `);
+
+    const firstAccess = await context.call("GET", "/api/student/contracts", "Sinh viên", studentId);
+    assert.equal(firstAccess.status, 200, JSON.stringify(firstAccess.body));
+    const state = (await context.renewalState(studentId)).recordset[0];
+    assert.equal(state.TrangThai, "Hủy");
+    assert.equal(state.NgayKetThucHieuLuc.toISOString().slice(0, 10), context.endDate);
+    const invoice = await context.pool.request()
+        .input("MaHoaDon", sql.NVarChar(20), renewal.body.MaHoaDon)
+        .query("SELECT TrangThaiThanhToan FROM dbo.HoaDon WHERE MaHoaDon = @MaHoaDon");
+    assert.equal(invoice.recordset[0].TrangThaiThanhToan, "Đã hủy");
+
+    const secondAccess = await context.call("GET", "/api/student/contracts", "Sinh viên", studentId);
+    assert.equal(secondAccess.status, 200, JSON.stringify(secondAccess.body));
+    const notice = await context.pool.request()
+        .input("MaSinhVien", sql.NVarChar(30), studentId)
+        .input("MaHoaDon", sql.NVarChar(20), renewal.body.MaHoaDon)
+        .query(`
+            SELECT COUNT_BIG(*) AS NoticeCount
+            FROM dbo.ThongBao
+            WHERE MaSinhVien = @MaSinhVien AND MaHoaDon = @MaHoaDon
+              AND MaSuKien LIKE N'RENEWAL_EXPIRED:%'
+        `);
+    assert.equal(Number(notice.recordset[0].NoticeCount), 1);
 }));
 
 test("real SQL second pending renewal for the same member is rejected", {
@@ -2407,6 +2458,7 @@ test("contract list/detail return grouped members and parameterized filters", as
         TenHangPhong: "Phòng 4", SucChuaToiDa: 4, SoSinhVienHienTai: 1,
         NgayBatDau: new Date("2026-10-01"), NgayKetThuc: new Date("2027-10-01"),
         TrangThaiHopDong: "Còn hiệu lực", MaChiTiet: 5, MaSinhVien: "SV001",
+        NgayKetThucHieuLuc: new Date("2027-10-01"),
         HoTen: "Student", TrangThaiThanhVien: "Đang ở"
     }];
     const harness = fakeApi({ queryResult: call => call.statement.includes("OUTER APPLY")
@@ -2414,6 +2466,7 @@ test("contract list/detail return grouped members and parameterized filters", as
     const list = await invoke(harness, "get", "/api/HopDong", { query: { tenPhong: "A101", trangThai: "Còn hiệu lực" } });
     assert.equal(list.statusCode, 200);
     assert.equal(list.body[0].sinhVien[0].MaSinhVien, "SV001");
+    assert.equal(list.body[0].sinhVien[0].NgayKetThucHieuLuc.toISOString().slice(0, 10), "2027-10-01");
     assert.equal(list.body[0].SoSinhVienHienTai, 1);
     assert.equal(harness.queries[0].inputs.TenPhong, "A101");
     assert.doesNotMatch(harness.queries[0].statement, /hd\.MaSinhVien/);
@@ -2421,6 +2474,22 @@ test("contract list/detail return grouped members and parameterized filters", as
     const detail = await invoke(harness, "get", "/api/HopDong/:id", { params: { id: "HD00001" } });
     assert.equal(detail.statusCode, 200);
     assert.equal(detail.body.MaHopDong, "HD00001");
+});
+
+test("student contract access expires overdue renewals before returning contracts", async () => {
+    const harness = fakeApi({
+        queryResult: call => call.statement.includes("SELECT hd.MaHopDong, c.MaSinhVien")
+            ? { recordset: [{ MaHopDong: "HD00001", MaSinhVien: "SV001" }] }
+            : { recordset: [] }
+    });
+    const result = await invoke(harness, "get", "/api/student/contracts", {
+        auth: { role: "Sinh viên", studentId: "SV001" }
+    });
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.body[0].MaHopDong, "HD00001");
+    assert.equal(harness.executions.filter(call =>
+        call.procedure === "dbo.sp_HuyGiaHanQuaHan").length, 1);
+    assert.match(harness.queries[0].statement, /WHERE c\.MaSinhVien = @MaSinhVien/);
 });
 
 test("history is the same handler as contract-member listing", async () => {
