@@ -309,6 +309,8 @@
         container.dataset.adminTableObserver = "true";
         const enhance = table => {
             if (table.dataset.adminFilterEnhanced || table.closest("[data-no-admin-filters]") || !table.querySelector("thead")) return;
+            const parent = table.parentElement;
+            if (!parent || !table.isConnected) return;
             table.dataset.adminFilterEnhanced = "true";
             [...table.querySelectorAll("thead th")].forEach((header, index) => {
             header.classList.add("whitespace-nowrap", "align-middle");
@@ -320,7 +322,6 @@
                 cell.classList.toggle("text-left", !header.classList.contains("text-right"));
             });
             });
-            const parent = table.parentElement;
             const id = `admin-table-${Math.random().toString(36).slice(2)}`;
             const toolbar = document.createElement("div");
             toolbar.className = "mb-2 flex flex-wrap items-end gap-2 rounded-lg border bg-white p-3";

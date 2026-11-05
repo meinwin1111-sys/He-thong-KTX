@@ -5,7 +5,48 @@ const studentIdentity = require("../student-identity");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const { JSDOM } = require("jsdom");
+const { JSDOM, VirtualConsole } = require("jsdom");
+
+test("Admin table enhancement ignores detached tables and enhances connected tables", async () => {
+    const jsdomErrors = [];
+    const virtualConsole = new VirtualConsole();
+    virtualConsole.on("jsdomError", error => jsdomErrors.push(error));
+    const dom = new JSDOM("<main id='tables'></main>", { virtualConsole });
+    const previousDocument = global.document;
+    const previousMutationObserver = global.MutationObserver;
+    global.document = dom.window.document;
+    global.MutationObserver = dom.window.MutationObserver;
+
+    try {
+        const container = dom.window.document.getElementById("tables");
+        utils.enhanceAdminTables(container);
+
+        const detachedTable = dom.window.document.createElement("table");
+        detachedTable.innerHTML = "<thead><tr><th>Title</th></tr></thead><tbody><tr><td>Value</td></tr></tbody>";
+        container.append(detachedTable);
+        detachedTable.remove();
+        await new Promise(resolve => setImmediate(resolve));
+
+        assert.equal(jsdomErrors.length, 0);
+        assert.equal(detachedTable.dataset.adminFilterEnhanced, undefined);
+
+        const connectedTable = dom.window.document.createElement("table");
+        connectedTable.innerHTML = "<thead><tr><th>Title</th></tr></thead><tbody><tr><td>Value</td></tr></tbody>";
+        container.append(connectedTable);
+        await new Promise(resolve => setImmediate(resolve));
+
+        assert.equal(connectedTable.dataset.adminFilterEnhanced, "true");
+        assert.equal(connectedTable.previousElementSibling.matches("[data-admin-table-toolbar]"), true);
+        assert.equal(connectedTable.nextElementSibling.matches("footer"), true);
+        assert.equal(jsdomErrors.length, 0);
+    } finally {
+        if (previousDocument === undefined) delete global.document;
+        else global.document = previousDocument;
+        if (previousMutationObserver === undefined) delete global.MutationObserver;
+        else global.MutationObserver = previousMutationObserver;
+        dom.window.close();
+    }
+});
 
 test("Admin money helpers accept positive integer VND and format thousands", () => {
     assert.equal(utils.parseVnd("1.250.000"), 1250000);
