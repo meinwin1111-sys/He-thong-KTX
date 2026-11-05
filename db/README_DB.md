@@ -10,6 +10,18 @@ Chạy từ thư mục gốc repository bằng `sqlcmd` với `QUOTED_IDENTIFIER
 sqlcmd -S <server> -E -I -f 65001 -b -i db\KTX_Group3_clean.sql
 ```
 
+## Xem/dựng schema bảng để làm báo cáo
+
+`db/KTX_Group3_schema_only.sql` là script độc lập gồm 25 bảng ứng dụng, cột, khóa, ràng buộc, index và quan hệ khóa ngoại; không chứa dữ liệu. Script tạo database rỗng `[KTX_Group3_Schema]`, vì vậy không ghi đè database hiện có. Đổi tên database trong script nếu tên đó đã được dùng.
+
+Chạy bằng SQL Server Management Studio hoặc từ thư mục gốc repository:
+
+```powershell
+sqlcmd -S <server> -E -I -f 65001 -b -i db\KTX_Group3_schema_only.sql
+```
+
+Script phục vụ xem cấu trúc/quan hệ bảng, không bao gồm view, stored procedure hoặc trigger và không thay thế `KTX_Group3_clean.sql` để cài ứng dụng.
+
 ## Nâng cấp database hiện có
 
 Chọn database đích trước khi chạy. Đảm bảo login và database user `DNKTX` đã tồn tại, sau đó chạy migration theo thứ tự trong `db/run_all.sql`:
