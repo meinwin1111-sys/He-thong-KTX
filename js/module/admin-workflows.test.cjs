@@ -335,7 +335,7 @@ async function setupAdminWorkflowDom({
                 MaGiaoDich: "PAY-QR-PAID", MaHoaDon: "INV-DOM", MaPhieuThu: 907,
                 MaSinhVien: "QRPAIDSTUDENT", TenPhong: "A101", HoTen: "Sinh viên QR đã thanh toán",
                 SoTien: 60, PhuongThuc: "ONLINE", TrangThai: "SUCCESS",
-                TongTien: 60, SoTienYeuCau: 60, SoTienThucNhan: 60,
+                TongTien: 60, SoTienYeuCau: 60, SoTienThucNhan: null,
                 TrangThaiPhieuThu: "Hợp lệ", NgayTao: "2026-03-07T09:15:00"
             }, {
                 MaGiaoDich: "PAY-RETURNED", MaHoaDon: "INV-DOM", MaPhieuThu: 906,

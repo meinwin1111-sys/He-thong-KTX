@@ -912,9 +912,8 @@
                 .map(row => String(row.MaGiaoDich)));
             return state.receipts.filter(row => !hiddenTransactionIds.has(String(row.MaGiaoDich))).map(row => {
                 const payment = paymentByTransaction.get(String(row.MaGiaoDich));
-                const actualAmount = payment
-                    ? payment.SoTienThucNhan
-                    : row.TrangThai === "Hợp lệ" ? row.SoTien : null;
+                const actualAmount = payment?.SoTienThucNhan
+                    ?? (row.TrangThai === "Hợp lệ" ? row.SoTien : null);
                 const merged = {
                     ...row,
                     SoTienYeuCau: payment?.SoTienYeuCau ?? payment?.TongTien ?? row.SoTien,
