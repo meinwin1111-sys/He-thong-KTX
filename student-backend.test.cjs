@@ -212,7 +212,8 @@ function routeHarness() {
                     return { recordset: [{ MaSinhVien: studentId, MaHoaDon: `HD-${studentId}` }] };
                 }
                 return { recordset: [{ MaSinhVien: studentId, HoTen: `Sinh viên ${studentId}` }] };
-            }
+            },
+            async execute() { return { recordset: [] }; }
         };
     };
     const sql = new Proxy({

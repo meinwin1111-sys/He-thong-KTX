@@ -1513,6 +1513,20 @@ test("Admin HTML loads the API-backed workflow instead of legacy finance modules
     assert.doesNotMatch(legacyInvoice, /method:\s*['"]PUT['"]/);
 });
 
+test("Admin receipt printing uses a shared print helper visible to receipt handlers", () => {
+    const source = fs.readFileSync(path.join(__dirname, "AdminWorkflows.js"), "utf8");
+    const helperIndex = source.indexOf("function printDocument()");
+    const receiptIndex = source.indexOf("function printReceipt(receipt)");
+    const actionHandlerIndex = source.indexOf("async function handleClick");
+    assert.ok(helperIndex >= 0);
+    assert.ok(receiptIndex > helperIndex);
+    assert.ok(actionHandlerIndex > receiptIndex);
+    assert.match(source, /function printDocument\(\)\s*\{\s*document\.body\.classList\.add\("admin-printing"\);\s*window\.print\(\);\s*\}/);
+    assert.match(source, /function printReceipt\(receipt\)[\s\S]*?printDocument\(\);/);
+    assert.match(source, /function printRefund\(refund\)[\s\S]*?printDocument\(\);/);
+    assert.doesNotMatch(source.slice(actionHandlerIndex), /function printDocument\(\)/);
+});
+
 test("Active Admin date fields are text inputs using the shared date utility", () => {
     const html = fs.readFileSync(path.join(__dirname, "..", "..", "Admin.html"), "utf8");
     const adminWorkflows = fs.readFileSync(path.join(__dirname, "AdminWorkflows.js"), "utf8");

@@ -9,6 +9,7 @@ Set-Location (Split-Path -Parent $PSScriptRoot)
 
 $checks = New-Object System.Collections.Generic.List[object]
 $npmLog = "C:\Temp\npm_test_auto.out"
+$fixtureLog = "C:\Temp\npm_test_fixture_auto.out"
 $focusedLog = "C:\Temp\renewal_sql_auto.out"
 $dbLog = "C:\Temp\renewal_db_auto.out"
 
@@ -71,6 +72,84 @@ $statusDetail = if ($statusExitCode -ne 0) {
 }
 Add-Check "3. git status excludes .env/dist" $statusClean $statusDetail
 
+$fixtureSnapshotScript = @'
+require("dotenv").config();
+const sql = require("mssql");
+(async () => {
+    const pool = await new sql.ConnectionPool({
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        server: process.env.DB_SERVER,
+        port: Number(process.env.DB_PORT) || undefined,
+        database: process.env.DB_NAME,
+        options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true, useUTC: true }
+    }).connect();
+    try {
+        const result = await pool.request().query(`
+            SELECT
+                (SELECT COUNT_BIG(*) FROM dbo.TaiKhoan
+                 WHERE Email LIKE N'b5-%@example.test') AS FixtureManagers,
+                (SELECT COUNT_BIG(*) FROM dbo.TaiKhoan
+                 WHERE Email LIKE N'T5%@%' OR Email LIKE N'GH-TEST-%') AS FixtureStudentAccounts,
+                (SELECT COUNT_BIG(*) FROM dbo.SinhVien
+                 WHERE MaSinhVien LIKE N'T5%') AS FixtureStudents,
+                (SELECT COUNT_BIG(*) FROM dbo.SinhVien
+                 WHERE MaSinhVien LIKE N'GH-TEST-%') AS FixtureGhStudents,
+                (SELECT COUNT_BIG(*) FROM dbo.Phong
+                 WHERE TenPhong LIKE N'T5-%') AS FixtureRooms,
+                (SELECT COUNT_BIG(*) FROM dbo.Phong
+                 WHERE TenPhong LIKE N'GH-TEST-%') AS FixtureGhRooms,
+                (SELECT COUNT_BIG(*) FROM dbo.HopDong
+                 WHERE TenPhong LIKE N'T5-%' OR TenPhong LIKE N'GH-TEST-%') AS FixtureContracts,
+                (SELECT COUNT_BIG(*) FROM dbo.GiaHanHopDong g
+                 INNER JOIN dbo.HopDong h ON h.MaHopDong = g.MaHopDong
+                 WHERE h.TenPhong LIKE N'T5-%') AS FixtureRenewals,
+                (SELECT COUNT_BIG(*) FROM dbo.GiaHanHopDong g
+                 INNER JOIN dbo.HopDong h ON h.MaHopDong = g.MaHopDong
+                 WHERE h.TenPhong LIKE N'GH-TEST-%') AS FixtureGhRenewals;
+        `);
+        console.log(JSON.stringify(result.recordset[0]));
+    } finally {
+        await pool.close();
+    }
+})().catch(error => {
+    console.error(error.message || error);
+    process.exitCode = 1;
+});
+'@
+
+function Read-DbFixtureSnapshot {
+    $previousDbName = $env:DB_NAME
+    $env:DB_NAME = $Db
+    try {
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($fixtureSnapshotScript))
+        $output = @(& node -e "eval(Buffer.from('$encoded','base64').toString('utf8'))" 2>&1)
+        $exitCode = $LASTEXITCODE
+    } finally {
+        if ($null -eq $previousDbName) {
+            Remove-Item Env:DB_NAME -ErrorAction SilentlyContinue
+        } else {
+            $env:DB_NAME = $previousDbName
+        }
+    }
+    if ($exitCode -ne 0) {
+        return $null
+    }
+    foreach ($line in $output) {
+        $lineText = [string]$line
+        $jsonStart = $lineText.IndexOf("{")
+        if ($jsonStart -ge 0) {
+            try {
+                return ($lineText.Substring($jsonStart) | ConvertFrom-Json)
+            } catch {
+                return $null
+            }
+        }
+    }
+    return $null
+}
+
+$fixturesBefore = Read-DbFixtureSnapshot
 New-Item -ItemType Directory -Path "C:\Temp" -Force | Out-Null
 $previousDbName = $env:DB_NAME
 $env:DB_NAME = $Db
@@ -95,8 +174,27 @@ Add-Check "4. npm test ($npmLog)" $npmPassed "$npmSummary; exit=$npmExitCode"
 
 $previousDbName = $env:DB_NAME
 $env:DB_NAME = $Db
+$focusedNames = @(
+    "real SQL member renewal approval leaves the effective end date unchanged",
+    "real SQL member renewal activates through QR, webhook, and cash payment",
+    "real SQL renewal rejects short and excess QR amounts without activation",
+    "real SQL duplicate bank webhook activates a member renewal once",
+    "real SQL overdue member renewal cancels before attempted QR payment",
+    "real SQL second pending renewal for the same member is rejected",
+    "real SQL activating one member renewal does not change another member end date",
+    "real SQL pending renewal reserves room capacity and over-capacity approval returns 409",
+    "real SQL contract remains active while any member has an effective end date",
+    "real SQL early checkout cancels a pending member renewal and its invoice",
+    "real SQL concurrent renewal approval and payment complete in five rounds without deadlock",
+    "real SQL early checkout without renewals refunds 640000",
+    "real SQL early checkout refunds each paid renewal period separately",
+    "real SQL fixture cashout cleanup rejects non-T5 cashout data",
+    "real SQL non-fixture paid surplus refund remains protected by its trigger after migration 040",
+    "real SQL non-fixture invoiced incident cost remains protected by its trigger after migration 040"
+)
+$focusedPattern = $focusedNames -join "|"
 try {
-    & node --test --test-reporter=tap --test-name-pattern="real SQL early checkout without renewals refunds 640000|real SQL early checkout refunds each paid renewal period separately" api-contracts.test.cjs 2>&1 |
+    & node --test --test-reporter=tap --test-name-pattern="$focusedPattern" api-contracts.test.cjs 2>&1 |
         Out-File -LiteralPath $focusedLog -Encoding utf8
     $focusedExitCode = $LASTEXITCODE
 } finally {
@@ -111,10 +209,6 @@ $focusedText = if (Test-Path -LiteralPath $focusedLog) {
 } else {
     ""
 }
-$focusedNames = @(
-    "real SQL early checkout without renewals refunds 640000",
-    "real SQL early checkout refunds each paid renewal period separately"
-)
 $focusedFailures = @($focusedNames | Where-Object {
     $focusedText -notmatch ("(?m)^ok \d+ - " + [regex]::Escape($_) + "(?:\s|$)") -or
         $focusedText -match ("(?m)^ok \d+ - " + [regex]::Escape($_) + ".*# SKIP")
@@ -126,11 +220,32 @@ $focusedPassed = ($focusedExitCode -eq 0 -and
     $focusedFailures.Count -eq 0 -and
     $focusedFailedNames.Count -eq 0)
 $focusedDetail = if ($focusedPassed) {
-    "both named SQL tests passed"
+    "all named SQL tests passed"
 } else {
     "exit=$focusedExitCode; missing/non-passing: $($focusedFailures -join '; '); failed: $($focusedFailedNames -join '; '); log=$focusedLog"
 }
 Add-Check "5. Both SQL early-checkout tests" $focusedPassed $focusedDetail
+
+$previousDbName = $env:DB_NAME
+$env:DB_NAME = $Db
+try {
+    & npm.cmd run test:fixture 2>&1 | Out-File -LiteralPath $fixtureLog -Encoding utf8
+    $fixtureExitCode = $LASTEXITCODE
+} finally {
+    if ($null -eq $previousDbName) {
+        Remove-Item Env:DB_NAME -ErrorAction SilentlyContinue
+    } else {
+        $env:DB_NAME = $previousDbName
+    }
+}
+$fixtureCounts = Read-TestCounts $fixtureLog
+$fixtureSummary = Get-TestSummary $fixtureCounts
+$fixturePassed = ($fixtureExitCode -eq 0 -and
+    $fixtureCounts.tests -eq 2 -and
+    $fixtureCounts.pass -eq 2 -and
+    $fixtureCounts.fail -eq 0 -and
+    $fixtureCounts.skipped -eq 0)
+Add-Check "6. npm run test:fixture ($fixtureLog)" $fixturePassed "$fixtureSummary; exit=$fixtureExitCode"
 
 $dbScript = @'
 require("dotenv").config();
@@ -156,14 +271,23 @@ const sql = require("mssql");
                     CASE WHEN OBJECT_ID(N'dbo.sp_KichHoatGiaHan', N'P') IS NOT NULL THEN 1 ELSE 0 END AS sp_KichHoatGiaHan,
                     CASE WHEN OBJECT_ID(N'dbo.sp_HuyGiaHanQuaHan', N'P') IS NOT NULL THEN 1 ELSE 0 END AS sp_HuyGiaHanQuaHan,
                     CASE WHEN OBJECT_ID(N'dbo.sp_CapNhatHopDong', N'P') IS NOT NULL THEN 1 ELSE 0 END AS sp_CapNhatHopDong,
-                    CASE WHEN OBJECT_ID(N'dbo.sp_DuyetTraPhongSom', N'P') IS NOT NULL THEN 1 ELSE 0 END AS sp_DuyetTraPhongSom;
+                    CASE WHEN OBJECT_ID(N'dbo.sp_DuyetTraPhongSom', N'P') IS NOT NULL THEN 1 ELSE 0 END AS sp_DuyetTraPhongSom,
+                    CASE WHEN OBJECT_ID(N'dbo.sp_HuyPhieuChiFixtureKiemThu', N'P') IS NOT NULL THEN 1 ELSE 0 END AS sp_HuyPhieuChiFixtureKiemThu;
                 IF OBJECT_ID(N'dbo.SchemaMigration', N'U') IS NULL
-                    SELECT 0 AS Migration032, 0 AS Migration033, 0 AS Migration034;
+                    SELECT 0 AS Migration032, 0 AS Migration033, 0 AS Migration034, 0 AS Migration035,
+                           0 AS Migration036, 0 AS Migration037, 0 AS Migration038, 0 AS Migration039,
+                           0 AS Migration040;
                 ELSE
                     SELECT
                         CASE WHEN EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'032') THEN 1 ELSE 0 END AS Migration032,
                         CASE WHEN EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'033') THEN 1 ELSE 0 END AS Migration033,
-                        CASE WHEN EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'034') THEN 1 ELSE 0 END AS Migration034;
+                        CASE WHEN EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'034') THEN 1 ELSE 0 END AS Migration034,
+                        CASE WHEN EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'035') THEN 1 ELSE 0 END AS Migration035,
+                        CASE WHEN EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'036') THEN 1 ELSE 0 END AS Migration036,
+                        CASE WHEN EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'037') THEN 1 ELSE 0 END AS Migration037,
+                        CASE WHEN EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'038') THEN 1 ELSE 0 END AS Migration038,
+                        CASE WHEN EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'039') THEN 1 ELSE 0 END AS Migration039,
+                        CASE WHEN EXISTS (SELECT 1 FROM dbo.SchemaMigration WHERE MaMigration = N'040') THEN 1 ELSE 0 END AS Migration040;
                 SELECT
                     (SELECT COUNT_BIG(*) FROM dbo.TaiKhoan WHERE Email LIKE @ManagerPattern) AS FixtureManagers,
                     (SELECT COUNT_BIG(*) FROM dbo.SinhVien WHERE MaSinhVien LIKE @StudentPattern) AS FixtureStudents,
@@ -171,7 +295,18 @@ const sql = require("mssql");
                     (SELECT COUNT_BIG(*)
                      FROM dbo.GiaHanHopDong g
                      INNER JOIN dbo.HopDong h ON h.MaHopDong = g.MaHopDong
-                     WHERE h.TenPhong LIKE @RoomPattern) AS FixtureRenewals;
+                     WHERE h.TenPhong LIKE @RoomPattern) AS FixtureRenewals,
+                    (SELECT COUNT_BIG(*) FROM dbo.TaiKhoan
+                     WHERE Email LIKE N'T5%@%' OR Email LIKE N'GH-TEST-%') AS FixtureStudentAccounts,
+                    (SELECT COUNT_BIG(*) FROM dbo.HopDong
+                     WHERE TenPhong LIKE N'T5-%' OR TenPhong LIKE N'GH-TEST-%') AS FixtureContracts,
+                    (SELECT COUNT_BIG(*) FROM dbo.SinhVien
+                     WHERE MaSinhVien LIKE N'GH-TEST-%') AS FixtureGhStudents,
+                    (SELECT COUNT_BIG(*) FROM dbo.Phong
+                     WHERE TenPhong LIKE N'GH-TEST-%') AS FixtureGhRooms,
+                    (SELECT COUNT_BIG(*) FROM dbo.GiaHanHopDong g
+                     INNER JOIN dbo.HopDong h ON h.MaHopDong = g.MaHopDong
+                     WHERE h.TenPhong LIKE N'GH-TEST-%') AS FixtureGhRenewals;
             `);
         console.log(JSON.stringify({
             objects: result.recordsets[0][0],
@@ -220,7 +355,8 @@ $objectCount = 0
 if ($null -ne $dbResult) {
     foreach ($property in @(
         "GiaHanHopDong", "sp_DuyetGiaHan", "sp_KichHoatGiaHan",
-        "sp_HuyGiaHanQuaHan", "sp_CapNhatHopDong", "sp_DuyetTraPhongSom"
+        "sp_HuyGiaHanQuaHan", "sp_CapNhatHopDong", "sp_DuyetTraPhongSom",
+        "sp_HuyPhieuChiFixtureKiemThu"
     )) {
         if ([int]$dbResult.objects.$property -eq 1) {
             $objectCount++
@@ -230,13 +366,17 @@ if ($null -ne $dbResult) {
 $objectDetail = if ($null -eq $dbResult) {
     "could not read DB result; exit=$dbExitCode; log=$dbLog"
 } else {
-    "$objectCount/6 objects present"
+    "$objectCount/7 objects present"
 }
-Add-Check "6. Required renewal DB objects" ($dbExitCode -eq 0 -and $objectCount -eq 6) $objectDetail
+Add-Check "6. Required renewal DB objects" ($dbExitCode -eq 0 -and $objectCount -eq 7) $objectDetail
 
 $migrationCount = 0
 if ($null -ne $dbResult) {
-    foreach ($property in @("Migration032", "Migration033", "Migration034")) {
+    foreach ($property in @(
+        "Migration032", "Migration033", "Migration034", "Migration035",
+        "Migration036", "Migration037", "Migration038", "Migration039",
+        "Migration040"
+    )) {
         if ([int]$dbResult.migrations.$property -eq 1) {
             $migrationCount++
         }
@@ -245,9 +385,9 @@ if ($null -ne $dbResult) {
 $migrationDetail = if ($null -eq $dbResult) {
     "could not read migration state; exit=$dbExitCode; log=$dbLog"
 } else {
-    "$migrationCount/3 migrations recorded"
+    "$migrationCount/9 migrations recorded"
 }
-Add-Check "7. SchemaMigration 032/033/034" ($dbExitCode -eq 0 -and $migrationCount -eq 3) $migrationDetail
+Add-Check "7. SchemaMigration 032-040" ($dbExitCode -eq 0 -and $migrationCount -eq 9) $migrationDetail
 
 $fixtureCounts = @{}
 if ($null -ne $dbResult) {
@@ -256,18 +396,42 @@ if ($null -ne $dbResult) {
         SinhVien = [int64]$dbResult.fixtures.FixtureStudents
         Phong = [int64]$dbResult.fixtures.FixtureRooms
         GiaHanHopDong = [int64]$dbResult.fixtures.FixtureRenewals
+        TaiKhoanSinhVien = [int64]$dbResult.fixtures.FixtureStudentAccounts
+        HopDong = [int64]$dbResult.fixtures.FixtureContracts
+        SinhVienGh = [int64]$dbResult.fixtures.FixtureGhStudents
+        PhongGh = [int64]$dbResult.fixtures.FixtureGhRooms
+        GiaHanGh = [int64]$dbResult.fixtures.FixtureGhRenewals
     }
 }
-$fixtureTotal = 0
-foreach ($count in $fixtureCounts.Values) {
-    $fixtureTotal += $count
+$fixtureNoIncrease = $true
+$fixtureComparison = @()
+if ($null -eq $fixturesBefore -or $null -eq $dbResult) {
+    $fixtureNoIncrease = $false
+} else {
+    $beforeCounts = @{
+        TaiKhoan = [int64]$fixturesBefore.FixtureManagers
+        SinhVien = [int64]$fixturesBefore.FixtureStudents
+        Phong = [int64]$fixturesBefore.FixtureRooms
+        GiaHanHopDong = [int64]$fixturesBefore.FixtureRenewals
+        TaiKhoanSinhVien = [int64]$fixturesBefore.FixtureStudentAccounts
+        HopDong = [int64]$fixturesBefore.FixtureContracts
+        SinhVienGh = [int64]$fixturesBefore.FixtureGhStudents
+        PhongGh = [int64]$fixturesBefore.FixtureGhRooms
+        GiaHanGh = [int64]$fixturesBefore.FixtureGhRenewals
+    }
+    foreach ($name in $fixtureCounts.Keys) {
+        if ($fixtureCounts[$name] -gt $beforeCounts[$name]) {
+            $fixtureNoIncrease = $false
+        }
+        $fixtureComparison += "$name=$($beforeCounts[$name])->$($fixtureCounts[$name])"
+    }
 }
-$fixtureDetail = if ($null -eq $dbResult) {
+$fixtureDetail = if ($null -eq $dbResult -or $null -eq $fixturesBefore) {
     "could not read fixture counts; exit=$dbExitCode; log=$dbLog"
 } else {
-    "TaiKhoan=$($fixtureCounts.TaiKhoan), SinhVien=$($fixtureCounts.SinhVien), Phong=$($fixtureCounts.Phong), GiaHanHopDong=$($fixtureCounts.GiaHanHopDong)"
+    $fixtureComparison -join ", "
 }
-Add-Check "8. No leftover SQL fixtures (SELECT only)" ($dbExitCode -eq 0 -and $null -ne $dbResult -and $fixtureTotal -eq 0) $fixtureDetail
+Add-Check "8. Fixture counts do not increase (SELECT only)" ($dbExitCode -eq 0 -and $fixtureNoIncrease) $fixtureDetail
 
 $msgLines = @()
 if (Test-Path -LiteralPath $npmLog) {
@@ -282,7 +446,7 @@ Write-Host "npm test: $(Get-TestSummary $npmCounts); log: $npmLog"
 if ($null -ne $dbResult) {
     Write-Host "DB read-only results: $($dbResult | ConvertTo-Json -Compress -Depth 4)"
 }
-Write-Host "Output files: $npmLog; $focusedLog; $dbLog"
+Write-Host "Output files: $npmLog; $fixtureLog; $focusedLog; $dbLog"
 
 if (@($checks | Where-Object { $_.Result -eq "FAIL" }).Count -gt 0) {
     exit 1

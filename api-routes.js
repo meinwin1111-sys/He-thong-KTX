@@ -341,6 +341,22 @@ const CONTRACT_PROCEDURE_ERRORS = Object.freeze({
     51461: [409, "Phòng đã đủ sức chứa."]
 });
 
+const RENEWAL_PROCEDURE_ERRORS = Object.freeze({
+    53203: [409, "Yêu cầu gia hạn đã được xử lý hoặc không còn khớp với thành viên."],
+    53204: [409, "Hợp đồng không còn hiệu lực hoặc không tồn tại."],
+    53205: [409, "Phòng của hợp đồng không còn khả dụng."],
+    53206: [409, "Chỉ gia hạn được sinh viên đang ở trong hợp đồng."],
+    53207: [400, "Ngày kết thúc mới phải sau ngày kết thúc hiệu lực hiện tại."],
+    53208: [409, "Sinh viên đã có gia hạn đang chờ thanh toán."],
+    53209: [400, "Không thể tính số ngày hợp đồng hoặc thời gian gia hạn."],
+    53210: [400, "Kỳ hạn tiền phòng của sinh viên không hợp lệ."],
+    53211: [400, "Không thể lập hóa đơn vì giá tiền phòng không hợp lệ."],
+    53212: [409, "Không tìm thấy sức chứa hợp lệ của hạng phòng."],
+    53213: [409, "Không thể gia hạn vì sức chứa phòng bị vượt trong khoảng ngày đề xuất."],
+    53214: [409, "Khoảng gia hạn bị trùng với hóa đơn tiền phòng đang có."],
+    53215: [404, "Không tìm thấy hóa đơn của gia hạn."]
+});
+
 function getSqlErrorNumber(error) {
     return Number(error?.number ?? error?.originalError?.info?.number
         ?? error?.precedingErrors?.[0]?.number);
@@ -390,6 +406,15 @@ async function respondContractProcedureError(res, operation, error, {
     if (number === 547) {
         logDatabaseError(operation, error);
         return respondRequestError(res, 409, "Dữ liệu đang được sử dụng hoặc không thỏa mãn ràng buộc.");
+    }
+    return respondDatabaseError(res, operation, error, fallback);
+}
+
+function respondRenewalProcedureError(res, operation, error, fallback) {
+    const mapped = RENEWAL_PROCEDURE_ERRORS[getSqlErrorNumber(error)];
+    if (mapped) {
+        logDatabaseError(operation, error);
+        return respondRequestError(res, mapped[0], mapped[1]);
     }
     return respondDatabaseError(res, operation, error, fallback);
 }
@@ -484,6 +509,17 @@ function validateSupportContact({ phone, email, hours }) {
 function registerApiRoutes(app, {
     getPool, sql, bcrypt, mapPaymentStatusToDatabase, mapPaymentMethodToDatabase
 }) {
+    async function expireOverdueRenewals(filters = {}) {
+        const request = getPool().request();
+        if (filters.MaChiTiet !== undefined) {
+            request.input("MaChiTiet", sql.Int, filters.MaChiTiet);
+        }
+        if (filters.MaHoaDon !== undefined) {
+            request.input("MaHoaDon", sql.NVarChar(20), filters.MaHoaDon);
+        }
+        await request.execute("dbo.sp_HuyGiaHanQuaHan");
+    }
+
     app.post("/api/student/register", createRegistrationHandler({
         getPool,
         sql,
@@ -1045,6 +1081,7 @@ function registerApiRoutes(app, {
             return respondRequestError(res, 403, "Chỉ Quản lý mới được xem danh sách yêu cầu Sinh viên.");
         }
         try {
+            await expireOverdueRenewals();
             const result = await getPool().request().query(`
                 SELECT yc.MaYeuCau, yc.MaSinhVien, sv.HoTen, yc.TenPhong,
                        yc.Loai, yc.NoiDung,
@@ -1083,6 +1120,7 @@ function registerApiRoutes(app, {
             return respondRequestError(res, 400, "Mã yêu cầu không hợp lệ.");
         }
         try {
+            await expireOverdueRenewals();
             const result = await getPool().request()
                 .input("MaYeuCau", sql.NVarChar(7), req.params.id)
                 .query(`
@@ -1090,15 +1128,14 @@ function registerApiRoutes(app, {
                            yc.NgayKetThucDeXuat, yc.TrangThai,
                            h.MaHopDong,
                            CONVERT(char(10), c.NgayVao, 23) AS NgayBatDauHopDong,
-                           CONVERT(char(10), h.NgayKetThuc, 23) AS NgayKetThucHopDong,
+                           CONVERT(char(10), effectiveEnd.NgayKetThucHieuLuc, 23) AS NgayKetThucHopDong,
                            calc.SoNgayHopDong,
                            calc.TienPhongHopDong,
                            calc.DonGiaNgay,
                            calc.SoNgayDaO,
-                           balance.DaThanhToan,
+                           ISNULL(periods.DaThanhToan, 0) AS DaThanhToan,
                            calc.TienDaO,
-                           CASE WHEN balance.DaThanhToan > calc.TienDaO
-                                THEN balance.DaThanhToan - calc.TienDaO ELSE 0 END AS SoTienHoan
+                           ISNULL(periods.SoTienHoan, 0) AS SoTienHoan
                     FROM dbo.YeuCauSinhVien yc
                     INNER JOIN dbo.SinhVien sv ON sv.MaSinhVien = yc.MaSinhVien
                     OUTER APPLY (
@@ -1111,41 +1148,138 @@ function registerApiRoutes(app, {
                         ORDER BY c0.NgayVao DESC, c0.MaChiTiet DESC
                     ) c
                     LEFT JOIN dbo.HopDong h ON h.MaHopDong = c.MaHopDong
+                    LEFT JOIN dbo.vw_NgayKetThucHieuLucThanhVien effectiveEnd
+                        ON effectiveEnd.MaChiTiet = c.MaChiTiet
                     CROSS APPLY (
                         SELECT DATEDIFF(day, c.NgayVao, h.NgayKetThuc) + 1 AS SoNgayHopDong,
                                CASE WHEN c.KyHanThanhToanPhong = N'NAM'
                                     THEN c.GiaPhongApDung ELSE c.GiaPhongThangApDung END AS TienPhongHopDong,
-                               DATEDIFF(day, c.NgayVao, yc.NgayKetThucDeXuat) + 1 AS SoNgayDaO
+                               CASE WHEN yc.NgayKetThucDeXuat < c.NgayVao THEN 0
+                                    WHEN yc.NgayKetThucDeXuat > h.NgayKetThuc
+                                         THEN DATEDIFF(day, c.NgayVao, h.NgayKetThuc) + 1
+                                    ELSE DATEDIFF(day, c.NgayVao, yc.NgayKetThucDeXuat) + 1
+                               END AS SoNgayDaO
                     ) term
                     OUTER APPLY (
-                        SELECT SUM(pt.SoTien) AS DaThanhToan
-                        FROM dbo.HoaDon hd
-                        INNER JOIN dbo.PhieuThu pt ON pt.MaHoaDon = hd.MaHoaDon
-                        WHERE hd.MaChiTiet = c.MaChiTiet
-                          AND hd.LoaiHoaDon = N'TIEN_PHONG'
-                          AND pt.TrangThai = N'Hợp lệ'
-                    ) paid
-                    OUTER APPLY (
-                        SELECT SUM(pc.SoTien) AS DaHoan
-                        FROM dbo.PhieuChi pc
-                        WHERE pc.MaChiTiet = c.MaChiTiet
-                          AND pc.TrangThai IN (N'Hợp lệ', N'Chờ duyệt')
-                    ) refunds
+                        SELECT SUM(periods.NetPaid) AS DaThanhToan,
+                               SUM(periods.UsedAmount) AS TienDaO,
+                               SUM(periods.RefundAmount) AS SoTienHoan
+                        FROM (
+                            SELECT baseAmounts.NetPaid,
+                                   baseUsage.UsedAmount,
+                                   CASE WHEN baseAmounts.NetPaid > baseUsage.UsedAmount
+                                        THEN baseAmounts.NetPaid - baseUsage.UsedAmount
+                                        ELSE 0 END AS RefundAmount
+                            FROM (SELECT 1 AS Seed) seed
+                            CROSS APPLY (
+                                SELECT COALESCE(
+                                    (SELECT MIN(renewal.NgayKetThucCu)
+                                     FROM dbo.GiaHanHopDong renewal
+                                     WHERE renewal.MaChiTiet = c.MaChiTiet
+                                       AND renewal.TrangThai = N'Đã hiệu lực'),
+                                    h.NgayKetThuc) AS PeriodEnd
+                            ) baseDates
+                            CROSS APPLY (
+                                SELECT DATEDIFF(day, c.NgayVao, baseDates.PeriodEnd) + 1 AS PeriodDays,
+                                       CASE WHEN yc.NgayKetThucDeXuat < c.NgayVao THEN 0
+                                            WHEN yc.NgayKetThucDeXuat >= baseDates.PeriodEnd
+                                                THEN DATEDIFF(day, c.NgayVao, baseDates.PeriodEnd) + 1
+                                            ELSE DATEDIFF(day, c.NgayVao, yc.NgayKetThucDeXuat) + 1
+                                       END AS LivedDays
+                            ) baseSpan
+                            CROSS APPLY (
+                                SELECT ROUND(term.TienPhongHopDong * baseSpan.LivedDays
+                                             / NULLIF(baseSpan.PeriodDays, 0), 0) AS UsedAmount
+                            ) baseUsage
+                            CROSS APPLY (
+                                SELECT SUM(CASE WHEN ISNULL(paid.Paid, 0) > ISNULL(refunded.Refunded, 0)
+                                                THEN ISNULL(paid.Paid, 0) - ISNULL(refunded.Refunded, 0)
+                                                ELSE 0 END) AS NetPaid
+                                FROM dbo.HoaDon baseInvoice
+                                OUTER APPLY (
+                                    SELECT SUM(pt.SoTien) AS Paid
+                                    FROM dbo.PhieuThu pt
+                                    WHERE pt.MaHoaDon = baseInvoice.MaHoaDon
+                                      AND pt.TrangThai = N'Hợp lệ'
+                                ) paid
+                                OUTER APPLY (
+                                    SELECT SUM(pha.SoTien) AS Refunded
+                                    FROM dbo.PhieuChi_HoaDon pha
+                                    INNER JOIN dbo.PhieuChi pc ON pc.MaPhieuChi = pha.MaPhieuChi
+                                    WHERE pha.MaHoaDon = baseInvoice.MaHoaDon
+                                      AND pc.TrangThai IN (N'Hợp lệ', N'Chờ duyệt')
+                                ) refunded
+                                WHERE baseInvoice.MaChiTiet = c.MaChiTiet
+                                  AND baseInvoice.LoaiHoaDon = N'TIEN_PHONG'
+                                  AND baseInvoice.TrangThaiThanhToan <> N'Đã hủy'
+                                  AND baseInvoice.KyThanhToan <= baseDates.PeriodEnd
+                                  AND baseInvoice.KyThanhToanDen >= c.NgayVao
+                                  AND NOT EXISTS (
+                                      SELECT 1 FROM dbo.GiaHanHopDong renewal
+                                      WHERE renewal.MaHoaDon = baseInvoice.MaHoaDon
+                                        AND renewal.TrangThai = N'Đã hiệu lực'
+                                  )
+                            ) baseAmounts
+                            WHERE baseAmounts.NetPaid > 0
+                            UNION ALL
+                            SELECT amounts.NetPaid,
+                                   ROUND(amounts.NetPaid * spans.LivedDays
+                                       / NULLIF(spans.PeriodDays, 0), 0),
+                                   CASE WHEN amounts.NetPaid > ROUND(amounts.NetPaid
+                                            * spans.LivedDays
+                                            / NULLIF(spans.PeriodDays, 0), 0)
+                                        THEN amounts.NetPaid - ROUND(amounts.NetPaid
+                                            * spans.LivedDays
+                                            / NULLIF(spans.PeriodDays, 0), 0)
+                                        ELSE 0 END
+                            FROM dbo.GiaHanHopDong renewal
+                            INNER JOIN dbo.HoaDon renewalInvoice
+                                ON renewalInvoice.MaHoaDon = renewal.MaHoaDon
+                            CROSS APPLY (
+                                SELECT DATEADD(day, 1, renewal.NgayKetThucCu) AS StartDate,
+                                       renewal.NgayKetThucMoi AS EndDate,
+                                       DATEDIFF(day, DATEADD(day, 1, renewal.NgayKetThucCu),
+                                                renewal.NgayKetThucMoi) + 1 AS PeriodDays
+                            ) renewalDates
+                            CROSS APPLY (
+                                SELECT CASE WHEN yc.NgayKetThucDeXuat < renewalDates.StartDate THEN 0
+                                            WHEN yc.NgayKetThucDeXuat >= renewalDates.EndDate
+                                                THEN renewalDates.PeriodDays
+                                            ELSE DATEDIFF(day, renewalDates.StartDate,
+                                                yc.NgayKetThucDeXuat) + 1 END AS LivedDays,
+                                       renewalDates.PeriodDays
+                            ) spans
+                            OUTER APPLY (
+                                SELECT SUM(pt.SoTien) AS Paid
+                                FROM dbo.PhieuThu pt
+                                WHERE pt.MaHoaDon = renewalInvoice.MaHoaDon
+                                  AND pt.TrangThai = N'Hợp lệ'
+                            ) paid
+                            OUTER APPLY (
+                                SELECT SUM(pha.SoTien) AS Refunded
+                                FROM dbo.PhieuChi_HoaDon pha
+                                INNER JOIN dbo.PhieuChi pc ON pc.MaPhieuChi = pha.MaPhieuChi
+                                WHERE pha.MaHoaDon = renewalInvoice.MaHoaDon
+                                  AND pc.TrangThai IN (N'Hợp lệ', N'Chờ duyệt')
+                            ) refunded
+                            CROSS APPLY (
+                                SELECT CASE WHEN ISNULL(paid.Paid, 0) > ISNULL(refunded.Refunded, 0)
+                                            THEN ISNULL(paid.Paid, 0) - ISNULL(refunded.Refunded, 0)
+                                            ELSE 0 END AS NetPaid
+                            ) amounts
+                            WHERE renewal.MaChiTiet = c.MaChiTiet
+                              AND renewal.TrangThai = N'Đã hiệu lực'
+                              AND renewalInvoice.LoaiHoaDon = N'TIEN_PHONG'
+                              AND renewalInvoice.TrangThaiThanhToan <> N'Đã hủy'
+                        ) periods
+                    ) periods
                     CROSS APPLY (
                         SELECT term.SoNgayHopDong, term.TienPhongHopDong, term.SoNgayDaO,
                                CASE WHEN term.SoNgayHopDong > 0
                                     THEN ROUND(term.TienPhongHopDong / term.SoNgayHopDong, 0)
                                     ELSE 0 END AS DonGiaNgay,
-                               CASE WHEN term.SoNgayHopDong > 0
-                                    THEN ROUND(term.TienPhongHopDong * term.SoNgayDaO
-                                               / term.SoNgayHopDong, 0)
-                                    ELSE 0 END AS TienDaO
+                               ISNULL(periods.TienDaO, 0) AS TienDaO
                     ) calc
-                    CROSS APPLY (
-                        SELECT CASE WHEN ISNULL(paid.DaThanhToan, 0) > ISNULL(refunds.DaHoan, 0)
-                                    THEN ISNULL(paid.DaThanhToan, 0) - ISNULL(refunds.DaHoan, 0)
-                                    ELSE 0 END AS DaThanhToan
-                    ) balance
                     WHERE yc.MaYeuCau = @MaYeuCau AND yc.Loai = N'Trả phòng sớm'
                 `);
             if (!result.recordset.length) return respondRequestError(res, 404, "Không tìm thấy yêu cầu trả phòng sớm.");
@@ -1172,9 +1306,13 @@ function registerApiRoutes(app, {
 
         if (status === "Đã duyệt" || status === "Từ chối") {
             try {
+                await expireOverdueRenewals();
                 const requestType = await getPool().request()
                     .input("MaYeuCau", sql.NVarChar(7), req.params.id)
-                    .query("SELECT Loai FROM dbo.YeuCauSinhVien WHERE MaYeuCau = @MaYeuCau");
+                    .query(`
+                        SELECT Loai, MaSinhVien, NgayKetThucDeXuat
+                        FROM dbo.YeuCauSinhVien WHERE MaYeuCau = @MaYeuCau
+                    `);
                 if (requestType.recordset[0]?.Loai === "Trả phòng sớm") {
                     const result = await getPool().request()
                         .input("MaYeuCau", sql.NVarChar(7), req.params.id)
@@ -1185,12 +1323,95 @@ function registerApiRoutes(app, {
                     if (!result.recordset?.length) throw new Error("Không nhận được kết quả xử lý trả phòng sớm.");
                     return res.json({ success: true, ...result.recordset[0] });
                 }
+                if (requestType.recordset[0]?.Loai === "Gia hạn hợp đồng") {
+                    if (status === "Đã duyệt") {
+                        const endDate = requestType.recordset[0].NgayKetThucDeXuat;
+                        if (!endDate) {
+                            return respondRequestError(res, 400, "Yêu cầu chưa có ngày kết thúc đề xuất hợp lệ.");
+                        }
+                        const result = await getPool().request()
+                            .input("MaHopDong", sql.NVarChar(20), null)
+                            .input("MaChiTiet", sql.Int, null)
+                            .input("NgayKetThucMoi", sql.Date, endDate)
+                            .input("MaYeuCau", sql.NVarChar(7), req.params.id)
+                            .input("NguoiThucHien", sql.Int, req.auth.accountId)
+                            .output("MaGiaHan", sql.Int)
+                            .output("MaHoaDon", sql.NVarChar(20))
+                            .execute("dbo.sp_DuyetGiaHan");
+                        const renewal = result.recordset?.[0] || {};
+                        return res.json({
+                            success: true,
+                            ...renewal,
+                            MaGiaHan: renewal.MaGiaHan ?? result.output?.MaGiaHan,
+                            MaHoaDon: renewal.MaHoaDon ?? result.output?.MaHoaDon
+                        });
+                    }
+
+                    const transaction = new sql.Transaction(getPool());
+                    try {
+                        await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+                        const updated = await new sql.Request(transaction)
+                            .input("MaYeuCau", sql.NVarChar(7), req.params.id)
+                            .input("PhanHoi", sql.NVarChar(500), stringValue(reply).trim())
+                            .input("XuLyBoi", sql.Int, req.auth.accountId)
+                            .query(`
+                                UPDATE dbo.YeuCauSinhVien WITH (UPDLOCK, HOLDLOCK)
+                                SET TrangThai = N'Từ chối', PhanHoi = @PhanHoi,
+                                    NgayXuLy = CONVERT(datetime, DATEADD(hour, 7, SYSUTCDATETIME())),
+                                    XuLyBoi = @XuLyBoi
+                                OUTPUT inserted.MaYeuCau, inserted.MaSinhVien,
+                                       inserted.TrangThai, inserted.PhanHoi, inserted.NgayXuLy
+                                WHERE MaYeuCau = @MaYeuCau
+                                  AND Loai = N'Gia hạn hợp đồng'
+                                  AND TrangThai = N'Chờ duyệt'
+                            `);
+                        if (!updated.recordset.length) {
+                            await transaction.rollback();
+                            return respondRequestError(res, 409, "Yêu cầu đã được xử lý.");
+                        }
+                        const rejected = updated.recordset[0];
+                        const eventKey = `RENEWAL_REJECT:${rejected.MaYeuCau}:${rejected.MaSinhVien}`;
+                        await new sql.Request(transaction)
+                            .input("MaSinhVien", sql.NVarChar(30), rejected.MaSinhVien)
+                            .input("NguoiTao", sql.Int, req.auth.accountId)
+                            .input("MaSuKien", sql.NVarChar(100), eventKey)
+                            .input("PhanHoi", sql.NVarChar(500), rejected.PhanHoi)
+                            .query(`
+                                IF NOT EXISTS (
+                                    SELECT 1 FROM dbo.ThongBao WITH (UPDLOCK, HOLDLOCK)
+                                    WHERE MaSuKien = @MaSuKien AND MaSinhVien = @MaSinhVien
+                                )
+                                    INSERT INTO dbo.ThongBao
+                                        (TieuDe, NoiDung, PhamViNhan, MaSinhVien, NguoiTao, MaSuKien)
+                                    VALUES
+                                        (N'Yêu cầu gia hạn hợp đồng bị từ chối',
+                                         N'Yêu cầu gia hạn hợp đồng bị từ chối. Lý do: ' + @PhanHoi,
+                                         N'SINH_VIEN', @MaSinhVien, @NguoiTao, @MaSuKien)
+                            `);
+                        await transaction.commit();
+                        return res.json({ success: true, ...rejected });
+                    } catch (error) {
+                        await rollback(transaction, "TỪ CHỐI YÊU CẦU GIA HẠN");
+                        return respondDatabaseError(res, "LỖI TỪ CHỐI YÊU CẦU GIA HẠN",
+                            error, "Không thể cập nhật yêu cầu gia hạn.");
+                    }
+                }
             } catch (error) {
-                if ([53020, 53021, 53022, 53025, 53312].includes(Number(error?.number))) {
+                if (RENEWAL_PROCEDURE_ERRORS[getSqlErrorNumber(error)]) {
+                    return respondRenewalProcedureError(res, "DUYỆT YÊU CẦU GIA HẠN",
+                        error, "Không thể duyệt yêu cầu gia hạn.");
+                }
+                if ([53020, 53021, 53022, 53025, 53312, 53313, 53314].includes(Number(error?.number))) {
                     const statusCode = Number(error.number) === 53020 ? 404
                         : Number(error.number) === 53025 ? 400 : 409;
+                    const message = Number(error.number) === 53313
+                        ? "Yêu cầu đã được xử lý."
+                        : Number(error.number) === 53314
+                            ? "Thành viên hoặc hợp đồng không còn đủ điều kiện trả phòng sớm."
+                            : error.message?.replace(/^.*?:\s*/, "")
+                                || "Không thể xử lý yêu cầu trả phòng sớm.";
                     return respondRequestError(res, statusCode,
-                        error.message?.replace(/^.*?:\s*/, "") || "Không thể xử lý yêu cầu trả phòng sớm.");
+                        message);
                 }
                 return respondDatabaseError(res, "LỖI XỬ LÝ TRẢ PHÒNG SỚM", error, "Không thể cập nhật yêu cầu.");
             }
@@ -2258,6 +2479,7 @@ function registerApiRoutes(app, {
             return respondRequestError(res, 400, "Bộ lọc phòng hoặc trạng thái không hợp lệ.");
         }
         try {
+            await expireOverdueRenewals();
             const request = getPool().request()
                 .input("TenPhong", sql.NVarChar(50), stringValue(room) || null)
                 .input("TrangThai", sql.NVarChar(20), stringValue(status) || null);
@@ -2384,23 +2606,60 @@ function registerApiRoutes(app, {
 
     const extendContractHandler = async (req, res) => {
         if (!isValidId(req.params.id, 20)) return respondRequestError(res, 400, "Mã hợp đồng không hợp lệ.");
-        const endDate = req.body?.ngayKetThuc ?? req.body?.NgayKetThuc;
+        const endDate = req.body?.ngayKetThucMoi ?? req.body?.NgayKetThucMoi
+            ?? req.body?.ngayKetThuc ?? req.body?.NgayKetThuc;
         if (!isDateOnly(endDate)) return respondRequestError(res, 400, "Ngày kết thúc phải là ngày hợp lệ theo YYYY-MM-DD.");
-        const transaction = new sql.Transaction(getPool());
+        const rawDetailId = req.body?.maChiTiet ?? req.body?.MaChiTiet;
+        const studentId = req.body?.maSinhVien ?? req.body?.MaSinhVien ?? req.body?.MSSV;
+        if ((rawDetailId === undefined && !isValidId(studentId, 30))
+            || (rawDetailId !== undefined
+                && !isJsonInteger(Number(rawDetailId), 1, 2147483647))
+            || (rawDetailId !== undefined && studentId !== undefined)) {
+            return respondRequestError(res, 400, "Cần cung cấp đúng một MaChiTiet hoặc MSSV đang ở trong hợp đồng.");
+        }
         try {
-            await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
-            await new sql.Request(transaction)
+            const contract = await getPool().request()
                 .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .query("SELECT 1 AS TonTai FROM dbo.HopDong WHERE MaHopDong = @MaHopDong");
+            if (!contract.recordset.length) {
+                return respondRequestError(res, 404, "Không tìm thấy hợp đồng.");
+            }
+            let detailId = rawDetailId === undefined ? null : Number(rawDetailId);
+            if (detailId === null) {
+                const member = await getPool().request()
+                    .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                    .input("MaSinhVien", sql.NVarChar(30), studentId.trim())
+                    .query(`
+                        SELECT TOP (1) MaChiTiet
+                        FROM dbo.ChiTietHopDong
+                        WHERE MaHopDong = @MaHopDong AND MaSinhVien = @MaSinhVien
+                          AND TrangThai = N'Đang ở'
+                        ORDER BY MaChiTiet DESC
+                    `);
+                detailId = member.recordset[0]?.MaChiTiet ?? null;
+                if (detailId === null) {
+                    return respondRequestError(res, 404, "Không tìm thấy sinh viên đang ở trong hợp đồng.");
+                }
+            }
+            await expireOverdueRenewals({ MaChiTiet: detailId });
+            const result = await getPool().request()
+                .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .input("MaChiTiet", sql.Int, detailId)
                 .input("NgayKetThucMoi", sql.Date, endDate)
                 .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
-                .execute("dbo.sp_GiaHanHopDong");
-            await transaction.commit();
-            return res.json({ success: true, MaHopDong: req.params.id, NgayKetThuc: endDate });
-        } catch (error) {
-            await rollback(transaction, "GIA HẠN HỢP ĐỒNG");
-            return respondContractProcedureError(res, "GIA HẠN HỢP ĐỒNG", error, {
-                getPool, sql, missingId: req.params.id, fallback: "Không thể gia hạn hợp đồng."
+                .output("MaGiaHan", sql.Int)
+                .output("MaHoaDon", sql.NVarChar(20))
+                .execute("dbo.sp_DuyetGiaHan");
+            const renewal = result.recordset?.[0] || {};
+            return res.status(201).json({
+                success: true,
+                ...renewal,
+                MaGiaHan: renewal.MaGiaHan ?? result.output?.MaGiaHan,
+                MaHoaDon: renewal.MaHoaDon ?? result.output?.MaHoaDon
             });
+        } catch (error) {
+            return respondRenewalProcedureError(res, "GIA HẠN HỢP ĐỒNG",
+                error, "Không thể gia hạn hợp đồng.");
         }
     };
     app.put("/api/HopDong/extend/:id", extendContractHandler);

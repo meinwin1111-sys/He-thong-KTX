@@ -263,7 +263,50 @@ function registerMoneyRoutes(app, {
 }) {
     const errorContext = { logDatabaseError, respondDatabaseError, respondRequestError };
 
+    async function expireOverdueRenewals(filters = {}) {
+        const request = getPool().request();
+        if (filters.MaChiTiet !== undefined) {
+            request.input("MaChiTiet", sql.Int, filters.MaChiTiet);
+        }
+        if (filters.MaHoaDon !== undefined) {
+            request.input("MaHoaDon", sql.NVarChar(20), filters.MaHoaDon);
+        }
+        await request.execute("dbo.sp_HuyGiaHanQuaHan");
+    }
+
     async function lockInvoice(transaction, invoiceId) {
+        const renewal = await new sql.Request(transaction)
+            .input("MaHoaDon", sql.NVarChar(20), invoiceId)
+            .query(`
+                SELECT TOP (1) hd.MaHopDong, h.TenPhong, g.MaGiaHan
+                FROM dbo.HoaDon hd WITH (READCOMMITTED)
+                INNER JOIN dbo.GiaHanHopDong g WITH (READCOMMITTED)
+                    ON g.MaHoaDon = hd.MaHoaDon
+                INNER JOIN dbo.HopDong h WITH (READCOMMITTED)
+                    ON h.MaHopDong = g.MaHopDong
+                WHERE hd.MaHoaDon = @MaHoaDon
+            `);
+        const context = renewal.recordset[0];
+        if (context) {
+            await new sql.Request(transaction)
+                .input("TenPhong", sql.NVarChar(50), context.TenPhong)
+                .query(`
+                    SELECT TenPhong FROM dbo.Phong WITH (UPDLOCK, HOLDLOCK)
+                    WHERE TenPhong = @TenPhong
+                `);
+            await new sql.Request(transaction)
+                .input("MaHopDong", sql.NVarChar(20), context.MaHopDong)
+                .query(`
+                    SELECT MaHopDong FROM dbo.HopDong WITH (UPDLOCK, HOLDLOCK)
+                    WHERE MaHopDong = @MaHopDong
+                `);
+            await new sql.Request(transaction)
+                .input("MaGiaHan", sql.Int, context.MaGiaHan)
+                .query(`
+                    SELECT MaGiaHan FROM dbo.GiaHanHopDong WITH (UPDLOCK, HOLDLOCK)
+                    WHERE MaGiaHan = @MaGiaHan
+                `);
+        }
         return new sql.Request(transaction)
             .input("MaHoaDon", sql.NVarChar(20), invoiceId)
             .query(`
@@ -297,9 +340,6 @@ function registerMoneyRoutes(app, {
     async function recordFullInvoicePayment(transaction, {
         invoiceId, receiptId, transactionId = null, reference = null, confirmedBy = null
     }) {
-        await lockInvoice(transaction, invoiceId);
-        await lockPayment(transaction, transactionId);
-        await lockReceipt(transaction, receiptId);
         const balanceResult = await new sql.Request(transaction)
             .input("MaHoaDon", sql.NVarChar(20), invoiceId)
             .input("MaPhieuThu", sql.BigInt, receiptId)
@@ -352,6 +392,9 @@ function registerMoneyRoutes(app, {
             error.confirmation = result;
             throw error;
         }
+        await new sql.Request(transaction)
+            .input("MaHoaDon", sql.NVarChar(20), invoiceId)
+            .execute("dbo.sp_KichHoatGiaHan");
         const recipient = await new sql.Request(transaction)
             .input("MaPhieuThu", sql.BigInt, receiptId)
             .query(`
@@ -495,6 +538,7 @@ function registerMoneyRoutes(app, {
         }
 
         try {
+            await expireOverdueRenewals();
             const request = getPool().request();
             const clauses = [];
             const addFilter = (key, type, value, expression) => {
@@ -592,6 +636,7 @@ function registerMoneyRoutes(app, {
         if (!req.auth) return respondRequestError(res, 401, "Vui lòng đăng nhập để xem hóa đơn.");
         if (!isValidId(req.params.id, 20)) return respondRequestError(res, 400, "Mã hóa đơn không hợp lệ.");
         try {
+            await expireOverdueRenewals({ MaHoaDon: req.params.id });
             const request = getPool().request()
                 .input("MaHoaDon", sql.NVarChar(20), req.params.id);
             const studentFilter = studentCanViewInvoice(req);
@@ -1226,7 +1271,9 @@ function registerMoneyRoutes(app, {
         }
         const transaction = new sql.Transaction(getPool());
         try {
+            await expireOverdueRenewals({ MaHoaDon: req.params.id });
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            await lockInvoice(transaction, req.params.id);
             const invoice = await new sql.Request(transaction)
                 .input("MaHoaDon", sql.NVarChar(20), req.params.id)
                 .query(`
@@ -1356,6 +1403,7 @@ function registerMoneyRoutes(app, {
         }
         const transaction = new sql.Transaction(getPool());
         try {
+            await expireOverdueRenewals();
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
             const receiptIdentity = await lockReceiptContext(transaction, Number(req.params.id));
             if (!receiptIdentity) {
@@ -1616,6 +1664,7 @@ function registerMoneyRoutes(app, {
         const bank = getBankTransferConfig(stringValue);
         if (!bank) return respondRequestError(res, 503, "Chưa cấu hình tài khoản nhận chuyển khoản QR.");
         try {
+            await expireOverdueRenewals({ MaHoaDon: invoiceId });
             const result = await getPool().request()
                 .input("MaHoaDon", sql.NVarChar(20), invoiceId)
                 .input("MaSinhVien", sql.NVarChar(30), req.auth.studentId)
@@ -1707,6 +1756,7 @@ function registerMoneyRoutes(app, {
 
         const transaction = new sql.Transaction(getPool());
         try {
+            await expireOverdueRenewals({ MaHoaDon: body.MaHoaDon });
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
             await lockInvoice(transaction, body.MaHoaDon);
             const pendingIdentities = await new sql.Request(transaction)
@@ -1854,6 +1904,7 @@ function registerMoneyRoutes(app, {
 
         const transaction = new sql.Transaction(getPool());
         try {
+            await expireOverdueRenewals({ MaHoaDon: req.body.MaHoaDon });
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
             await lockInvoice(transaction, req.body.MaHoaDon);
             await lockPayment(transaction, req.body.MaGiaoDich);
@@ -1990,6 +2041,7 @@ function registerMoneyRoutes(app, {
         const reference = stringValue(req.body.MaThamChieuNgoai);
         const transaction = new sql.Transaction(getPool());
         try {
+            await expireOverdueRenewals({ MaHoaDon: req.body.MaHoaDon.trim() });
             const referenceIdentity = await getPool().request()
                 .input("MaThamChieuNgoai", sql.NVarChar(100), reference)
                 .query(`
@@ -2175,6 +2227,7 @@ function registerMoneyRoutes(app, {
         }
         const transaction = new sql.Transaction(getPool());
         try {
+            await expireOverdueRenewals();
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
             const paymentIdentity = await lockPaymentContext(transaction, req.params.transactionId);
             if (!paymentIdentity) {

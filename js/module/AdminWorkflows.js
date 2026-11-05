@@ -81,6 +81,10 @@
     const receiptStatusBadge = label =>
         `<span class="inline-flex rounded-full px-2 py-1 text-xs font-semibold bg-emerald-100 text-emerald-800">${esc(label || "—")}</span>`;
     const invoiceStatusBadge = invoice => badge(U.invoicePaymentLabel(invoice));
+    function printDocument() {
+        document.body.classList.add("admin-printing");
+        window.print();
+    }
     const status = message => {
         const target = root?.querySelector("[data-admin-status]");
         if (target) target.textContent = message || "";
@@ -2079,10 +2083,6 @@
                     break;
                 case "print-document": printDocument(); break;
                 default: break;
-            }
-            function printDocument() {
-                document.body.classList.add("admin-printing");
-                window.print();
             }
         } catch (error) {
             apiError(error);
