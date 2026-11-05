@@ -77,6 +77,10 @@ PRINT N'=== Migration 018 ==='
 GO
 :r db/migrations/018_receipts_and_refunds.sql
 GO
+PRINT N'=== Migration 041 (bootstrap ThongBao) ==='
+GO
+:r db/migrations/041_bootstrap_student_notifications.sql
+GO
 PRINT N'=== Migration 019 ==='
 GO
 :r db/migrations/019_payment_workflows.sql
@@ -140,6 +144,10 @@ GO
 PRINT N'=== Migration 034 ==='
 GO
 :r db/migrations/034_checkout_refund_base_period.sql
+GO
+PRINT N'=== Migration 037 ==='
+GO
+:r db/migrations/037_expired_renewal_notice_creator.sql
 GO
 PRINT N'=== Hết run_all (master seed chạy riêng: db/seed/run_master.sql) ==='
 GO
