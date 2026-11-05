@@ -147,7 +147,7 @@
                 await showBackendInvoiceDetail(payment.MaHoaDon);
                 return;
             }
-            if (/^(?:CHECKOUT|REQUEST):/.test(eventKey)) {
+            if (/^(?:CHECKOUT|REQUEST|RENEWAL_REJECT):/.test(eventKey)) {
                 const requestId = eventKey.split(':', 2)[1];
                 const response = await window.ApiClient.fetch('/api/student/requests');
                 const requests = await response.json();
@@ -155,7 +155,7 @@
                 if (!Array.isArray(requests)) throw new Error('Dữ liệu yêu cầu không hợp lệ.');
                 ui.repository.data.requests = requests;
                 ui.pages.requests.render();
-                location.hash = '#requests';
+                window.location.hash = '#requests';
                 await new Promise(resolve => setTimeout(resolve, 0));
                 modal('Chi tiết yêu cầu', ui.pages.requests.detail(requestId) +
                     '<div class="st-dialog-close"><button type="button" class="st-button" data-action="close">Đóng</button></div>');

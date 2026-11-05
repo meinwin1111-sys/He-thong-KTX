@@ -642,7 +642,11 @@ function createStudentAppHarness({
     onDemoConfirm = async () => ({ success: true }),
     invoicePaid = false,
     paymentMethod = 'ONLINE',
-    invoiceDates = { NgayLap: '2026-03-01', KyThanhToan: '2026-03-01', HanThanhToan: '2026-03-08' }
+    invoiceDates = { NgayLap: '2026-03-01', KyThanhToan: '2026-03-01', HanThanhToan: '2026-03-08' },
+    invoiceId = 'INV-APP-UI',
+    invoiceAmount = 100,
+    includeRequests = false,
+    requestRows = []
 } = {}) {
     const dom = new JSDOM(`
         <header><span id="student-name"></span><span id="student-session-label"></span>
@@ -673,7 +677,7 @@ function createStudentAppHarness({
         helpers: ui.helpers,
         billing: { sync() {}, summary: () => ({ debt: 0, unpaid: 0 }) },
         pages: {},
-        routeFromHash: () => 'invoices'
+        routeFromHash: hash => String(hash || '').replace(/^#/, '') || 'invoices'
     };
     Object.assign(dom.window, {
         StudentUI: appUi,
@@ -693,24 +697,26 @@ function createStudentAppHarness({
             async fetch(url, options = {}) {
                 calls.push({ url, options });
                 if (url === '/api/HoaDon') return response([{
-                    MaHoaDon: 'INV-APP-UI', LoaiHoaDon: 'TIEN_PHONG',
-                    ...invoiceDates, TongTien: 100, DaThu: serverInvoicePaid ? 100 : 0,
-                    ConNo: serverInvoicePaid ? 0 : 100,
+                    MaHoaDon: invoiceId, LoaiHoaDon: 'TIEN_PHONG',
+                    ...invoiceDates, TongTien: invoiceAmount, DaThu: serverInvoicePaid ? invoiceAmount : 0,
+                    ConNo: serverInvoicePaid ? 0 : invoiceAmount,
                     TrangThaiThanhToan: serverInvoicePaid ? 'Đã thanh toán' : 'Chưa thanh toán'
                 }]);
                 if (url === '/api/payments/history' || url.startsWith('/api/payments/history?')) {
                     return response([{
-                        MaHoaDon: 'INV-APP-UI', MaGiaoDich: 'PAY-APP-UI', SoTien: 100,
+                        MaHoaDon: invoiceId, MaGiaoDich: 'PAY-APP-UI', SoTien: invoiceAmount,
                         PhuongThuc: paymentMethod, TrangThai: paymentStatus, NgayTao: '2026-03-01',
                         HoTen: 'Sinh viên thử nghiệm'
                     }].filter(item => item.TrangThai));
                 }
+                if (url === '/api/student/requests') return response(requestRows);
+                if (url === '/api/student/contracts') return response([]);
                 if (url === '/api/lien-he') return response({ DienThoai: '0123456789', GioLamViec: '08:00-17:00' });
                 if (url === '/api/payments/create') {
-                    return response({ MaGiaoDich: 'PAY-APP-UI', SoTien: 100, NoiDungCK: 'KTXPAYAPP' });
+                    return response({ MaGiaoDich: 'PAY-APP-UI', SoTien: invoiceAmount, NoiDungCK: 'KTXPAYAPP' });
                 }
                 if (url.startsWith('/api/payments/qr?')) {
-                    return response({ DemoPaymentEnabled: demoEnabled, QrPayload: 'test-qr', TongTien: 100,
+                    return response({ DemoPaymentEnabled: demoEnabled, QrPayload: 'test-qr', TongTien: invoiceAmount,
                         MaGiaoDich: 'PAY-APP-UI', NoiDungCK: 'KTXPAYAPP' });
                 }
                 if (url === '/api/payments/demo-confirm') {
@@ -725,6 +731,16 @@ function createStudentAppHarness({
             }
         }
     });
+    if (includeRequests) {
+        dom.window.StudentDate = {
+            bindInput() {},
+            normalizeInput: () => '',
+            formatIso: () => '',
+            earlyCheckoutDateToIso: () => '',
+            futureDateToIso: () => ''
+        };
+        vm.runInNewContext(load('js/student/YeuCauHoTro.js'), dom.window, { filename: 'YeuCauHoTro.js' });
+    }
     dom.window.qrcode = () => ({
         addData() {},
         make() {},
@@ -828,6 +844,92 @@ test('invoice payment has no editable amount and QR request uses the full outsta
         assert.equal(harness.calls.some(call => call.url === '/api/payments/qr?MaHoaDon=INV-APP-UI&SoTien=100'), true);
         assert.match(harness.dom.window.document.getElementById('student-dialog').textContent,
             /QR được tạo đúng số tiền còn nợ của hóa đơn/);
+    } finally {
+        harness.dom.window.close();
+    }
+});
+
+test('renewal invoice shows its amount and due date and opens payment for its balance', async () => {
+    const harness = createStudentAppHarness({
+        invoiceId: 'INV-RENEWAL-UI',
+        invoiceAmount: 1250000,
+        invoiceDates: {
+            NgayLap: '2026-03-04',
+            KyThanhToan: '2026-03-01',
+            HanThanhToan: '2026-03-11'
+        }
+    });
+    try {
+        await harness.loadInvoices();
+        const invoice = harness.dom.window.document.querySelector('.st-invoice');
+        const fields = new Map([...invoice.querySelectorAll('.st-fields > div')].map(row => [
+            row.querySelector('dt').textContent,
+            row.querySelector('dd').textContent
+        ]));
+        assert.match(invoice.querySelector('summary').textContent, /1\.250\.000\s*đ/);
+        assert.equal(fields.get('Loại hóa đơn'), 'Tiền phòng');
+        assert.equal(fields.get('Tổng tiền'), '1.250.000\u00a0đ');
+        assert.equal(fields.get('Còn nợ'), '1.250.000\u00a0đ');
+        assert.equal(fields.get('Hạn thanh toán'), '11/03/2026');
+
+        invoice.querySelector('[data-action="backend-invoice-pay"]').click();
+        await new Promise(resolve => setImmediate(resolve));
+        const createRequest = harness.calls.find(call => call.url === '/api/payments/create');
+        assert.deepEqual(JSON.parse(createRequest.options.body), {
+            MaHoaDon: 'INV-RENEWAL-UI',
+            PhuongThuc: 'ONLINE',
+            SoTien: 1250000
+        });
+        assert.equal(harness.calls.some(call => call.url ===
+            '/api/payments/qr?MaHoaDon=INV-RENEWAL-UI&SoTien=1250000'), true);
+        assert.match(harness.dom.window.document.getElementById('student-dialog').textContent,
+            /QR được tạo đúng số tiền còn nợ của hóa đơn/);
+    } finally {
+        harness.dom.window.close();
+    }
+});
+
+test('renewal rejection notification opens the request detail with its rejection reason', async () => {
+    const requestId = 'YC-RENEWAL-UI';
+    const rejectionReason = 'Hợp đồng không đủ điều kiện gia hạn.';
+    const harness = createStudentAppHarness({
+        includeRequests: true,
+        requestRows: [{
+            MaYeuCau: requestId,
+            Loai: 'Gia hạn hợp đồng',
+            NgayTao: '2026-03-01',
+            NoiDung: 'Xin gia hạn hợp đồng.',
+            TrangThai: 'Từ chối',
+            PhanHoi: rejectionReason
+        }]
+    });
+    try {
+        await harness.loadInvoices();
+        const main = harness.dom.window.document.getElementById('student-page');
+        main.insertAdjacentHTML('beforeend', ui.noticeHelpers.renderNotifications([], [{
+            TieuDe: 'Yêu cầu gia hạn hợp đồng bị từ chối',
+            NoiDung: `Lý do: ${rejectionReason}`,
+            MaSuKien: `RENEWAL_REJECT:${requestId}:SV001`,
+            NgayTao: '2026-03-02'
+        }]));
+        const notification = main.querySelector('[data-action="student-notification"]');
+        assert.ok(notification);
+        assert.match(notification.textContent, /Mở yêu cầu/);
+        notification.click();
+        await new Promise(resolve => setImmediate(resolve));
+        for (let attempt = 0; attempt < 4
+            && [...harness.timers.values()].some(timer => timer.delay === 0); attempt += 1) {
+            await new Promise(resolve => setImmediate(resolve));
+            await harness.runTimer(0);
+        }
+        await new Promise(resolve => setImmediate(resolve));
+
+        const dialog = harness.dom.window.document.getElementById('student-dialog');
+        assert.ok(dialog.querySelector('#student-dialog-title'));
+        assert.equal(dialog.querySelector('#student-dialog-title').textContent, 'Chi tiết yêu cầu');
+        assert.equal(dialog.querySelector('[data-action="close"]') !== null, true);
+        assert.match(dialog.textContent, new RegExp(rejectionReason));
+        assert.ok(harness.calls.some(call => call.url === '/api/student/requests'));
     } finally {
         harness.dom.window.close();
     }
