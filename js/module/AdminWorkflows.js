@@ -1439,7 +1439,10 @@
                 ${field("Tìm tên phòng", "search", "text", filters.search)}
                 ${button("Xóa lọc", "room-filter-clear", "", "bg-slate-200 text-slate-800")}
             </form>
-            <p class="admin-list-summary text-sm text-slate-600">Tổng: ${state.rooms.length} phòng · ${rooms.length} phù hợp</p>
+            <div class="my-4 flex flex-wrap items-center justify-between gap-2">
+                <p class="admin-list-summary text-sm text-slate-600">Tổng: ${state.rooms.length} phòng · ${rooms.length} phù hợp</p>
+                ${button("Thêm phòng mới", "room-create")}
+            </div>
             <div data-no-admin-filters data-room-list class="overflow-x-auto rounded-xl border bg-white"></div>
             <footer class="mt-2 flex flex-wrap items-center justify-end gap-2 rounded-lg bg-white px-3 py-2">
                 <span class="flex items-center gap-2 whitespace-nowrap">${button("Trước", "room-page", `data-page="${page.page - 1}" ${page.page <= 1 ? "disabled" : ""}`, "bg-slate-100 text-slate-800")}
@@ -1942,6 +1945,25 @@
                     state.tierServicesEditing = false;
                     state.activeRoomTab = actionButton.dataset.tab;
                     renderRoomPane();
+                    break;
+                }
+                case "room-create": {
+                    if (!state.tiers.length) {
+                        modalShell("Thêm phòng mới", '<p role="alert" class="text-sm text-red-700">Chưa có hạng phòng. Hãy tạo hạng phòng trước khi thêm phòng.</p>');
+                        break;
+                    }
+                    const tierOptions = state.tiers.map(tier => ({
+                        value: tier.MaHangPhong,
+                        label: `${tier.MaHangPhong} · ${tier.TenHangPhong} · ${Number(tier.SucChuaToiDa)} chỗ · ${money(tier.GiaPhongThang)}/tháng`
+                    }));
+                    modalShell("Thêm phòng mới", `<form id="admin-workflow-form" data-form="room-create" class="grid gap-3 sm:grid-cols-2">
+                        ${field("Tên phòng", "tenPhong", "text", "", true, 'maxlength="50"')}
+                        ${select("Khu", "khu", ["A", "B", "C"].map(value => ({ value, label: `Khu ${value}` })), "", true)}
+                        ${select("Loại phòng", "loaiPhong", ["Nam", "Nữ"].map(value => ({ value, label: value })), "", true)}
+                        ${select("Hạng phòng và sức chứa", "maHangPhong", tierOptions, "", true)}
+                        <p class="text-sm font-normal text-slate-600 sm:col-span-2">Sức chứa và giá phòng được lấy từ hạng đã chọn.</p>
+                        ${field("Ghi chú", "ghiChu", "text", "", false, 'maxlength="255"')}
+                    </form>`, "Tạo phòng");
                     break;
                 }
                 case "tier-select":
@@ -2469,6 +2491,28 @@
         const values = new FormData(form);
         try {
             switch (form.dataset.form) {
+                case "room-create": {
+                    const tier = state.tiers.find(item => item.MaHangPhong === values.get("maHangPhong"));
+                    if (!tier) throw new Error("Hạng phòng đã chọn không còn tồn tại. Hãy tải lại danh sách.");
+                    const roomName = String(values.get("tenPhong") || "").trim();
+                    if (!roomName) throw new Error("Nhập tên phòng.");
+                    await request("/api/Phong", {
+                        method: "POST",
+                        body: json({
+                            TenPhong: roomName,
+                            Khu: values.get("khu"),
+                            LoaiPhong: values.get("loaiPhong"),
+                            SucChuaToiDa: Number(tier.SucChuaToiDa),
+                            MaHangPhong: tier.MaHangPhong,
+                            GhiChu: String(values.get("ghiChu") || "").trim()
+                        })
+                    });
+                    closeModal();
+                    await loadRoomsAndTiers();
+                    renderRoomPane();
+                    window.showToast?.(`Đã tạo phòng ${roomName}.`, "success");
+                    break;
+                }
                 case "tier-service-add": {
                     let serviceId = String(values.get("serviceId") || "");
                     if (serviceId === "__new__") {

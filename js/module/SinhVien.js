@@ -476,8 +476,13 @@ window.openDetailStudentModal = async function (index) {
             return;
         }
 
-        const student = result.student || {};
-        const contract = result.contract;
+        const student = result.student || result;
+        const contract = result.contract || (result.MaHopDong ? {
+            MaHopDong: result.MaHopDong,
+            NgayBatDau: result.NgayBatDau,
+            NgayKetThuc: result.NgayKetThuc,
+            TrangThaiHopDong: result.TrangThaiHopDong || result.TrangThaiHopDongHienTai,
+        } : null);
 
         // 2. Chuẩn hóa dữ liệu hợp đồng (Logic của Tuyết giữ nguyên)
         const contractData = contract ? {
@@ -676,7 +681,8 @@ function validateStudentForm(formData, mode = "add", editIndex = null) {
     // Kiểm tra Phòng và Sức chứa của phòng
     if (!formData.room) {
         errors.room = "Vui lòng chọn phòng";
-    } else if (!validRooms.includes(formData.room)) {
+    } else if (!validRooms.includes(formData.room)
+        && !(mode === "edit" && students[editIndex]?.room === formData.room)) {
         errors.room = "Phòng không tồn tại trong hệ thống";
     } else {
         // Đếm số lượng sinh viên đang ở hiện tại trong phòng đó

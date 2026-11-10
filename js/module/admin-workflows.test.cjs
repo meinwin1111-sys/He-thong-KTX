@@ -238,7 +238,8 @@ async function setupAdminWorkflowDom({
     financialFixture = false,
     expenseFlow = null,
     contractCreateResponse = null,
-    renewalFlow = null
+    renewalFlow = null,
+    roomCreationFixture = false
 } = {}) {
     const dom = new JSDOM('<main id="main-content"></main>', {
         runScripts: "outside-only",
@@ -274,6 +275,10 @@ async function setupAdminWorkflowDom({
         { TenPhong: "A102", LoaiPhong: "Nữ", MaHangPhong: "HP4", SucChuaToiDa: 4, TrangThaiPhong: "Đang sử dụng" },
         { TenPhong: "A103", LoaiPhong: "Nữ", MaHangPhong: "HP4", SucChuaToiDa: 4, TrangThaiPhong: "Trống" }
     ];
+    const tiers = roomCreationFixture ? [{
+        MaHangPhong: "HP4", TenHangPhong: "Phòng 4 người", SucChuaToiDa: 4,
+        GiaPhongThang: 1250000, GiaPhongNam: 12000000, dichVu: []
+    }] : [];
     window.AdminWorkflowUtils = {
         ...utils,
         bindDateInputs: () => {},
@@ -294,8 +299,15 @@ async function setupAdminWorkflowDom({
                 body = renewalFlow.response;
             } else if (url.startsWith("/api/HopDong")) body = contracts;
             else if (url.startsWith("/api/sinhvien")) body = { data: students, totalPages: 1 };
-            else if (url === "/api/Phong") body = rooms;
-            else if (url === "/api/HangPhong") body = [];
+            else if (url === "/api/Phong" && options.method === "POST" && roomCreationFixture) {
+                const room = JSON.parse(options.body);
+                rooms.push({
+                    ...room, SoSinhVienHienTai: 0, TrangThaiPhong: "Trống",
+                    GiaPhong: tiers.find(tier => tier.MaHangPhong === room.MaHangPhong)?.GiaPhongThang
+                });
+                return { ok: true, status: 201, json: async () => ({ success: true, TenPhong: room.TenPhong }) };
+            } else if (url === "/api/Phong") body = rooms;
+            else if (url === "/api/HangPhong") body = tiers;
             else if (financialFixture && url === "/api/HoaDon") body = [{
                 MaHoaDon: expenseFlow ? "INV-NEW" : "INV-DOM", MaSinhVien: null, MaHopDong: "HD-A", MaChiTiet: null,
                 LoaiHoaDon: "DICH_VU_PHONG", TenPhong: "A101", TenDaiDienDichVu: "Thành viên",
@@ -411,6 +423,68 @@ async function setupAdminWorkflowDom({
     return { dom, window, calls, toasts, get openedRequest() { return openedRequest; } };
 }
 
+async function setupStudentModuleDom() {
+    const dom = new JSDOM('<main id="main-content"></main>', {
+        runScripts: "outside-only",
+        url: "http://localhost/"
+    });
+    const { window } = dom;
+    const calls = [];
+    const toasts = [];
+    const student = {
+        MaSinhVien: "012345678901",
+        HoTen: "Nguyễn Ánh",
+        NgaySinh: "2003-02-01",
+        GioiTinh: "Nữ",
+        SoDienThoai: "0901234567",
+        Email: "anh@example.com",
+        DiaChi: "Đà Nẵng",
+        Truong: "Đại học DUE",
+        TenPhong: "A201",
+        TrangThaiSinhVien: "Đang ở",
+        GhiChu: "Hồ sơ thử nghiệm"
+    };
+    const contract = {
+        ...student,
+        MaHopDong: "HD-DOM-01",
+        NgayBatDau: "2026-09-01",
+        NgayKetThuc: "2027-08-31",
+        TrangThaiHopDongHienTai: "Còn hiệu lực"
+    };
+    window.BASE_URL = "http://localhost:3000";
+    window.StudentIdentity = studentIdentity;
+    window.AdminWorkflowUtils = {
+        ...utils,
+        bindDateInputs: () => {},
+        enhanceAdminTables: () => {}
+    };
+    window.showToast = (message, kind) => toasts.push({ message, kind });
+    window.ApiClient = {
+        fetch: async (url, options = {}) => {
+            calls.push({ url, options });
+            const path = new URL(url, window.BASE_URL).pathname;
+            if (path === "/api/sinhvien/012345678901" && options.method === "PUT") {
+                return { ok: true, status: 200, json: async () => ({ success: true }) };
+            }
+            let body = [];
+            if (path === "/api/Phong") body = [{
+                TenPhong: "A201", LoaiPhong: "Nữ", SucChuaToiDa: 4,
+                SoSinhVienHienTai: 1, TrangThaiPhong: "Đang sử dụng"
+            }];
+            else if (path === "/api/sinhvien/thongke") {
+                body = { tongSinhVien: 1, tongNam: 0, tongNu: 1, dangO: 1 };
+            } else if (path === "/api/sinhvien") {
+                body = { data: [student], page: 1, totalPages: 1, total: 1 };
+            } else if (path === "/api/sinhvien/chitiet/012345678901") body = contract;
+            return { ok: true, status: 200, json: async () => body };
+        }
+    };
+    window.eval(fs.readFileSync(path.join(__dirname, "SinhVien.js"), "utf8"));
+    await window.renderSinhVienModule();
+    await waitForDom(() => window.document.querySelector("#studentTableBody tr"));
+    return { dom, window, calls, toasts };
+}
+
 async function waitForDom(predicate) {
     for (let attempt = 0; attempt < 30; attempt++) {
         if (predicate()) return;
@@ -418,6 +492,43 @@ async function waitForDom(predicate) {
     }
     assert.fail("DOM workflow did not reach the expected state");
 }
+
+test("Admin creates a new room from the rooms tab with its selected tier", async () => {
+    const { dom, window, calls, toasts } = await setupAdminWorkflowDom({ roomCreationFixture: true });
+    try {
+        await window.renderPhongModule();
+        const createButton = window.document.querySelector('[data-action="room-create"]');
+        assert.ok(createButton);
+        assert.ok(createButton.parentElement.classList.contains("my-4"));
+        createButton.click();
+
+        const form = window.document.querySelector('form[data-form="room-create"]');
+        assert.ok(form);
+        assert.equal(form.elements.tenPhong.required, true);
+        assert.equal(form.elements.khu.required, true);
+        assert.equal(form.elements.loaiPhong.required, true);
+        assert.equal(form.elements.maHangPhong.required, true);
+        assert.match(form.elements.maHangPhong.options[1].textContent, /HP4.*4 chỗ/);
+
+        form.elements.tenPhong.value = "C401";
+        form.elements.khu.value = "C";
+        form.elements.loaiPhong.value = "Nam";
+        form.elements.maHangPhong.value = "HP4";
+        form.elements.ghiChu.value = "Phòng mới";
+        form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+
+        await waitForDom(() => calls.some(call => call.url === "/api/Phong" && call.options.method === "POST"));
+        const createCall = calls.find(call => call.url === "/api/Phong" && call.options.method === "POST");
+        assert.deepEqual(JSON.parse(createCall.options.body), {
+            TenPhong: "C401", Khu: "C", LoaiPhong: "Nam",
+            SucChuaToiDa: 4, MaHangPhong: "HP4", GhiChu: "Phòng mới"
+        });
+        await waitForDom(() => window.document.querySelector("[data-room-list]")?.textContent.includes("C401"));
+        assert.ok(toasts.some(toast => toast.kind === "success" && toast.message.includes("C401")));
+    } finally {
+        dom.window.close();
+    }
+});
 
 test("Admin direct renewal selects an active member and submits that member's invoice dates", async () => {
     const { dom, window, calls, toasts } = await setupAdminWorkflowDom({
@@ -1612,6 +1723,43 @@ test("Admin student list initializes pagination and reports API failures instead
     assert.match(source, /id="studentLoadError"/);
     assert.match(source, /Không có sinh viên phù hợp/);
     assert.match(source, /console\.error\("Lỗi tải danh sách sinh viên:", error\)/);
+});
+
+test("Admin student detail renders flat API data and opens a prefilled edit form", async () => {
+    const { dom, window, calls, toasts } = await setupStudentModuleDom();
+    try {
+        await window.openDetailStudentModal(0);
+
+        const detailModal = window.document.getElementById("detailStudentModal");
+        const detailContent = window.document.getElementById("detailStudentContent");
+        const detailValues = Array.from(detailContent.querySelectorAll("input"), input => input.value);
+        assert.equal(detailModal.classList.contains("flex"), true);
+        assert.ok(detailValues.includes("Nguyễn Ánh"));
+        assert.ok(detailValues.includes("A201"));
+        assert.ok(detailValues.includes("HD-DOM-01"));
+        assert.ok(detailValues.includes("01/09/2026"));
+        assert.ok(detailValues.includes("31/08/2027"));
+        assert.ok(detailValues.includes("Còn hiệu lực"));
+
+        window.document.getElementById("btnEditFromDetail").click();
+        const editModal = window.document.getElementById("editStudentModal");
+        assert.equal(editModal.classList.contains("flex"), true);
+        assert.equal(window.document.querySelector('#editStudentForm [name="mssv"]').value, "012345678901");
+        assert.equal(window.document.querySelector('#editStudentForm [name="name"]').value, "Nguyễn Ánh");
+
+        const nameInput = window.document.querySelector('#editStudentForm [name="name"]');
+        nameInput.value = "Nguyễn Ánh cập nhật";
+        window.document.getElementById("editStudentForm").dispatchEvent(
+            new window.Event("submit", { bubbles: true, cancelable: true })
+        );
+        await waitForDom(() => calls.some(call => call.options.method === "PUT"));
+        const updateCall = calls.find(call => call.options.method === "PUT");
+        assert.equal(new URL(updateCall.url).pathname, "/api/sinhvien/012345678901");
+        assert.equal(JSON.parse(updateCall.options.body).hoTen, "Nguyễn Ánh cập nhật");
+        await waitForDom(() => toasts.some(toast => toast.message === "Cập nhật thành công"));
+    } finally {
+        dom.window.close();
+    }
 });
 
 test("Admin HTML loads the API-backed workflow instead of legacy finance modules", () => {
