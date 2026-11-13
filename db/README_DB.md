@@ -30,7 +30,7 @@ Chọn database đích trước khi chạy. Đảm bảo login và database user
 sqlcmd -S <server> -E -d <database> -I -f 65001 -b -i db\run_all.sql
 ```
 
-`run_all.sql` chạy migration 001–018, bootstrap 041, rồi 019–034 và 037. Migration 041 được đặt ngay sau 018 để tạo `dbo.ThongBao` trước các bước sau; migration 023/024/026 tiếp tục bổ sung quyền, khóa ngoại và chỉ mục theo thứ tự thông thường. Các migration được đánh dấu trong `SchemaMigration` để có thể chạy lại an toàn.
+`run_all.sql` chạy migration 001–018, bootstrap 041, rồi 019–034, 037 và 042. Migration 041 được đặt ngay sau 018 để tạo `dbo.ThongBao` trước các bước sau; migration 023/024/026 tiếp tục bổ sung quyền, khóa ngoại và chỉ mục theo thứ tự thông thường. Migration 042 giữ một hợp đồng cha cho mỗi phòng; mỗi sinh viên là một hợp đồng con có ngày thuê, kỳ hạn và hóa đơn tiền phòng riêng. Hóa đơn dịch vụ vẫn thuộc hợp đồng cha/phòng. Các migration được đánh dấu trong `SchemaMigration` để có thể chạy lại an toàn.
 
 ## Chỉ dành cho database kiểm thử
 

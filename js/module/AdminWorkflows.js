@@ -381,8 +381,10 @@
             ${button("Chuyển phòng", "member-move", `data-contract="${esc(contract.MaHopDong)}" data-student="${esc(studentId)}"`, "ml-2 bg-slate-700 text-white")}
         </div>`;
     };
-    const contractOptions = (activeOnly = true) => state.contracts
-        .filter(contract => !activeOnly || contract.TrangThaiHopDong === "Còn hiệu lực")
+    const contractOptions = (activeOnly = true, representativeOnly = false) => state.contracts
+        .filter(contract => (!activeOnly || contract.TrangThaiHopDong === "Còn hiệu lực")
+            && (!representativeOnly || activeMembers(contract)
+                .some(member => member.LaNguoiDaiDienThanhToanDichVu)))
         .map(contract => ({ value: contract.MaHopDong, label: `${contract.MaHopDong || "—"} · ${contract.TenPhong || "—"}` }));
     const roomOptions = (exclude, { gender = "", tier = "" } = {}) => {
         const available = U.filterRoomsByGender(state.rooms, gender)
@@ -392,8 +394,7 @@
                 && availableRoomSpaces(room) > 0);
         return available.map(room => ({
             value: room.TenPhong,
-            label: `${U.roomLabel(room, roomOccupancy(room.TenPhong))}${U.contractRoomSelection(room.TenPhong, state.contracts).contract
-                ? ` · ${U.contractRoomSelection(room.TenPhong, state.contracts).contract.MaHopDong}` : ""}`
+            label: U.roomLabel(room, roomOccupancy(room.TenPhong))
         }));
     };
     const studentOptions = ({ availableOnly = false, roomName = "", gender = "", excludeIds = [] } = {}) => {
@@ -481,7 +482,9 @@
             <div class="flex flex-wrap items-center justify-between gap-2"><strong>${text(member.HoTen)}</strong>${badge(member.TrangThai)}</div>
             <dl class="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                 <div><dt class="text-slate-500">Số CCCD</dt><dd>${text(member.MaSinhVien)}</dd></div>
-                <div><dt class="text-slate-500">Ngày vào / ngày ra</dt><dd>${dateOnly(member.NgayVao)} / ${dateOnly(member.NgayRa)}</dd></div>
+                <div><dt class="text-slate-500">Hợp đồng thuê sinh viên</dt><dd>${text(member.MaChiTiet)}</dd></div>
+                <div><dt class="text-slate-500">Thời hạn hợp đồng con</dt><dd>${dateOnly(member.NgayVao)} – ${dateOnly(member.NgayKetThucHieuLuc || member.NgayKetThuc)}</dd></div>
+                ${member.NgayRa ? `<div><dt class="text-slate-500">Ngày rời phòng</dt><dd>${dateOnly(member.NgayRa)}</dd></div>` : ""}
                 <div><dt class="text-slate-500">Kỳ thanh toán</dt><dd>${text(display(member.KyHanThanhToanPhong))}</dd></div>
                 <div><dt class="text-slate-500">Giá áp dụng</dt><dd>${money(member.GiaPhongApDung ?? member.GiaPhongThangApDung)}</dd></div>
                 <div><dt class="text-slate-500">Đại diện thanh toán dịch vụ</dt><dd>${member.LaNguoiDaiDienThanhToanDichVu ? "Có" : "Không"}</dd></div>
@@ -500,7 +503,7 @@
         state.contractMemberStatus = "Đang ở";
         state.contractMemberSearch = "";
         const actions = contract.TrangThaiHopDong === "Còn hiệu lực" ? `<div class="flex flex-wrap gap-2">
-            ${button("Thêm SV", "member-add", `data-contract="${esc(contract.MaHopDong)}"`)}
+            ${button("Thêm sinh viên vào hợp đồng phòng", "contract-create-room", `data-room="${esc(contract.TenPhong)}"`)}
             ${button("Gia hạn", "contract-extend", `data-contract="${esc(contract.MaHopDong)}"`, "bg-slate-700 text-white")}
             ${button("Kết thúc", "contract-end", `data-contract="${esc(contract.MaHopDong)}"`, "bg-red-700 text-white")}
         </div>` : "";
@@ -614,15 +617,13 @@
             </dl><div class="mt-5">${button("In phiếu chi", "refund-print", `data-refund="${esc(refund.MaPhieuChi)}"`, "bg-slate-700 text-white")}</div>`);
         }
     }
-    async function openCreateContract() {
+    async function openCreateContract(preselectedRoom = "") {
         await Promise.all([loadContracts(), loadRoomsAndTiers(), loadStudents()]);
-        const modal = modalShell("Tạo hợp đồng và thêm thành viên", `
+        const modal = modalShell("Tạo hợp đồng thuê", `
             <form id="admin-workflow-form" data-form="contract-create" class="space-y-3">
-                <div class="flex items-center justify-between"><h4 class="font-bold">Sinh viên</h4>
-                    <button type="button" data-action="add-member-row" class="rounded bg-slate-700 px-3 py-2 text-white disabled:opacity-50">Thêm dòng SV</button></div>
+                <h4 class="font-bold">Sinh viên</h4>
                 <div data-new-members class="space-y-2"></div>
                 ${select("Phòng", "tenPhong", [], "", true)}
-                <input type="hidden" name="activeContractId" value="">
                 <p data-contract-capacity class="text-sm text-slate-600" role="status">Chọn sinh viên trước để lọc phòng phù hợp.</p>
                 <div data-create-contract-fields class="space-y-3">
                     <label class="block text-sm font-semibold text-slate-700">Hạng phòng
@@ -640,9 +641,18 @@
         if (!modal) return;
         modal.querySelector("[data-new-members]").innerHTML = memberFormRow();
         const form = modal.querySelector('form[data-form="contract-create"]');
-        updateCreateRoomOptions(form, "");
+        form.querySelector('[name="laNguoiDaiDien"]')?.closest("label")?.remove();
+        form.querySelector('[data-action="add-member-row"]')?.remove();
+        form.querySelector('[data-action="remove-member-row"]')?.remove();
+        form.querySelector(".member-row .grid")?.classList.replace(
+            "grid-cols-[minmax(0,1fr)_auto_auto]", "grid-cols-[minmax(0,1fr)]"
+        );
+        form.querySelector(".member-row .grid")?.classList.replace(
+            "md:grid-cols-[minmax(0,1fr)_140px_auto_auto]", "md:grid-cols-[minmax(0,1fr)_140px]"
+        );
+        updateCreateRoomOptions(form, preselectedRoom);
         updateCreateStudentOptions(form, "");
-        updateContractCapacity(form, "");
+        updateContractMode(form, form.elements.tenPhong.value);
         updateCreateContractDateOrder(form);
     }
     function updateCreateContractDateOrder(form) {
@@ -659,38 +669,34 @@
         if (submit) {
             const selectedStudents = [...form.querySelectorAll('.member-row [name="maSinhVien"]')]
                 .map(input => input.value).filter(Boolean);
-            submit.disabled = Boolean(message) || selectedStudents.some(id => activeStudentContract(id));
+            submit.disabled = Boolean(message)
+                || form.dataset.contractConflict === "true"
+                || selectedStudents.some(id => activeStudentContract(id));
         }
         return message;
     }
     function updateContractMode(form, roomName) {
         const selection = U.contractRoomSelection(roomName, state.contracts);
-        const contract = selection.contract;
-        const isAdding = Boolean(contract);
-        form.dataset.activeContract = contract?.MaHopDong || "";
+        const parent = selection.contract;
+        const parentConflict = selection.mode === "conflict";
         form.dataset.availableSeats = String(availableRoomSpaces(
             state.rooms.find(item => item.TenPhong === roomName) || {}
         ));
-        form.elements.activeContractId.value = contract?.MaHopDong || "";
-        const createFields = form.querySelector("[data-create-contract-fields]");
-        createFields.hidden = isAdding;
-        createFields.querySelectorAll("input, textarea, select").forEach(input => {
-            input.disabled = isAdding;
-        });
-        if (isAdding) {
-            const rows = form.querySelectorAll(".member-row");
-            rows.forEach((row, index) => { if (index > 0) row.remove(); });
-        }
-        const addRowButton = form.querySelector('[data-action="add-member-row"]');
-        if (addRowButton) addRowButton.hidden = isAdding;
+        form.dataset.activeContract = parent?.MaHopDong || "";
+        form.dataset.contractConflict = String(parentConflict);
         const title = root.querySelector("#admin-modal-title");
-        if (title) title.textContent = isAdding
-            ? `Thêm thành viên vào hợp đồng ${contract.MaHopDong}`
-            : "Tạo hợp đồng và thêm thành viên";
+        if (title) title.textContent = parentConflict
+            ? "Không thể tạo hợp đồng: phòng có nhiều hợp đồng hiệu lực"
+            : parent
+                ? `Tạo hợp đồng thuê phòng cho sinh viên · ${parent.MaHopDong}`
+                : "Tạo hợp đồng thuê";
         const submitButton = root.querySelector('button[form="admin-workflow-form"][type="submit"]');
-        if (submitButton) submitButton.textContent = isAdding ? "Thêm sinh viên" : "Tạo hợp đồng";
-        const removeButtons = form.querySelectorAll('[data-action="remove-member-row"]');
-        removeButtons.forEach(button => { button.hidden = isAdding; });
+        if (submitButton) {
+            submitButton.textContent = parentConflict
+                ? "Cần xử lý hợp đồng trùng"
+                : parent ? "Tạo hợp đồng con" : "Tạo hợp đồng phòng";
+            submitButton.disabled = parentConflict;
+        }
         updateContractCapacity(form, roomName);
     }
     function updateContractCapacity(form, roomName) {
@@ -702,18 +708,20 @@
             .filter(candidate => !selectedGender || candidate.LoaiPhong === selectedGender);
         const remaining = room ? availableRoomSpaces(room)
             : Math.max(0, ...availableRooms.map(candidate => candidate.availableSeats));
-        const currentRows = form.querySelectorAll(".member-row").length;
         const selectedCount = [...form.querySelectorAll('.member-row [name="maSinhVien"]')]
             .filter(selectNode => selectNode.value).length;
         form.dataset.availableSeats = String(remaining);
-        const activeContractId = form.dataset.activeContract;
-        form.querySelector("[data-contract-capacity]").textContent = room
-            ? `${activeContractId ? `Thêm thành viên vào hợp đồng ${activeContractId} · ` : ""}Đang ở ${roomOccupancy(room.TenPhong)}/${Number(room.SucChuaToiDa || 0)} người · Còn ${remaining} chỗ trống · Đã thêm ${currentRows} dòng`
+        const selection = U.contractRoomSelection(roomName, state.contracts);
+        const parent = selection.contract;
+        form.querySelector("[data-contract-capacity]").textContent = selection.mode === "conflict"
+            ? `Phòng ${roomName} có nhiều hợp đồng hiệu lực; cần xử lý dữ liệu trùng trước khi thêm sinh viên.`
+            : room
+            ? `Phòng ${room.TenPhong} · Đang ở ${roomOccupancy(room.TenPhong)}/${Number(room.SucChuaToiDa || 0)} người · Còn ${remaining} chỗ trống${parent
+                ? ` · Hợp đồng phòng ${parent.MaHopDong}; thông tin ngày thuê và kỳ hạn bên dưới áp dụng riêng cho sinh viên này.`
+                : ""}`
             : selectedGender
                 ? `Đã chọn ${selectedCount} sinh viên · Chọn phòng ${selectedGender} còn đủ chỗ.`
-                : "Chọn sinh viên trước để lọc phòng phù hợp.";
-        const addButton = form.querySelector('[data-action="add-member-row"]');
-        if (addButton) addButton.disabled = Boolean(activeContractId) || currentRows >= remaining;
+                : "Chọn sinh viên và phòng còn chỗ.";
     }
     function memberFormRow(member = {}, _roomName = "", excludedIds = []) {
         return U.contractMemberRowHtml([], member, excludedIds);
@@ -782,8 +790,7 @@
         form.elements.maHangPhong.value = tier;
         form.elements.maHangPhongDisplay.value = tier;
         updateContractMode(form, selectedRoom);
-        row.querySelector("[data-student-conflict]").innerHTML =
-            studentConflictMarkup(studentId, form.elements.activeContractId.value);
+        row.querySelector("[data-student-conflict]").innerHTML = studentConflictMarkup(studentId);
         const selectedMembers = [...form.querySelectorAll('.member-row [name="maSinhVien"]')]
             .map(input => input.value).filter(Boolean);
         const hasOccupiedStudent = selectedMembers.some(id => activeStudentContract(id));
@@ -798,37 +805,24 @@
         const gender = selectedStudents[0]?.GioiTinh || "";
         const selectedHasCurrentRoom = selectedStudents.some(student => activeStudentContract(student.MaSinhVien));
         const available = selectedHasCurrentRoom ? []
-            : U.contractRoomsForStudents(state.rooms, state.contracts, selectedStudents);
+            : selectedStudents.length
+                ? U.contractRoomsForStudents(state.rooms, state.contracts, selectedStudents)
+                : U.contractRoomAvailability(state.rooms, state.contracts);
         const roomSelect = form.elements.tenPhong;
-        const options = available.map(room => {
-            const activeContract = U.contractRoomSelection(room.TenPhong, state.contracts).contract;
-            return `<option value="${esc(room.TenPhong)}">${esc(U.roomLabel(room, room.currentOccupants))}${activeContract
-                ? ` · ${esc(activeContract.MaHopDong)}` : ""}</option>`;
-        }).join("");
+        const options = available.map(room =>
+            `<option value="${esc(room.TenPhong)}">${esc(U.roomLabel(room, room.currentOccupants))}</option>`
+        ).join("");
         const placeholder = gender && !available.length
             ? `Không có phòng ${esc(gender)} còn chỗ`
-            : "Chọn sinh viên trước";
+            : available.length ? "Chọn phòng" : "Chọn sinh viên trước";
         roomSelect.innerHTML = `<option value="" disabled>${placeholder}</option>${options}`;
         roomSelect.value = available.some(room => room.TenPhong === preferredRoom) ? preferredRoom : "";
         if (!roomSelect.value) {
             form.elements.maHangPhong.value = "";
             form.elements.maHangPhongDisplay.value = "";
-            form.elements.activeContractId.value = "";
             form.dataset.activeContract = "";
         }
         return roomSelect.value;
-    }
-    async function openAddMember(contractId) {
-        await Promise.all([loadContracts(), loadStudents(), loadRoomsAndTiers()]);
-        const contract = state.contracts.find(item => item.MaHopDong === contractId);
-        modalShell(`Thêm sinh viên vào ${contractId}`, `
-            <form id="admin-workflow-form" data-form="member-add" class="space-y-3">
-                <input type="hidden" name="contractId" value="${esc(contractId)}">
-                ${select("Sinh viên", "maSinhVien", studentOptions({ availableOnly: true, roomName: contract?.TenPhong || "" }), "", true)}
-                <div data-student-conflict></div>
-                ${select("Kỳ hạn tiền phòng", "kyHanThanhToanPhong", [{value:"THANG",label:"Theo tháng"},{value:"NAM",label:"Theo năm"}], "THANG", true)}
-                <label class="flex items-center gap-2"><input name="laNguoiDaiDien" type="checkbox"> Là người đại diện thanh toán dịch vụ</label>
-            </form>`);
     }
     async function openLeaveFlow(contractId, detailId) {
         modalShell("Thành viên rời hợp đồng · gợi ý hoàn tiền", `
@@ -1089,8 +1083,19 @@
     async function refreshInvoiceContext() {
         const form = root?.querySelector('#admin-workflow-form[data-form="invoice-create"]');
         if (!form) return;
-        const contract = state.contracts.find(item => item.MaHopDong === form.elements.maHopDong.value);
         const isRent = form.elements.loaiHoaDon.value === "TIEN_PHONG";
+        const contractSelect = form.elements.maHopDong;
+        const currentContractId = contractSelect.value;
+        const validContracts = state.contracts.filter(item =>
+            item.TrangThaiHopDong === "Còn hiệu lực"
+            && (isRent || activeMembers(item).some(member => member.LaNguoiDaiDienThanhToanDichVu))
+        );
+        contractSelect.innerHTML = `<option value="">Chọn hợp đồng</option>${validContracts.map(item =>
+            `<option value="${esc(item.MaHopDong)}">${esc(item.MaHopDong || "—")} · ${esc(item.TenPhong || "—")}</option>`
+        ).join("")}`;
+        contractSelect.value = validContracts.some(item => item.MaHopDong === currentContractId)
+            ? currentContractId : validContracts[0]?.MaHopDong || "";
+        const contract = state.contracts.find(item => item.MaHopDong === contractSelect.value);
         const memberField = form.querySelector("[data-invoice-member-field]");
         if (isRent) {
             memberField.innerHTML = select("Thành viên lập hóa đơn tiền phòng", "maChiTiet",
@@ -1817,8 +1822,8 @@
                     break;
                 }
                 case "contract-create": await openCreateContract(); break;
+                case "contract-create-room": await openCreateContract(actionButton.dataset.room); break;
                 case "contract-refresh": await loadContracts(); break;
-                case "member-add": await openAddMember(actionButton.dataset.contract); break;
                 case "member-leave": await openLeaveFlow(actionButton.dataset.contract, actionButton.dataset.detail); break;
                 case "member-move": {
                     const contract = state.contracts.find(item => item.MaHopDong === actionButton.dataset.contract);
@@ -2618,42 +2623,42 @@
                     renderContractsTable();
                     break;
                 case "contract-create": {
+                    if (form.dataset.contractConflict === "true") {
+                        throw new Error("Phòng có nhiều hợp đồng hiệu lực; cần xử lý dữ liệu trùng trước.");
+                    }
                     const members = [...form.querySelectorAll(".member-row")].map(row => ({
                         maSinhVien: row.querySelector('[name="maSinhVien"]').value.trim(),
-                        kyHanThanhToanPhong: row.querySelector('[name="kyHanThanhToanPhong"]').value,
-                        laNguoiDaiDien: row.querySelector('[name="laNguoiDaiDien"]').checked
+                        kyHanThanhToanPhong: row.querySelector('[name="kyHanThanhToanPhong"]').value
                     })).filter(member => member.maSinhVien);
-                    if (!members.length) throw new Error("Thêm ít nhất một sinh viên vào hợp đồng.");
+                    if (members.length !== 1) throw new Error("Mỗi hợp đồng chỉ được gắn với một sinh viên.");
                     const room = state.rooms.find(item => item.TenPhong === values.get("tenPhong"));
-                    if (!room || members.length > availableRoomSpaces(room)) {
-                        throw new Error("Số sinh viên không được vượt số chỗ còn trống của phòng.");
-                    }
-                    if (new Set(members.map(member => member.maSinhVien)).size !== members.length) throw new Error("Không được nhập trùng mã sinh viên.");
-                    if (members.filter(member => member.laNguoiDaiDien).length > 1) throw new Error("Mỗi hợp đồng chỉ có một đại diện.");
-                    const selection = U.contractRoomSelection(room.TenPhong, state.contracts);
-                    if (selection.mode === "invalid") {
-                        throw new Error("Phòng có nhiều hợp đồng hiệu lực; không thể chọn an toàn để thêm thành viên.");
-                    }
-                    const activeContract = selection.contract;
-                    if (activeContract) {
-                        if (members.length !== 1) throw new Error("Thêm từng sinh viên vào hợp đồng đang hiệu lực.");
-                        if (activeContract.MaHopDong !== values.get("activeContractId")) {
-                            throw new Error("Hợp đồng của phòng đã thay đổi. Đóng biểu mẫu và tải lại danh sách.");
-                        }
-                        if (!window.confirm(`Thêm sinh viên ${members[0].maSinhVien} vào hợp đồng ${activeContract.MaHopDong}?`)) break;
-                        await request(`/api/HopDong/${encodeURIComponent(activeContract.MaHopDong)}/chitiet`, {
-                            method: "POST", body: json(members[0])
-                        });
-                        closeModal(); await loadContracts(); break;
+                    if (!room || availableRoomSpaces(room) < 1) {
+                        throw new Error("Phòng đã đủ sức chứa hoặc không còn sử dụng.");
                     }
                     const roomTier = U.tierForRoom(state.rooms, String(values.get("tenPhong") || ""));
                     if (!roomTier || values.get("maHangPhong") !== roomTier) throw new Error("Vui lòng chọn phòng hợp lệ để tự điền hạng phòng.");
-                    if (!window.confirm(`Tạo hợp đồng cho phòng ${values.get("tenPhong")} với ${members.length} sinh viên?`)) break;
-                    const createdContract = await request("/api/HopDong", { method: "POST", body: json({
-                        tenPhong: values.get("tenPhong"), maHangPhong: roomTier,
-                        ngayBatDau: apiDate(form, "ngayBatDau"), ngayKetThuc: apiDate(form, "ngayKetThuc"),
-                        ghiChu: values.get("ghiChu"), sinhVien: members
-                    }) });
+                    const startDate = apiDate(form, "ngayBatDau");
+                    const endDate = apiDate(form, "ngayKetThuc");
+                    const parentId = form.dataset.activeContract;
+                    const confirmation = parentId
+                        ? `Thêm hợp đồng thuê riêng cho sinh viên ${members[0].maSinhVien} vào hợp đồng phòng ${parentId} (${values.get("tenPhong")})?`
+                        : `Tạo hợp đồng phòng ${values.get("tenPhong")} và hợp đồng thuê riêng cho sinh viên ${members[0].maSinhVien}?`;
+                    if (!window.confirm(confirmation)) break;
+                    const createdContract = parentId
+                        ? await request(`/api/HopDong/${encodeURIComponent(parentId)}/chitiet`, {
+                            method: "POST",
+                            body: json({
+                                maSinhVien: members[0].maSinhVien,
+                                kyHanThanhToanPhong: members[0].kyHanThanhToanPhong,
+                                ngayBatDau: startDate,
+                                ngayKetThuc: endDate
+                            })
+                        })
+                        : await request("/api/HopDong", { method: "POST", body: json({
+                            tenPhong: values.get("tenPhong"), maHangPhong: roomTier,
+                            ngayBatDau: startDate, ngayKetThuc: endDate,
+                            ghiChu: values.get("ghiChu"), sinhVien: members
+                        }) });
                     closeModal();
                     await loadContracts();
                     if (Array.isArray(createdContract?.CanhBao) && createdContract.CanhBao.length) {
@@ -2661,19 +2666,11 @@
                             `Hợp đồng đã tạo nhưng không lập hóa đơn tiền phòng. ${createdContract.CanhBao.join(" ")}`,
                             "error"
                         );
-                    }
+                    } else window.showToast?.(
+                        `Đã tạo hợp đồng thuê riêng cho sinh viên ${members[0].maSinhVien}.`,
+                        "success"
+                    );
                     break;
-                }
-                case "member-add": {
-                    const member = {
-                        maSinhVien: values.get("maSinhVien"),
-                        kyHanThanhToanPhong: values.get("kyHanThanhToanPhong"),
-                        laNguoiDaiDien: form.elements.laNguoiDaiDien.checked
-                    };
-                    const addRequest = U.memberAddRequest(values.get("contractId"), member);
-                    if (!window.confirm(`Thêm sinh viên ${member.maSinhVien} vào hợp đồng ${values.get("contractId")}?`)) break;
-                    await request(addRequest.url, addRequest.options);
-                    closeModal(); await loadContracts(); break;
                 }
                 case "leave-preview": {
                     const detailId = values.get("detailId");

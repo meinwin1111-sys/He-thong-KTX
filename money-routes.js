@@ -15,7 +15,7 @@ const INVOICE_OWNER = `
             SELECT 1
             FROM dbo.ChiTietHopDong ownerDetail
             INNER JOIN dbo.HopDong ownerContract ON ownerContract.MaHopDong = ownerDetail.MaHopDong
-            WHERE ownerContract.MaHopDong = hd.MaHopDong
+            WHERE ownerContract.TenPhong = hd.TenPhong
               AND ownerContract.TrangThaiHopDong = N'Còn hiệu lực'
               AND ownerDetail.MaSinhVien = @MaSinhVien
               AND ownerDetail.TrangThai = N'Đang ở'
@@ -159,7 +159,7 @@ function auditRequest(sql, transaction, req, action, object, id, detail) {
 }
 
 async function insertStudentNotifications(sql, transaction, {
-    contractId, detailId = null, title, content, eventKey, invoiceId = null, creatorId
+    contractId, detailId = null, roomName = null, title, content, eventKey, invoiceId = null, creatorId
 }) {
     let senderId = creatorId;
     if (!senderId) {
@@ -175,16 +175,28 @@ async function insertStudentNotifications(sql, transaction, {
     const recipients = await new sql.Request(transaction)
         .input("MaHopDong", sql.NVarChar(20), contractId)
         .input("MaChiTiet", sql.Int, detailId)
+        .input("TenPhong", sql.NVarChar(50), roomName)
         .query(`
             SELECT DISTINCT c.MaSinhVien
             FROM dbo.ChiTietHopDong c
             INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
-            WHERE c.MaHopDong = @MaHopDong
-              AND
+            WHERE
               (
-                  (@MaChiTiet IS NOT NULL AND c.MaChiTiet = @MaChiTiet)
-                  OR (@MaChiTiet IS NULL AND c.TrangThai = N'Đang ở'
-                      AND hd.TrangThaiHopDong = N'Còn hiệu lực')
+                  @TenPhong IS NOT NULL
+                  AND hd.TenPhong = @TenPhong
+                  AND c.TrangThai = N'Đang ở'
+                  AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+              )
+              OR
+              (
+                  @TenPhong IS NULL
+                  AND c.MaHopDong = @MaHopDong
+                  AND
+                  (
+                      (@MaChiTiet IS NOT NULL AND c.MaChiTiet = @MaChiTiet)
+                      OR (@MaChiTiet IS NULL AND c.TrangThai = N'Đang ở'
+                          AND hd.TrangThaiHopDong = N'Còn hiệu lực')
+                  )
               )
         `);
     for (const recipient of recipients.recordset) {
@@ -604,9 +616,12 @@ function registerMoneyRoutes(app, {
                 (
                     SELECT TOP (1) representativeMember.MaSinhVien, representativeStudent.HoTen
                     FROM dbo.ChiTietHopDong representativeMember
+                    INNER JOIN dbo.HopDong representativeContract
+                        ON representativeContract.MaHopDong = representativeMember.MaHopDong
                     INNER JOIN dbo.SinhVien representativeStudent
                         ON representativeStudent.MaSinhVien = representativeMember.MaSinhVien
-                    WHERE representativeMember.MaHopDong = hd.MaHopDong
+                    WHERE representativeContract.TenPhong = hd.TenPhong
+                      AND representativeContract.TrangThaiHopDong = N'Còn hiệu lực'
                       AND representativeMember.LaNguoiDaiDienThanhToanDichVu = 1
                       AND representativeMember.TrangThai = N'Đang ở'
                     ORDER BY representativeMember.MaChiTiet
@@ -654,9 +669,12 @@ function registerMoneyRoutes(app, {
                 (
                     SELECT TOP (1) representativeMember.MaSinhVien, representativeStudent.HoTen
                     FROM dbo.ChiTietHopDong representativeMember
+                    INNER JOIN dbo.HopDong representativeContract
+                        ON representativeContract.MaHopDong = representativeMember.MaHopDong
                     INNER JOIN dbo.SinhVien representativeStudent
                         ON representativeStudent.MaSinhVien = representativeMember.MaSinhVien
-                    WHERE representativeMember.MaHopDong = hd.MaHopDong
+                    WHERE representativeContract.TenPhong = hd.TenPhong
+                      AND representativeContract.TrangThaiHopDong = N'Còn hiệu lực'
                       AND representativeMember.LaNguoiDaiDienThanhToanDichVu = 1
                       AND representativeMember.TrangThai = N'Đang ở'
                     ORDER BY representativeMember.MaChiTiet
@@ -901,7 +919,7 @@ function registerMoneyRoutes(app, {
                 const invoiceNotice = await new sql.Request(transaction)
                     .input("MaHoaDon", sql.NVarChar(20), invoiceId)
                     .query(`
-                        SELECT hd.MaHopDong, hd.LoaiHoaDon, total.TongThuc,
+                        SELECT hd.MaHopDong, hd.TenPhong, hd.LoaiHoaDon, total.TongThuc,
                                CONVERT(nvarchar(10), hd.HanThanhToan, 23) AS HanThanhToan,
                                CASE WHEN EXISTS (
                                    SELECT 1 FROM dbo.ChiTietHoaDon line
@@ -916,20 +934,10 @@ function registerMoneyRoutes(app, {
                 const cashNotice = await getCashPaymentNotice(sql, transaction);
                 {
                     let recipientDetail = body.loaiHoaDon === "TIEN_PHONG" ? body.maChiTiet : null;
-                    if (body.loaiHoaDon === "DICH_VU_PHONG" && body.maSinhVienNop) {
-                        const selected = await new sql.Request(transaction)
-                            .input("MaHopDong", sql.NVarChar(20), body.maHopDong)
-                            .input("MaSinhVien", sql.NVarChar(30), body.maSinhVienNop)
-                            .query(`
-                                SELECT TOP (1) MaChiTiet FROM dbo.ChiTietHopDong
-                                WHERE MaHopDong = @MaHopDong AND MaSinhVien = @MaSinhVien
-                                ORDER BY MaChiTiet DESC
-                            `);
-                        recipientDetail = selected.recordset?.[0]?.MaChiTiet || null;
-                    }
                     await insertStudentNotifications(sql, transaction, {
                         contractId: row.MaHopDong,
                         detailId: recipientDetail,
+                        roomName: body.loaiHoaDon === "DICH_VU_PHONG" ? row.TenPhong : null,
                         title: `Hóa đơn mới ${invoiceId}`,
                         content: `Hóa đơn ${invoiceId} đã được lập, số tiền ${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(Number(row.TongThuc))} đ, hạn đóng ${dateForMessage(row.HanThanhToan)}.${row.CoChiPhiPhatSinh ? " Hóa đơn có bao gồm chi phí phát sinh." : ""} ${cashNotice}`,
                         eventKey: `INVOICE:${invoiceId}`,

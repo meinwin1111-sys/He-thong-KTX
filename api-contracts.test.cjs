@@ -350,7 +350,6 @@ async function withSqlMemberRenewalFixture(memberCount, run, {
         assert.equal(created.status, 201, JSON.stringify(created.body));
         const contractId = created.body.MaHopDong;
         if (allowOverCapacityFixture) {
-            // Model a legacy over-capacity contract while keeping room/class capacities FK-consistent.
             await pool.request()
                 .input("MaHopDong", sql.NVarChar(20), contractId)
                 .query(`
@@ -392,7 +391,10 @@ async function withSqlMemberRenewalFixture(memberCount, run, {
                     WHERE MaHopDong = @MaHopDong;
                 `);
         }
-        const detailResult = await pool.request()
+        const contractIdByStudent = new Map();
+        const detailByStudent = new Map();
+        const invoiceByStudent = new Map();
+        const details = await pool.request()
             .input("MaHopDong", sql.NVarChar(20), contractId)
             .query(`
                 SELECT MaChiTiet, MaSinhVien
@@ -400,15 +402,16 @@ async function withSqlMemberRenewalFixture(memberCount, run, {
                 WHERE MaHopDong = @MaHopDong
                 ORDER BY MaChiTiet
             `);
-        const detailByStudent = new Map(detailResult.recordset.map(row => [
-            row.MaSinhVien, Number(row.MaChiTiet)
-        ]));
-        const invoiceByStudent = new Map(created.body.HoaDonTienPhong.map(item => [
-            item.MaSinhVien, item.MaHoaDon
-        ]));
+        for (const studentId of members) {
+            contractIdByStudent.set(studentId, contractId);
+            const detail = details.recordset.find(row => row.MaSinhVien === studentId);
+            detailByStudent.set(studentId, Number(detail.MaChiTiet));
+            const invoice = created.body.HoaDonTienPhong?.find(item => item.MaSinhVien === studentId);
+            if (invoice) invoiceByStudent.set(studentId, invoice.MaHoaDon);
+        }
         const renewTo = async (studentId, endDate) => {
             const result = await call(
-                "PUT", `/api/HopDong/${contractId}/gia-han`, "Quản lý", null, {
+                "PUT", `/api/HopDong/${contractIdByStudent.get(studentId)}/gia-han`, "Quản lý", null, {
                     maChiTiet: detailByStudent.get(studentId),
                     ngayKetThucMoi: endDate
                 });
@@ -480,6 +483,7 @@ async function withSqlMemberRenewalFixture(memberCount, run, {
 
         return await run({
             pool, fixture, members, detailByStudent, invoiceByStudent, contractId,
+            contractIdByStudent,
             startDate, endDate, todayVN, shiftDate, call, renew, renewTo, renewalState,
             invoiceTotal, payCash, createQrPayment, confirmDemoPayment, sendWebhook
         });
@@ -744,13 +748,13 @@ test("real SQL pending renewal reserves room capacity and over-capacity approval
     }
 }, { roomCapacity: 4, allowOverCapacityFixture: true }));
 
-test("real SQL contract remains active while any member has an effective end date", {
+test("real SQL room contract remains active while another child contract remains", {
     skip: process.env.DB_NAME !== "KTX_Group3_test"
         ? "Only runs when DB_NAME is explicitly set to KTX_Group3_test."
         : false,
     timeout: 120000
 }, async () => withSqlMemberRenewalFixture(2, async context => {
-    const [departingStudent] = context.members;
+    const [departingStudent, remainingStudent] = context.members;
     await context.pool.request()
         .input("MaChiTiet", sql.Int, context.detailByStudent.get(departingStudent))
         .input("NgayRa", sql.Date, context.todayVN)
@@ -758,10 +762,21 @@ test("real SQL contract remains active while any member has an effective end dat
         .input("NguoiThucHien", sql.Int, context.fixture.managerId)
         .execute("dbo.sp_SinhVienRoiHopDong");
     await context.pool.request().execute("dbo.sp_CapNhatHopDong");
-    const contract = await context.pool.request()
+    const contracts = await context.pool.request()
         .input("MaHopDong", sql.NVarChar(20), context.contractId)
-        .query("SELECT TrangThaiHopDong FROM dbo.HopDong WHERE MaHopDong = @MaHopDong");
-    assert.equal(contract.recordset[0].TrangThaiHopDong, "Còn hiệu lực");
+        .query(`
+            SELECT MaHopDong, TrangThaiHopDong
+            FROM dbo.HopDong
+            WHERE MaHopDong = @MaHopDong
+        `);
+    assert.equal(contracts.recordset.length, 1);
+    assert.equal(contracts.recordset[0].TrangThaiHopDong, "Còn hiệu lực");
+    const membership = await context.pool.request()
+        .input("MaChiTiet", sql.Int, context.detailByStudent.get(departingStudent))
+        .query("SELECT TrangThai FROM dbo.ChiTietHopDong WHERE MaChiTiet = @MaChiTiet");
+    assert.equal(membership.recordset[0].TrangThai, "Đã rời");
+    assert.notEqual(context.detailByStudent.get(departingStudent),
+        context.detailByStudent.get(remainingStudent));
 }));
 
 test("real SQL early checkout cancels a pending member renewal and its invoice", {
@@ -1262,7 +1277,7 @@ test("invoice notifications include configured cash-payment guidance without cha
     try {
         const harness = fakeApi({
             queryResult: call => {
-                if (call.statement.includes("SELECT hd.MaHopDong, hd.LoaiHoaDon")) {
+                if (call.statement.includes("SELECT hd.MaHopDong, hd.TenPhong, hd.LoaiHoaDon")) {
                     return { recordset: [{
                         MaHopDong: "HD00001", LoaiHoaDon: "TIEN_PHONG",
                         TongThuc: 1200000, HanThanhToan: "2026-03-08"
@@ -1588,15 +1603,37 @@ test("real SQL Server creates one contract notice and first rent invoice per mem
             maHangPhong: fixture.tierId,
             ngayBatDau: startDate,
             ngayKetThuc: endDate,
-            sinhVien: [
-                { maSinhVien: monthlyStudent, kyHanThanhToanPhong: "THANG", laNguoiDaiDien: true },
-                { maSinhVien: yearlyStudent, kyHanThanhToanPhong: "NAM" }
-            ]
+            sinhVien: [{ maSinhVien: monthlyStudent, kyHanThanhToanPhong: "THANG" }]
         };
         const created = await call("POST", "/api/HopDong", "manager", null, contractBody);
         assert.equal(created.status, 201, JSON.stringify(created.body));
         const contractId = created.body.MaHopDong;
-        assert.equal(created.body.HoaDonTienPhong.length, 2);
+        assert.equal(created.body.HoaDonTienPhong.length, 1);
+        const newParent = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .query(`
+                SELECT hd.MaHopDong, hd.TenPhong, hd.MaHangPhong,
+                       hd.NgayKetThuc, hd.TrangThaiHopDong, p.MaHangPhong AS RoomTier
+                FROM dbo.HopDong hd
+                INNER JOIN dbo.Phong p ON p.TenPhong = hd.TenPhong
+                WHERE hd.MaHopDong = @MaHopDong
+            `);
+        assert.equal(newParent.recordset.length, 1);
+        assert.equal(newParent.recordset[0].TrangThaiHopDong, "Còn hiệu lực");
+        assert.equal(newParent.recordset[0].MaHangPhong, newParent.recordset[0].RoomTier);
+        assert.ok(newParent.recordset[0].NgayKetThuc);
+        const yearlyContract = await call(
+            "POST", `/api/HopDong/${contractId}/chitiet`, "manager", null, {
+                maSinhVien: yearlyStudent,
+                kyHanThanhToanPhong: "NAM",
+                ngayBatDau: startDate,
+                ngayKetThuc: endDate
+            }
+        );
+        assert.equal(yearlyContract.status, 201, JSON.stringify(yearlyContract.body));
+        const yearlyContractId = yearlyContract.body.MaHopDong;
+        assert.equal(yearlyContractId, contractId);
+        assert.equal(yearlyContract.body.HoaDonTienPhong.length, 1);
 
         const firstInvoices = await pool.request()
             .input("MaHopDong", sql.NVarChar(20), contractId)
@@ -1613,21 +1650,26 @@ test("real SQL Server creates one contract notice and first rent invoice per mem
             `);
         assert.equal(firstInvoices.recordset.length, 2);
         const monthlyInvoice = firstInvoices.recordset.find(row => row.MaSinhVien === monthlyStudent);
-        const yearlyInvoice = firstInvoices.recordset.find(row => row.MaSinhVien === yearlyStudent);
-        assert.ok(monthlyInvoice && yearlyInvoice);
+        assert.ok(monthlyInvoice);
         assert.equal(monthlyInvoice.LoaiHoaDon, "TIEN_PHONG");
-        assert.equal(yearlyInvoice.LoaiHoaDon, "TIEN_PHONG");
         assert.ok(firstInvoices.recordset.every(row => row.NgayLap === today));
         assert.equal(Number(monthlyInvoice.TongTien), 1200000);
-        assert.equal(Number(yearlyInvoice.TongTien), 14400000);
         assert.equal(monthlyInvoice.KyThanhToan, `${startDate.slice(0, 7)}-01`);
         assert.equal(monthlyInvoice.KyThanhToanDen,
             new Date(Date.UTC(Number(startDate.slice(0, 4)), Number(startDate.slice(5, 7)), 0))
                 .toISOString().slice(0, 10));
+        assert.ok(firstInvoices.recordset.every(row => row.HanThanhToan === expectedDueDate));
+        const yearlyInvoice = firstInvoices.recordset.find(row => row.MaSinhVien === yearlyStudent);
+        assert.ok(yearlyInvoice);
+        assert.equal(yearlyInvoice.MaSinhVien, yearlyStudent);
+        assert.equal(yearlyInvoice.LoaiHoaDon, "TIEN_PHONG");
+        assert.equal(Number(yearlyInvoice.TongTien), 14400000);
+        assert.equal(yearlyInvoice.NgayLap, today);
+        assert.equal(yearlyInvoice.KyThanhToan, `${startDate.slice(0, 7)}-01`);
         assert.equal(yearlyInvoice.KyThanhToanDen,
             new Date(Date.UTC(Number(startDate.slice(0, 4)), Number(startDate.slice(5, 7)) + 11, 0))
                 .toISOString().slice(0, 10));
-        assert.ok(firstInvoices.recordset.every(row => row.HanThanhToan === expectedDueDate));
+        assert.equal(yearlyInvoice.HanThanhToan, expectedDueDate);
         for (const invoice of firstInvoices.recordset) {
             const invoiceNotice = await pool.request()
                 .input("MaHoaDon", sql.NVarChar(20), invoice.MaHoaDon)
@@ -1666,13 +1708,54 @@ test("real SQL Server creates one contract notice and first rent invoice per mem
         assert.equal(monthlyNotices.body.filter(notice =>
             notice.TieuDe.includes(`Hợp đồng lưu trú ${contractId}`)).length, 1);
         assert.ok(monthlyNotices.body.some(notice => notice.TieuDe.includes(monthlyInvoice.MaHoaDon)));
-        assert.equal(monthlyNotices.body.some(notice => notice.TieuDe.includes(yearlyInvoice.MaHoaDon)), false);
+        assert.equal(monthlyNotices.body.some(notice =>
+            notice.TieuDe.includes(yearlyInvoice.MaHoaDon)
+        ), false);
+        const yearlyNotices = await call("GET", "/api/student/notifications", "student", yearlyStudent);
+        assert.equal(yearlyNotices.status, 200);
+        assert.equal(yearlyNotices.body.filter(notice =>
+            notice.TieuDe.includes(`Hợp đồng lưu trú ${contractId}`)).length, 1);
+        assert.ok(yearlyNotices.body.some(notice => notice.TieuDe.includes(yearlyInvoice.MaHoaDon)));
+
+        const serviceInvoice = await call("POST", "/api/HoaDon/xuat-ky", "manager", null, {
+            loaiHoaDon: "DICH_VU_PHONG",
+            maHopDong: contractId,
+            maSinhVienNop: yearlyStudent,
+            kyThanhToan: `${today.slice(0, 7)}-01`
+        });
+        assert.equal(serviceInvoice.status, 201, JSON.stringify(serviceInvoice.body));
+        const serviceInvoiceId = serviceInvoice.body.MaHoaDon;
+        const serviceRows = await pool.request()
+            .input("TenPhong", sql.NVarChar(50), fixture.roomA)
+            .query(`
+                SELECT MaHoaDon
+                FROM dbo.HoaDon
+                WHERE TenPhong = @TenPhong AND LoaiHoaDon = N'DICH_VU_PHONG'
+                  AND TrangThaiThanhToan <> N'Đã hủy'
+            `);
+        assert.equal(serviceRows.recordset.length, 1);
+        assert.equal(serviceRows.recordset[0].MaHoaDon, serviceInvoiceId);
+        const yearlyServiceInvoice = await call("GET", `/api/HoaDon/${serviceInvoiceId}`, "student", yearlyStudent);
+        assert.equal(yearlyServiceInvoice.status, 200);
+        for (const studentId of [monthlyStudent, yearlyStudent]) {
+            const notices = await call("GET", "/api/student/notifications", "student", studentId);
+            assert.ok(notices.body.some(notice => notice.TieuDe.includes(serviceInvoiceId)));
+        }
+        const duplicateServiceInvoice = await call("POST", "/api/HoaDon/xuat-ky", "manager", null, {
+            loaiHoaDon: "DICH_VU_PHONG",
+            maHopDong: contractId,
+            maSinhVienNop: monthlyStudent,
+            kyThanhToan: `${today.slice(0, 7)}-01`
+        });
+        assert.notEqual(duplicateServiceInvoice.status, 201);
         const unrelatedNotices = await call("GET", "/api/student/notifications", "student", unrelatedStudent);
         assert.equal(unrelatedNotices.status, 200);
         assert.equal(unrelatedNotices.body.some(notice =>
             notice.TieuDe.includes(`Hợp đồng lưu trú ${contractId}`)
+            || notice.TieuDe.includes(`Hợp đồng lưu trú ${yearlyContractId}`)
             || notice.TieuDe.includes(monthlyInvoice.MaHoaDon)
-            || notice.TieuDe.includes(yearlyInvoice.MaHoaDon)), false);
+            || notice.TieuDe.includes(yearlyInvoice.MaHoaDon)
+            || notice.TieuDe.includes(serviceInvoiceId)), false);
 
         const repeatedCreate = await call("POST", "/api/HopDong", "manager", null, contractBody);
         assert.notEqual(repeatedCreate.status, 201);
@@ -1686,8 +1769,22 @@ test("real SQL Server creates one contract notice and first rent invoice per mem
                      WHERE MaSuKien LIKE CONCAT(N'CONTRACT:', @MaHopDong, N':%')) AS ContractNoticeCount,
                     (SELECT COUNT_BIG(*) FROM dbo.ThongBao tb
                      INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = tb.MaHoaDon
-                     WHERE hd.MaHopDong = @MaHopDong AND tb.MaSuKien LIKE N'INVOICE:%') AS InvoiceNoticeCount
+                     WHERE hd.MaHopDong = @MaHopDong AND hd.LoaiHoaDon = N'TIEN_PHONG'
+                       AND tb.MaSuKien LIKE N'INVOICE:%') AS InvoiceNoticeCount
             `);
+        const invoiceBreakdown = await pool.request()
+            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .query(`
+                SELECT MaChiTiet, MaSinhVien, COUNT_BIG(*) AS InvoiceCount
+                FROM dbo.HoaDon
+                WHERE MaHopDong = @MaHopDong AND LoaiHoaDon = N'TIEN_PHONG'
+                GROUP BY MaChiTiet, MaSinhVien
+                ORDER BY MaChiTiet
+            `);
+        assert.equal(invoiceBreakdown.recordset.length, 2);
+        assert.ok(invoiceBreakdown.recordset.every(row => Number(row.InvoiceCount) === 1));
+        assert.deepEqual(invoiceBreakdown.recordset.map(row => row.MaSinhVien).sort(),
+            [monthlyStudent, yearlyStudent].sort());
         assert.equal(Number(afterRepeatedCreate.recordset[0].InvoiceCount), 2);
         assert.equal(Number(afterRepeatedCreate.recordset[0].ContractNoticeCount), 2);
         assert.equal(Number(afterRepeatedCreate.recordset[0].InvoiceNoticeCount), 2);
@@ -1748,25 +1845,31 @@ test("real SQL Server creates one contract notice and first rent invoice per mem
         assert.equal(futureInvoice.recordset[0].NgayLap, today);
         assert.equal(futureInvoice.recordset[0].HanThanhToan, futureStart);
 
-        const addedMember = await call("POST", `/api/HopDong/${contractId}/chitiet`,
-            "manager", null, {
+        const midTermContract = await call(
+            "POST", `/api/HopDong/${contractId}/chitiet`, "manager", null, {
                 maSinhVien: midTermStudent,
                 kyHanThanhToanPhong: "THANG",
-                laNguoiDaiDien: false
-            });
-        assert.equal(addedMember.status, 201, JSON.stringify(addedMember.body));
-        assert.equal(addedMember.body.HoaDonTienPhong.length, 1);
-        const repeatedAdd = await call("POST", `/api/HopDong/${contractId}/chitiet`,
-            "manager", null, {
+                ngayBatDau: startDate,
+                ngayKetThuc: endDate
+            }
+        );
+        assert.equal(midTermContract.status, 201, JSON.stringify(midTermContract.body));
+        const midTermContractId = midTermContract.body.MaHopDong;
+        assert.equal(midTermContractId, contractId);
+        assert.equal(midTermContract.body.HoaDonTienPhong.length, 1);
+        const repeatedAdd = await call(
+            "POST", `/api/HopDong/${contractId}/chitiet`, "manager", null, {
                 maSinhVien: midTermStudent,
                 kyHanThanhToanPhong: "THANG",
-                laNguoiDaiDien: false
-            });
+                ngayBatDau: startDate,
+                ngayKetThuc: endDate
+            }
+        );
         assert.notEqual(repeatedAdd.status, 201);
 
         const finalState = await pool.request()
             .input("MaHopDong", sql.NVarChar(20), contractId)
-            .input("MidTermEvent", sql.NVarChar(100), `CONTRACT:${contractId}:${midTermStudent}`)
+            .input("MidTermEvent", sql.NVarChar(100), `CONTRACT:${midTermContractId}:${midTermStudent}`)
             .input("MidTermStudent", sql.NVarChar(30), midTermStudent)
             .query(`
                 SELECT
@@ -1776,34 +1879,42 @@ test("real SQL Server creates one contract notice and first rent invoice per mem
                      WHERE MaSuKien LIKE CONCAT(N'CONTRACT:', @MaHopDong, N':%')) AS ContractNoticeCount,
                     (SELECT COUNT_BIG(*) FROM dbo.ThongBao tb
                      INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = tb.MaHoaDon
-                     WHERE hd.MaHopDong = @MaHopDong AND tb.MaSuKien LIKE N'INVOICE:%') AS InvoiceNoticeCount,
+                     WHERE hd.MaHopDong = @MaHopDong AND hd.LoaiHoaDon = N'TIEN_PHONG'
+                       AND tb.MaSuKien LIKE N'INVOICE:%') AS InvoiceNoticeCount,
                     (SELECT COUNT_BIG(*) FROM dbo.ThongBao
-                     WHERE MaSuKien = @MidTermEvent AND MaSinhVien = @MidTermStudent) AS NewMemberNoticeCount
+                     WHERE MaSuKien = @MidTermEvent AND MaSinhVien = @MidTermStudent) AS NewMemberNoticeCount,
+                    (SELECT COUNT_BIG(*) FROM dbo.HoaDon
+                     WHERE MaHopDong = @MaHopDong AND LoaiHoaDon = N'TIEN_PHONG') AS TotalInvoiceCount
             `);
         assert.equal(Number(finalState.recordset[0].InvoiceCount), 3);
         assert.equal(Number(finalState.recordset[0].ContractNoticeCount), 3);
         assert.equal(Number(finalState.recordset[0].InvoiceNoticeCount), 3);
         assert.equal(Number(finalState.recordset[0].NewMemberNoticeCount), 1);
+        assert.equal(Number(finalState.recordset[0].TotalInvoiceCount), 3);
 
         const allInvoices = await pool.request()
             .input("MaHopDong", sql.NVarChar(20), contractId)
             .query(`
                 SELECT MaSinhVien, LoaiHoaDon
                 FROM dbo.HoaDon
-                WHERE MaHopDong = @MaHopDong
+                WHERE MaHopDong = @MaHopDong AND LoaiHoaDon = N'TIEN_PHONG'
             `);
         assert.equal(allInvoices.recordset.length, 3);
         assert.ok(allInvoices.recordset.every(row => row.LoaiHoaDon === "TIEN_PHONG"));
         assert.deepEqual(allInvoices.recordset.map(row => row.MaSinhVien).sort(),
             [monthlyStudent, yearlyStudent, midTermStudent].sort());
 
-        for (const studentId of [monthlyStudent, yearlyStudent, midTermStudent]) {
+        for (const [studentId, studentContractId] of [
+            [monthlyStudent, contractId],
+            [yearlyStudent, contractId],
+            [midTermStudent, midTermContractId]
+        ]) {
             const notices = await call("GET", "/api/student/notifications", "student", studentId);
             assert.equal(notices.status, 200);
             assert.equal(notices.body.filter(notice =>
-                notice.TieuDe.includes(`Hợp đồng lưu trú ${contractId}`)).length, 1);
+                notice.TieuDe.includes(`Hợp đồng lưu trú ${studentContractId}`)).length, 1);
         }
-        t.diagnostic("Contract and initial rent notices committed per student; repeat/failure paths added no duplicate rows; monthly, annual, and mid-term rent invoices were TIEN_PHONG.");
+        t.diagnostic("Each child contract has its own TIEN_PHONG invoice and notice under one room contract; idempotency, failure, and notice ownership checks passed.");
     } finally {
         if (server) await new Promise(resolve => server.close(resolve));
         if (fixture) await cleanupSqlIntegrationFixture(pool, sql, fixture);
@@ -1895,6 +2006,8 @@ test("real SQL early checkout uses day-based refunds, concurrency guards, and pe
             });
             return { status: response.status, body: await response.json() };
         };
+        const contractIdByStudent = new Map();
+        const invoiceIds = new Map();
         const contract = await call("POST", "/api/HopDong", "manager", null, {
             tenPhong: fixture.roomA,
             maHangPhong: fixture.tierId,
@@ -1906,7 +2019,12 @@ test("real SQL early checkout uses day-based refunds, concurrency guards, and pe
         });
         assert.equal(contract.status, 201, JSON.stringify(contract.body));
         contractId = contract.body.MaHopDong;
-        const invoiceIds = new Map(contract.body.HoaDonTienPhong.map(item => [item.MaSinhVien, item.MaHoaDon]));
+        for (const maSinhVien of studentIds) {
+            contractIdByStudent.set(maSinhVien, contractId);
+            const invoice = contract.body.HoaDonTienPhong.find(item => item.MaSinhVien === maSinhVien);
+            assert.ok(invoice, `Missing initial rent invoice for ${maSinhVien}.`);
+            invoiceIds.set(maSinhVien, invoice.MaHoaDon);
+        }
         assert.equal(invoiceIds.size, 4);
         await pool.request()
             .input("MaHoaDon", sql.NVarChar(20), invoiceIds.get(paidStudent))
@@ -1979,7 +2097,6 @@ test("real SQL early checkout uses day-based refunds, concurrency guards, and pe
         assert.equal(Number(concurrent.find(result => result.status === 200).body.SoTienHoan), 640000);
         await t.test("real SQL early-checkout cash refund updates its NgayChi month in revenue reports", async () => {
             const cashOut = await pool.request()
-                .input("MaHopDong", sql.NVarChar(20), contractId)
                 .input("MaSinhVien", sql.NVarChar(30), paidStudent)
                 .query(`
                     SELECT pc.MaPhieuChi, pc.NgayChi, YEAR(pc.NgayChi) AS ReportYear,
@@ -1988,7 +2105,7 @@ test("real SQL early checkout uses day-based refunds, concurrency guards, and pe
                     INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = pc.MaChiTiet
                     INNER JOIN dbo.PhieuChi_HoaDon ph ON ph.MaPhieuChi = pc.MaPhieuChi
                     INNER JOIN dbo.HoaDon hd ON hd.MaHoaDon = ph.MaHoaDon
-                    WHERE c.MaHopDong = @MaHopDong AND c.MaSinhVien = @MaSinhVien
+                    WHERE c.MaSinhVien = @MaSinhVien
                       AND pc.LyDo = N'Trả phòng sớm' AND pc.TrangThai = N'Hợp lệ'
                 `);
             assert.equal(cashOut.recordset.length, 1);
@@ -2058,13 +2175,16 @@ test("real SQL early checkout uses day-based refunds, concurrency guards, and pe
         assert.equal(rejected.status, 200, JSON.stringify(rejected.body));
 
         const state = await pool.request()
-            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .input("PaidStudent", sql.NVarChar(30), paidStudent)
+            .input("UnpaidStudent", sql.NVarChar(30), unpaidStudent)
+            .input("PartialStudent", sql.NVarChar(30), partialStudent)
+            .input("RejectedStudent", sql.NVarChar(30), rejectedStudent)
             .query(`
                 SELECT c.MaSinhVien, c.TrangThai, c.NgayRa,
                        (SELECT COUNT_BIG(*) FROM dbo.ChiTietHopDong active
                         WHERE active.MaHopDong = c.MaHopDong AND active.TrangThai = N'Đang ở') AS SoNguoiConO
                 FROM dbo.ChiTietHopDong c
-                WHERE c.MaHopDong = @MaHopDong
+                WHERE c.MaSinhVien IN (@PaidStudent, @UnpaidStudent, @PartialStudent, @RejectedStudent)
             `);
         const memberA = state.recordset.find(row => row.MaSinhVien === paidStudent);
         const memberB = state.recordset.find(row => row.MaSinhVien === unpaidStudent);
@@ -2084,35 +2204,32 @@ test("real SQL early checkout uses day-based refunds, concurrency guards, and pe
         assert.equal(roomState.recordset[0].TrangThaiPhong, "Trống");
 
         const receipts = await pool.request()
-            .input("MaHopDong", sql.NVarChar(20), contractId)
             .input("MaSinhVien", sql.NVarChar(30), paidStudent)
             .query(`
                 SELECT COUNT_BIG(*) AS SoPhieuChi, SUM(pc.SoTien) AS TongHoan
                 FROM dbo.PhieuChi pc
                 INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = pc.MaChiTiet
-                WHERE c.MaHopDong = @MaHopDong AND c.MaSinhVien = @MaSinhVien
+                WHERE c.MaSinhVien = @MaSinhVien
                   AND pc.LyDo = N'Trả phòng sớm'
             `);
         assert.equal(Number(receipts.recordset[0].SoPhieuChi), 1);
         assert.equal(Number(receipts.recordset[0].TongHoan), 640000);
         const noRefund = await pool.request()
-            .input("MaHopDong", sql.NVarChar(20), contractId)
             .input("MaSinhVien", sql.NVarChar(30), unpaidStudent)
             .query(`
                 SELECT COUNT_BIG(*) AS SoPhieuChi FROM dbo.PhieuChi pc
                 INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = pc.MaChiTiet
-                WHERE c.MaHopDong = @MaHopDong AND c.MaSinhVien = @MaSinhVien
+                WHERE c.MaSinhVien = @MaSinhVien
                   AND pc.LyDo = N'Trả phòng sớm'
             `);
         assert.equal(Number(noRefund.recordset[0].SoPhieuChi), 0);
         const partialRefund = await pool.request()
-            .input("MaHopDong", sql.NVarChar(20), contractId)
             .input("MaSinhVien", sql.NVarChar(30), partialStudent)
             .query(`
                 SELECT COUNT_BIG(*) AS SoPhieuChi, SUM(pc.SoTien) AS TongHoan
                 FROM dbo.PhieuChi pc
                 INNER JOIN dbo.ChiTietHopDong c ON c.MaChiTiet = pc.MaChiTiet
-                WHERE c.MaHopDong = @MaHopDong AND c.MaSinhVien = @MaSinhVien
+                WHERE c.MaSinhVien = @MaSinhVien
                   AND pc.LyDo = N'Trả phòng sớm'
             `);
         assert.equal(Number(partialRefund.recordset[0].SoPhieuChi), 1);
@@ -2506,7 +2623,7 @@ test("history is the same handler as contract-member listing", async () => {
     assert.equal(harness.queries[0].inputs.MaHopDong, "HD1");
 });
 
-test("renewal and member-management routes call the member-level renewal procedure", async () => {
+test("renewal and contract-management routes call the member-level renewal procedures", async () => {
     const harness = fakeApi({
         queryResult: call => call.statement.includes("SELECT c.MaChiTiet")
             ? { recordset: [{ MaChiTiet: 9 }] }
@@ -2518,7 +2635,6 @@ test("renewal and member-management routes call the member-level renewal procedu
         ["/api/HopDong/:id/gia-han", { maChiTiet: 9, ngayKetThucMoi: "2028-01-01" }, "dbo.sp_DuyetGiaHan"],
         ["/api/HopDong/:id/ket-thuc", {}, "dbo.sp_KetThucHopDong"],
         ["/api/HopDong/:id/chuyen-phong", { maSinhVien: "SV001", tenPhong: "B101" }, "dbo.sp_ChuyenPhong"],
-        ["/api/HopDong/:id/chitiet", { maSinhVien: "SV002", kyHanThanhToanPhong: "THANG" }, "dbo.sp_ThemSinhVienVaoHopDong"],
         ["/api/HopDong/:id/chitiet/:maChiTiet/roi", {}, "dbo.sp_SinhVienRoiHopDong"]
     ]) {
         const method = url.endsWith("/chitiet") ? "post" : "put";
@@ -2531,6 +2647,41 @@ test("renewal and member-management routes call the member-level renewal procedu
     }
     const leave = harness.queries.find(call => call.statement.includes("UPDATE dbo.SinhVien"));
     assert.equal(leave, undefined);
+});
+
+test("adding a student creates a child contract under the active room contract", async () => {
+    const harness = fakeApi({
+        queryResult: call => call.statement.includes("INNER JOIN dbo.ChiTietHopDong")
+            ? { recordset: [{
+                    MaHopDong: "HD00001", TenPhong: "A101", NgayBatDau: "2026-03-01",
+                    NgayKetThuc: "2027-03-01", MaChiTiet: 9, MaSinhVien: "SV002",
+                    KyHanThanhToanPhong: "NAM", GiaPhongApDung: null,
+                    GiaPhongThangApDung: null, NgayVao: "2026-03-01"
+                }] }
+                : call.statement.includes("SELECT hd.MaHopDong, hd.TenPhong")
+                    ? { recordset: [{ MaHopDong: "HD00001", TenPhong: "A101" }] }
+                : { recordset: [], rowsAffected: [1] }
+    });
+    const result = await invoke(harness, "post", "/api/HopDong/:id/chitiet", {
+        auth: { role: "Quản lý", accountId: 7 },
+        params: { id: "HD00001" },
+        body: {
+            maSinhVien: "SV002",
+            kyHanThanhToanPhong: "NAM",
+            ngayBatDau: "2026-03-01",
+            ngayKetThuc: "2027-03-01"
+        }
+    });
+    assert.equal(result.statusCode, 201);
+    assert.equal(result.body.MaHopDong, "HD00001");
+    const add = harness.executions.find(call => call.procedure === "dbo.sp_ThemSinhVienVaoHopDong");
+    assert.equal(add.inputs.MaHopDong, "HD00001");
+    assert.equal(add.inputs.MaSinhVien, "SV002");
+    assert.equal(add.inputs.KyHanThanhToanPhong, "NAM");
+    assert.equal(add.inputs.NgayVao, "2026-03-01");
+    assert.equal(add.inputs.NgayKetThuc, "2027-03-01");
+    assert.equal(harness.transactions[0].state, "committed");
+    assert.ok(harness.queries.some(call => call.statement.includes("INSERT INTO dbo.ThongBao")));
 });
 
 test("database procedure errors map to Vietnamese 400/409/404 responses", async () => {
@@ -2653,9 +2804,6 @@ test("early checkout processed and ineligible-member SQL errors map to 409", asy
 
 test("missing versus inactive contract/member procedure errors are probed from their tables", async () => {
     for (const { code, route, method, body, params, probeInput, expected } of [
-        { code: 51432, route: "/api/HopDong/:id/chitiet", method: "post",
-            body: { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, params: { id: "HD1" },
-            probeInput: { MaHopDong: "HD1" }, expected: 409 },
         { code: 51436, route: "/api/HopDong/:id/chitiet/:maChiTiet/roi", method: "put",
             body: {}, params: { id: "HD1", maChiTiet: "8" },
             probeInput: { MaChiTiet: 8 }, expected: 409 }
@@ -2716,39 +2864,23 @@ test("member renewal validates MaChiTiet or MSSV and maps a pending renewal to 4
     }
 });
 
-test("contract membership failures use distinct SQL error mappings", async () => {
-    for (const [number, route, method, params, body, expectedStatus, expectedMessage] of [
-        [51461, "/api/HopDong/:id/chitiet", "post", { id: "HD1" },
-            { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, 409, /^Phòng đã đủ sức chứa\.$/],
-        [51459, "/api/HopDong/:id/chitiet", "post", { id: "HD1" },
-            { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, 409, /^Giới tính sinh viên không phù hợp với phòng\.$/],
-        [51460, "/api/HopDong/:id/chitiet", "post", { id: "HD1" },
-            { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, 409, /^Sinh viên đang ở tại phòng hoặc hợp đồng khác\.$/],
-        [51458, "/api/HopDong/:id/chitiet", "post", { id: "HD1" },
-            { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, 404, /^Không tìm thấy sinh viên\.$/],
-        [51432, "/api/HopDong/:id/chitiet", "post", { id: "HD1" },
-            { maSinhVien: "SV1", kyHanThanhToanPhong: "THANG" }, 409, /không còn hiệu lực/]
-    ]) {
-        const harness = fakeApi({
-            queryResult: call => call.statement.includes("SELECT 1 AS TonTai")
-                ? { recordset: [{ TonTai: 1 }] }
-                : { recordset: [] },
-            executeError: () => Object.assign(new Error("procedure error"), { number })
-        });
-        const result = await invoke(harness, method, route, { params, body });
-        assert.equal(result.statusCode, expectedStatus, String(number));
-        assert.match(result.body.message, expectedMessage);
-    }
+test("contract membership endpoint validates dates and payment term for child contracts", async () => {
     const invalid = await invoke(fakeApi(), "post", "/api/HopDong/:id/chitiet", {
         params: { id: "HD1" }, body: { maSinhVien: "SV1", kyHanThanhToanPhong: "QUY" }
     });
     assert.equal(invalid.statusCode, 400);
+    const missingDates = await invoke(fakeApi(), "post", "/api/HopDong/:id/chitiet", {
+        params: { id: "HD1" }, body: { maSinhVien: "SV1", kyHanThanhToanPhong: "NAM" }
+    });
+    assert.equal(missingDates.statusCode, 400);
 });
 
 test("representative changes clear the previous member before setting the new one and log the action", async () => {
     const harness = fakeApi({
-        queryResult: call => call.statement.includes("SELECT c.MaChiTiet, c.MaSinhVien")
-            ? { recordset: [{ MaChiTiet: 22, MaSinhVien: "SV022", TrangThaiHopDong: "Còn hiệu lực" }] }
+        queryResult: call => call.statement.includes("SELECT c.MaChiTiet, c.MaSinhVien, hd.TrangThaiHopDong, hd.TenPhong")
+            ? { recordset: [{ MaChiTiet: 22, MaSinhVien: "SV022", TenPhong: "A101", TrangThaiHopDong: "Còn hiệu lực" }] }
+            : call.statement.includes("SELECT TenPhong FROM dbo.Phong")
+                ? { recordset: [{ TenPhong: "A101" }] }
             : { recordset: [], rowsAffected: [1] }
     });
     const result = await invoke(harness, "put", "/api/HopDong/:id/dai-dien", {
@@ -2976,7 +3108,8 @@ test("student creation and room changes assign through contract procedures, neve
         }
     });
     assert.equal(created.statusCode, 201);
-    assert(harness.executions.some(call => call.procedure === "dbo.sp_ThemSinhVienVaoHopDong"));
+    assert(harness.executions.some(call => call.procedure === "dbo.sp_TaoHopDong"));
+    assert.equal(harness.executions.some(call => call.procedure === "dbo.sp_ThemSinhVienVaoHopDong"), false);
     assert(harness.executions.some(call => call.procedure === "dbo.sp_TaoHoaDonTienPhong"));
     assert(harness.queries.some(call => call.inputs.MaSuKien === "CONTRACT:HD00001:012345678901"));
     const insertStudent = harness.queries.find(call => call.statement.includes("INSERT INTO dbo.SinhVien"));
@@ -3544,7 +3677,7 @@ test("service invoice creation requires each active meter reading before calling
     }]);
 });
 
-test("real SQL Server concurrency: two HTTP membership requests compete for one remaining place", {
+test("real SQL Server concurrency: child contracts compete for one remaining room place", {
     skip: process.env.DB_NAME !== "KTX_Group3_test"
         ? "Only runs when DB_NAME is explicitly set to KTX_Group3_test."
         : false
@@ -3564,7 +3697,9 @@ test("real SQL Server concurrency: two HTTP membership requests compete for one 
     }).connect();
     let server;
     let fixture;
-    let contractId;
+    const contractIds = [];
+    const contractIdByStudent = new Map();
+    const detailByStudent = new Map();
     const studentIds = [];
     try {
         const identity = await pool.request().query("SELECT DB_NAME() AS DatabaseName");
@@ -3595,55 +3730,96 @@ test("real SQL Server concurrency: two HTTP membership requests compete for one 
         const baseUrl = `http://127.0.0.1:${server.address().port}`;
         const startDate = new Date().toISOString().slice(0, 10);
         const endDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        const createResponse = await fetch(`${baseUrl}/api/HopDong`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-            tenPhong: fixture.roomA, maHangPhong: fixture.tierId, ngayBatDau: startDate, ngayKetThuc: endDate,
-                sinhVien: studentIds.slice(0, 3).map((maSinhVien, index) => ({
-                    maSinhVien, kyHanThanhToanPhong: "THANG", laNguoiDaiDien: index === 0
-                }))
-            })
-        });
-        const contractResponse = await createResponse.json();
-        assert.equal(createResponse.status, 201, JSON.stringify(contractResponse));
-        contractId = contractResponse.MaHopDong;
+        const createRoomContract = async maSinhVienList => {
+            const response = await fetch(`${baseUrl}/api/HopDong`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    tenPhong: fixture.roomA,
+                    maHangPhong: fixture.tierId,
+                    ngayBatDau: startDate,
+                    ngayKetThuc: endDate,
+                    sinhVien: maSinhVienList.map((maSinhVien, index) => ({
+                        maSinhVien, kyHanThanhToanPhong: "THANG", laNguoiDaiDien: index === 0
+                    }))
+                })
+            });
+            return { status: response.status, body: await response.json() };
+        };
+        const addStudent = async maSinhVien => {
+            const response = await fetch(`${baseUrl}/api/HopDong/${contractIds[0]}/chitiet`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    maSinhVien,
+                    kyHanThanhToanPhong: "THANG",
+                    ngayBatDau: startDate,
+                    ngayKetThuc: endDate
+                })
+            });
+            return { status: response.status, body: await response.json() };
+        };
+        const created = await createRoomContract(studentIds.slice(0, 3));
+        assert.equal(created.status, 201, JSON.stringify(created.body));
+        const roomContractId = created.body.MaHopDong;
+        contractIds.push(roomContractId);
+        for (const studentId of studentIds.slice(0, 3)) {
+            const contractId = roomContractId;
+            contractIdByStudent.set(studentId, contractId);
+            const detail = await pool.request()
+                .input("MaHopDong", sql.NVarChar(20), contractId)
+                .input("MaSinhVien", sql.NVarChar(30), studentId)
+                .query(`
+                    SELECT TOP (1) MaChiTiet, MaSinhVien, NgayVao
+                    FROM dbo.ChiTietHopDong
+                    WHERE MaHopDong = @MaHopDong AND MaSinhVien = @MaSinhVien
+                      AND TrangThai = N'Đang ở'
+                    ORDER BY MaChiTiet
+                `);
+            detailByStudent.set(studentId, detail.recordset[0]);
+        }
 
         const members = await pool.request()
-            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .input("TenPhong", sql.NVarChar(50), fixture.roomA)
             .query(`
-                SELECT MaChiTiet, MaSinhVien, NgayVao
-                FROM dbo.ChiTietHopDong
-                WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
-                ORDER BY NgayVao, MaChiTiet
+                SELECT c.MaChiTiet, c.MaSinhVien, c.NgayVao, hd.MaHopDong
+                FROM dbo.ChiTietHopDong c
+                INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                WHERE hd.TenPhong = @TenPhong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                  AND c.TrangThai = N'Đang ở'
+                ORDER BY c.NgayVao, c.MaChiTiet
             `);
         const memberA = members.recordset.find(member => member.MaSinhVien === studentIds[0]);
         const memberB = members.recordset.find(member => member.MaSinhVien === studentIds[1]);
         assert(memberA && memberB, "Both representative test members must be present.");
         const initialRepresentative = await pool.request()
-            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .input("TenPhong", sql.NVarChar(50), fixture.roomA)
             .query(`
-                SELECT MaSinhVien, COUNT_BIG(*) OVER () AS SoDaiDien
-                FROM dbo.ChiTietHopDong
-                WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
-                  AND LaNguoiDaiDienThanhToanDichVu = 1
+                SELECT c.MaSinhVien, COUNT_BIG(*) OVER () AS SoDaiDien
+                FROM dbo.ChiTietHopDong c
+                INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                WHERE hd.TenPhong = @TenPhong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                  AND c.TrangThai = N'Đang ở'
+                  AND c.LaNguoiDaiDienThanhToanDichVu = 1
             `);
         assert.equal(Number(initialRepresentative.recordset[0]?.SoDaiDien), 1);
         assert.equal(initialRepresentative.recordset[0]?.MaSinhVien, studentIds[0]);
 
-        const changeRepresentativeResponse = await fetch(`${baseUrl}/api/HopDong/${contractId}/dai-dien`, {
+        const changeRepresentativeResponse = await fetch(`${baseUrl}/api/HopDong/${roomContractId}/dai-dien`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ maChiTiet: memberB.MaChiTiet })
         });
         assert.equal(changeRepresentativeResponse.status, 200);
         const representativeAfterChange = await pool.request()
-            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .input("TenPhong", sql.NVarChar(50), fixture.roomA)
             .query(`
-                SELECT MaSinhVien, COUNT_BIG(*) OVER () AS SoDaiDien
-                FROM dbo.ChiTietHopDong
-                WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
-                  AND LaNguoiDaiDienThanhToanDichVu = 1
+                SELECT c.MaSinhVien, COUNT_BIG(*) OVER () AS SoDaiDien
+                FROM dbo.ChiTietHopDong c
+                INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                WHERE hd.TenPhong = @TenPhong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                  AND c.TrangThai = N'Đang ở'
+                  AND c.LaNguoiDaiDienThanhToanDichVu = 1
             `);
         assert.equal(Number(representativeAfterChange.recordset[0]?.SoDaiDien), 1);
         assert.equal(representativeAfterChange.recordset[0]?.MaSinhVien, studentIds[1]);
@@ -3655,19 +3831,21 @@ test("real SQL Server concurrency: two HTTP membership requests compete for one 
             .filter(member => member.MaSinhVien !== studentIds[1])
             .sort((left, right) => left.NgayVao - right.NgayVao || left.MaChiTiet - right.MaChiTiet)[0]
             .MaSinhVien;
-        const leaveResponse = await fetch(`${baseUrl}/api/HopDong/${contractId}/chitiet/${memberB.MaChiTiet}/roi`, {
+        const leaveResponse = await fetch(`${baseUrl}/api/HopDong/${roomContractId}/chitiet/${memberB.MaChiTiet}/roi`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({})
         });
         assert.equal(leaveResponse.status, 200);
         const representativeAfterLeave = await pool.request()
-            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .input("TenPhong", sql.NVarChar(50), fixture.roomA)
             .query(`
-                SELECT MaSinhVien, COUNT_BIG(*) OVER () AS SoDaiDien
-                FROM dbo.ChiTietHopDong
-                WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
-                  AND LaNguoiDaiDienThanhToanDichVu = 1
+                SELECT c.MaSinhVien, COUNT_BIG(*) OVER () AS SoDaiDien
+                FROM dbo.ChiTietHopDong c
+                INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                WHERE hd.TenPhong = @TenPhong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                  AND c.TrangThai = N'Đang ở'
+                  AND c.LaNguoiDaiDienThanhToanDichVu = 1
             `);
         assert.equal(Number(representativeAfterLeave.recordset[0]?.SoDaiDien), 1);
         assert.equal(representativeAfterLeave.recordset[0]?.MaSinhVien, expectedRepresentativeAfterLeave);
@@ -3675,30 +3853,23 @@ test("real SQL Server concurrency: two HTTP membership requests compete for one 
             `Representative after B leaves: student ${studentIds.indexOf(representativeAfterLeave.recordset[0].MaSinhVien) + 1}.`
         );
 
-        const addOne = await fetch(`${baseUrl}/api/HopDong/${contractId}/chitiet`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ maSinhVien: studentIds[3], kyHanThanhToanPhong: "THANG" })
-        });
-        assert.equal(addOne.status, 201);
+        const added = await addStudent(studentIds[3]);
+        assert.equal(added.status, 201, JSON.stringify(added.body));
+        contractIdByStudent.set(studentIds[3], roomContractId);
 
-        const concurrent = await Promise.all(studentIds.slice(4).map(maSinhVien => fetch(
-            `${baseUrl}/api/HopDong/${contractId}/chitiet`,
-            {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ maSinhVien, kyHanThanhToanPhong: "THANG" })
-            }
-        ).then(async response => ({ status: response.status, body: await response.json() }))));
-        console.log(`[B4 concurrent] ${JSON.stringify(concurrent)}`);
+        const concurrent = await Promise.all(studentIds.slice(4).map(addStudent));
         assert.equal(concurrent.filter(result => result.status === 201).length, 1);
         assert.equal(concurrent.filter(result => result.status === 409).length, 1);
+        assert.ok(concurrent.filter(result => result.status === 201)
+            .every(result => result.body.MaHopDong === roomContractId));
         const finalCount = await pool.request()
-            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .input("TenPhong", sql.NVarChar(50), fixture.roomA)
             .query(`
                 SELECT COUNT_BIG(*) AS SoThanhVien
-                FROM dbo.ChiTietHopDong
-                WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
+                FROM dbo.ChiTietHopDong c
+                INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                WHERE hd.TenPhong = @TenPhong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                  AND c.TrangThai = N'Đang ở'
             `);
         assert.equal(Number(finalCount.recordset[0].SoThanhVien), 4);
         t.diagnostic(`Concurrent API responses: ${JSON.stringify(concurrent)}`);
@@ -3708,7 +3879,7 @@ test("real SQL Server concurrency: two HTTP membership requests compete for one 
             const cleanup = new sql.Transaction(pool);
             await cleanup.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
             try {
-                if (contractId) {
+                for (const contractId of contractIds) {
                     await deleteContractInvoices(cleanup, sql, contractId);
                     await new sql.Request(cleanup)
                         .input("MaHopDong", sql.NVarChar(20), contractId)
@@ -3862,15 +4033,17 @@ test("real SQL registration, login, room-gender contracts and wrong-gender rejec
 
         const startDate = new Date().toISOString().slice(0, 10);
         const endDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        const createContract = async (room, students) => {
+        const createContract = async (room, members) => {
             const response = await fetch(`${baseUrl}/api/HopDong`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     tenPhong: room, maHangPhong: fixture.tierId,
                     ngayBatDau: startDate, ngayKetThuc: endDate,
-                    sinhVien: students.map(student => ({
-                        maSinhVien: student.studentId, kyHanThanhToanPhong: "THANG"
+                    sinhVien: members.map((student, index) => ({
+                        maSinhVien: student.studentId,
+                        kyHanThanhToanPhong: "THANG",
+                        laNguoiDaiDien: index === 0
                     }))
                 })
             });
@@ -3879,13 +4052,15 @@ test("real SQL registration, login, room-gender contracts and wrong-gender rejec
         const wrongGender = await createContract(fixture.roomA, [registrationInputs[2]]);
         assert.equal(wrongGender.status, 409);
         assert.equal(wrongGender.body.message, "Giới tính sinh viên không phù hợp với phòng.");
-        const maleContract = await createContract(fixture.roomA, registrationInputs.slice(0, 2));
-        assert.equal(maleContract.status, 201, JSON.stringify(maleContract.body));
-        contractIds.push(maleContract.body.MaHopDong);
-        const femaleContract = await createContract(fixture.roomB, registrationInputs.slice(2));
-        assert.equal(femaleContract.status, 201, JSON.stringify(femaleContract.body));
-        contractIds.push(femaleContract.body.MaHopDong);
-        t.diagnostic(`Registered 4 students through HTTP (2 Nam, 2 Nữ); login token scoped to ${firstStudent.studentId}; two matching-gender room contracts created; wrong-gender HTTP response=${wrongGender.status}/${wrongGender.body.message}.`);
+        for (const [room, members] of [
+            [fixture.roomA, registrationInputs.slice(0, 2)],
+            [fixture.roomB, registrationInputs.slice(2)]
+        ]) {
+            const result = await createContract(room, members);
+            assert.equal(result.status, 201, JSON.stringify(result.body));
+            contractIds.push(result.body.MaHopDong);
+        }
+        t.diagnostic(`Registered 4 students through HTTP (2 Nam, 2 Nữ); login token scoped to ${firstStudent.studentId}; two room contracts contain four student child contracts; wrong-gender response=${wrongGender.status}/${wrongGender.body.message}.`);
     } finally {
         if (server) await new Promise(resolve => server.close(resolve));
         if (pool.connected) {
@@ -3957,7 +4132,7 @@ test("real SQL Server contract APIs distinguish missing, wrong-gender, occupied,
     let fixture;
     let roomC;
     const studentIds = [];
-    let contractId;
+    const contractIds = [];
     try {
         const identity = await pool.request().query("SELECT DB_NAME() AS DatabaseName");
         assert.equal(identity.recordset[0].DatabaseName, "KTX_Group3_test");
@@ -4007,50 +4182,56 @@ test("real SQL Server contract APIs distinguish missing, wrong-gender, occupied,
         const baseUrl = `http://127.0.0.1:${server.address().port}`;
         const startDate = new Date().toISOString().slice(0, 10);
         const endDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        const createContract = async (room, students) => {
+        const createContract = async (room, members) => {
             const response = await fetch(`${baseUrl}/api/HopDong`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     tenPhong: room, maHangPhong: fixture.tierId,
                     ngayBatDau: startDate, ngayKetThuc: endDate,
-                    sinhVien: students.map(maSinhVien => ({
-                        maSinhVien, kyHanThanhToanPhong: "THANG"
+                    sinhVien: (Array.isArray(members) ? members : [members]).map((maSinhVien, index) => ({
+                        maSinhVien, kyHanThanhToanPhong: "THANG", laNguoiDaiDien: index === 0
                     }))
                 })
             });
             return { status: response.status, body: await response.json() };
         };
-        const missing = await createContract(fixture.roomA, ["NO_SUCH_STUDENT"]);
+        const missing = await createContract(fixture.roomA, "NO_SUCH_STUDENT");
         assert.equal(missing.status, 404);
         assert.equal(missing.body.message, "Không tìm thấy sinh viên.");
-        const wrongGender = await createContract(fixture.roomA, [femaleStudent]);
+        const wrongGender = await createContract(fixture.roomA, femaleStudent);
         assert.equal(wrongGender.status, 409);
         assert.equal(wrongGender.body.message, "Giới tính sinh viên không phù hợp với phòng.");
 
         const created = await createContract(fixture.roomA, fixture.studentIds);
         assert.equal(created.status, 201, JSON.stringify(created.body));
-        contractId = created.body.MaHopDong;
-        const full = await fetch(`${baseUrl}/api/HopDong/${encodeURIComponent(contractId)}/chitiet`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ maSinhVien: overflowStudent, kyHanThanhToanPhong: "THANG" })
-        });
-        const fullBody = await full.json();
+        contractIds.push(created.body.MaHopDong);
+        const fullResponse = await fetch(
+            `${baseUrl}/api/HopDong/${created.body.MaHopDong}/chitiet`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    maSinhVien: overflowStudent,
+                    kyHanThanhToanPhong: "THANG",
+                    ngayBatDau: startDate,
+                    ngayKetThuc: endDate
+                })
+            });
+        const full = { status: fullResponse.status, body: await fullResponse.json() };
         assert.equal(full.status, 409);
-        assert.equal(fullBody.message, "Phòng đã đủ sức chứa.");
+        assert.equal(full.body.message, "Phòng đã đủ sức chứa.");
 
-        const occupiedElsewhere = await createContract(roomC, [fixture.studentIds[0]]);
+        const occupiedElsewhere = await createContract(roomC, fixture.studentIds[0]);
         assert.equal(occupiedElsewhere.status, 409);
         assert.equal(occupiedElsewhere.body.message, "Sinh viên đang ở tại phòng hoặc hợp đồng khác.");
-        t.diagnostic(`SQL-backed HTTP results: missing=${missing.status}/${missing.body.message}; wrong-gender=${wrongGender.status}/${wrongGender.body.message}; full=${full.status}/${fullBody.message}; occupied=${occupiedElsewhere.status}/${occupiedElsewhere.body.message}`);
+        t.diagnostic(`SQL-backed HTTP results: missing=${missing.status}/${missing.body.message}; wrong-gender=${wrongGender.status}/${wrongGender.body.message}; full=${full.status}/${full.body.message}; occupied=${occupiedElsewhere.status}/${occupiedElsewhere.body.message}`);
     } finally {
         if (server) await new Promise(resolve => server.close(resolve));
         if (pool.connected) {
             const cleanup = new sql.Transaction(pool);
             await cleanup.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
             try {
-                if (contractId) {
+                for (const contractId of contractIds) {
                     await deleteContractInvoices(cleanup, sql, contractId);
                     await new sql.Request(cleanup).input("MaHopDong", sql.NVarChar(20), contractId)
                         .query("DELETE FROM dbo.ChiTietHopDong WHERE MaHopDong = @MaHopDong");
@@ -5218,13 +5399,12 @@ test("real SQL Server serializes concurrent exact QR requests and duplicate webh
             maHangPhong: fixture.tierId,
             ngayBatDau: period,
             ngayKetThuc: contractEnd,
-            sinhVien: [studentA, studentB].map((maSinhVien, index) => ({
-                maSinhVien,
-                kyHanThanhToanPhong: "THANG",
-                laNguoiDaiDien: index === 0
+            sinhVien: [studentA, studentB].map(maSinhVien => ({
+                maSinhVien, kyHanThanhToanPhong: "THANG"
             }))
         });
         assert.equal(contract.status, 201, JSON.stringify(contract.body));
+        const contracts = [contract.body];
         const roundResults = [];
 
         for (let round = 0; round < 5; round += 1) {
@@ -5233,7 +5413,7 @@ test("real SQL Server serializes concurrent exact QR requests and duplicate webh
             const invoicePeriod = invoicePeriodDate.toISOString().slice(0, 10);
             const invoiceResponse = await call("POST", "/api/HoaDon/xuat-ky", "manager", null, {
                 loaiHoaDon: "DICH_VU_PHONG",
-                maHopDong: contract.body.MaHopDong,
+                maHopDong: contracts[0].MaHopDong,
                 kyThanhToan: invoicePeriod
             });
             assert.equal(invoiceResponse.status, 201,
@@ -5393,19 +5573,23 @@ test("real SQL Server overdue reminders use invoice scope, audit sender, recheck
             });
             return { status: response.status, body: await response.json() };
         };
-        const contractResponse = await call("POST", "/api/HopDong", "manager", null, {
+        const rentInvoicesByStudent = new Map();
+        const roomContract = await call("POST", "/api/HopDong", "manager", null, {
             tenPhong: fixture.roomA,
             maHangPhong: fixture.tierId,
             ngayBatDau: periodText,
             ngayKetThuc: endDate,
-            sinhVien: [departedStudent, activeStudentA, activeStudentB].map((maSinhVien, index) => ({
-                maSinhVien, kyHanThanhToanPhong: "THANG", laNguoiDaiDien: index === 0
+            sinhVien: [departedStudent, activeStudentA, activeStudentB].map(maSinhVien => ({
+                maSinhVien, kyHanThanhToanPhong: "THANG"
             }))
         });
-        assert.equal(contractResponse.status, 201, JSON.stringify(contractResponse.body));
-        const contractId = contractResponse.body.MaHopDong;
-        const rentInvoicesByStudent = new Map((contractResponse.body.HoaDonTienPhong || [])
-            .map(invoice => [invoice.MaSinhVien, invoice.MaHoaDon]));
+        assert.equal(roomContract.status, 201, JSON.stringify(roomContract.body));
+        for (const studentId of [departedStudent, activeStudentA, activeStudentB]) {
+            const invoice = roomContract.body.HoaDonTienPhong
+                .find(item => item.MaSinhVien === studentId);
+            if (invoice) rentInvoicesByStudent.set(studentId, invoice.MaHoaDon);
+        }
+        const contractId = roomContract.body.MaHopDong;
         assert.equal(rentInvoicesByStudent.size, 3);
         const otherContractResponse = await call("POST", "/api/HopDong", "manager", null, {
             tenPhong: fixture.roomB,
@@ -5419,11 +5603,14 @@ test("real SQL Server overdue reminders use invoice scope, audit sender, recheck
             .find(invoice => invoice.MaSinhVien === otherRoomStudent)?.MaHoaDon;
         assert.ok(otherRentInvoiceId);
         const detailsResult = await pool.request()
-            .input("MaHopDong", sql.NVarChar(20), contractId)
+            .input("TenPhong", sql.NVarChar(50), fixture.roomA)
             .query(`
-                SELECT MaChiTiet, MaSinhVien
-                FROM dbo.ChiTietHopDong
-                WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
+                SELECT c.MaChiTiet, c.MaSinhVien
+                FROM dbo.ChiTietHopDong c
+                INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                WHERE hd.TenPhong = @TenPhong
+                  AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                  AND c.TrangThai = N'Đang ở'
             `);
         const details = new Map(detailsResult.recordset.map(row => [row.MaSinhVien, row.MaChiTiet]));
         const otherDetailsResult = await pool.request()
@@ -5709,13 +5896,14 @@ test("real SQL Server QR demo records one valid receipt and blocks repeat or alr
             maHangPhong: fixture.tierId,
             ngayBatDau: periodText,
             ngayKetThuc: endDate,
-            sinhVien: [studentA, studentB].map((maSinhVien, index) => ({
-                maSinhVien, kyHanThanhToanPhong: "THANG", laNguoiDaiDien: index === 0
+            sinhVien: [studentA, studentB].map(maSinhVien => ({
+                maSinhVien, kyHanThanhToanPhong: "THANG"
             }))
         });
         assert.equal(contract.status, 201, JSON.stringify(contract.body));
         const invoiceIds = new Map((contract.body.HoaDonTienPhong || [])
             .map(invoice => [invoice.MaSinhVien, invoice.MaHoaDon]));
+        assert.equal(invoiceIds.size, 2);
         assert.equal(invoiceIds.size, 2);
         for (const studentId of [studentA, studentB]) {
             const invoiceId = invoiceIds.get(studentId);

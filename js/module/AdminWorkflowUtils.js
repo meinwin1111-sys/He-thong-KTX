@@ -509,23 +509,20 @@
     }
 
     function contractRoomSelection(roomName, contracts) {
-        const roomContracts = (contracts || []).filter(contract =>
-            contract.TenPhong === roomName && contract.TrangThaiHopDong === "Còn hiệu lực"
-        );
-        if (roomContracts.length > 1) return { mode: "invalid", contract: null };
-        return roomContracts.length === 1
-            ? { mode: "add-member", contract: roomContracts[0] }
-            : { mode: "create-contract", contract: null };
+        const roomContracts = (contracts || []).filter(item =>
+            item.TenPhong === roomName && item.TrangThaiHopDong === "Còn hiệu lực");
+        if (roomContracts.length > 1) return { mode: "conflict", contract: null };
+        const contract = roomContracts[0] || null;
+        return {
+            mode: contract ? "add-member" : "create-contract",
+            contract
+        };
     }
 
     function contractRoomAvailability(rooms, contracts) {
         const occupied = new Map();
-        const activeContracts = new Map();
         for (const contract of contracts || []) {
             if (contract.TrangThaiHopDong !== "Còn hiệu lực") continue;
-            const roomContracts = activeContracts.get(contract.TenPhong) || [];
-            roomContracts.push(contract);
-            activeContracts.set(contract.TenPhong, roomContracts);
             for (const member of contract.sinhVien || []) {
                 if (member.TrangThai !== "Đang ở") continue;
                 occupied.set(contract.TenPhong, (occupied.get(contract.TenPhong) || 0) + 1);
@@ -535,16 +532,13 @@
             .filter(room => !["Bảo trì", "Ngưng sử dụng"].includes(room.TrangThaiPhong))
             .map(room => {
                 const currentOccupants = occupied.get(room.TenPhong) || 0;
-                const contractsForRoom = activeContracts.get(room.TenPhong) || [];
                 return {
                     ...room,
                     currentOccupants,
                     availableSeats: Math.max(0, Number(room.SucChuaToiDa || 0) - currentOccupants),
-                    activeContract: contractsForRoom.length === 1 ? contractsForRoom[0] : null,
-                    activeContractAmbiguous: contractsForRoom.length > 1
                 };
             })
-            .filter(room => room.availableSeats > 0 && !room.activeContractAmbiguous)
+            .filter(room => room.availableSeats > 0)
             .sort((left, right) => left.availableSeats - right.availableSeats
                 || String(left.TenPhong || "").localeCompare(String(right.TenPhong || ""), "vi"));
     }
@@ -556,7 +550,6 @@
         if (!gender || selected.some(student => String(student.GioiTinh || "").trim() !== gender)) return [];
         return contractRoomAvailability(rooms, contracts).filter(room =>
             String(room.LoaiPhong || "").trim() === gender && room.availableSeats >= selected.length
-            && (selected.length === 1 || !room.activeContract)
         );
     }
 

@@ -80,14 +80,14 @@ async function insertContractInvoiceNotice(sql, transaction, {
 }
 
 async function notifyContractAndCreateFirstInvoices(sql, transaction, {
-    contractId, creatorId, invoiceStudentIds = null, invoicePeriodDate
+    contractId, creatorId, notificationStudentIds = null, invoiceStudentIds = null, invoicePeriodDate
 }) {
     const result = await new sql.Request(transaction)
         .input("MaHopDong", sql.NVarChar(20), contractId)
         .query(`
             SELECT hd.MaHopDong, hd.TenPhong,
-                   CONVERT(nvarchar(10), hd.NgayBatDau, 23) AS NgayBatDau,
-                   CONVERT(nvarchar(10), hd.NgayKetThuc, 23) AS NgayKetThuc,
+                   CONVERT(nvarchar(10), c.NgayVao, 23) AS NgayBatDau,
+                   CONVERT(nvarchar(10), COALESCE(c.NgayKetThuc, hd.NgayKetThuc), 23) AS NgayKetThuc,
                    c.MaChiTiet, c.MaSinhVien, c.KyHanThanhToanPhong,
                    c.GiaPhongApDung, c.GiaPhongThangApDung,
                    CONVERT(nvarchar(10), c.NgayVao, 23) AS NgayVao
@@ -116,10 +116,13 @@ async function notifyContractAndCreateFirstInvoices(sql, transaction, {
     if (!senderId) throw new Error("Không tìm thấy tài khoản Quản lý để gửi thông báo hợp đồng.");
 
     const today = vietnamDateOnly();
+    const notificationStudentSet = notificationStudentIds
+        ? new Set(notificationStudentIds) : null;
     const invoiceStudentSet = invoiceStudentIds ? new Set(invoiceStudentIds) : null;
     const invoices = [];
     const warnings = [];
     for (const member of result.recordset) {
+        if (notificationStudentSet && !notificationStudentSet.has(member.MaSinhVien)) continue;
         const dueDate = initialContractDueDate(member.NgayBatDau, today);
         await insertContractNotice(sql, transaction, {
             contractId,
@@ -131,7 +134,6 @@ async function notifyContractAndCreateFirstInvoices(sql, transaction, {
             dueDate
         });
 
-        if (invoiceStudentSet && !invoiceStudentSet.has(member.MaSinhVien)) continue;
         const amount = member.KyHanThanhToanPhong === "NAM"
             ? Number(member.GiaPhongApDung)
             : Number(member.GiaPhongThangApDung);
@@ -140,7 +142,8 @@ async function notifyContractAndCreateFirstInvoices(sql, transaction, {
             continue;
         }
 
-        const periodDate = invoicePeriodDate || member.NgayBatDau;
+        if (invoiceStudentSet && !invoiceStudentSet.has(member.MaSinhVien)) continue;
+        const periodDate = invoicePeriodDate || member.NgayVao || member.NgayBatDau;
         const period = firstDayOfMonth(periodDate);
         const invoiceResult = await new sql.Request(transaction)
             .input("MaChiTiet", sql.Int, member.MaChiTiet)
@@ -518,6 +521,38 @@ function registerApiRoutes(app, {
             request.input("MaHoaDon", sql.NVarChar(20), filters.MaHoaDon);
         }
         await request.execute("dbo.sp_HuyGiaHanQuaHan");
+    }
+
+    async function ensureRoomServiceRepresentative(transaction, roomName) {
+        const lockedRoom = await new sql.Request(transaction)
+            .input("TenPhong", sql.NVarChar(50), roomName)
+            .query("SELECT TenPhong FROM dbo.Phong WITH (UPDLOCK, HOLDLOCK) WHERE TenPhong = @TenPhong");
+        if (!lockedRoom.recordset.length) throw new Error(`Không tìm thấy phòng ${roomName} khi cập nhật đại diện.`);
+        const candidate = await new sql.Request(transaction)
+            .input("TenPhong", sql.NVarChar(50), roomName)
+            .query(`
+                SELECT TOP (1) c.MaChiTiet
+                FROM dbo.ChiTietHopDong c
+                INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                WHERE hd.TenPhong = @TenPhong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                  AND c.TrangThai = N'Đang ở'
+                ORDER BY CASE WHEN c.LaNguoiDaiDienThanhToanDichVu = 1 THEN 0 ELSE 1 END,
+                         c.NgayVao, c.MaChiTiet
+            `);
+        const detailId = candidate.recordset[0]?.MaChiTiet;
+        if (!detailId) return;
+        await new sql.Request(transaction)
+            .input("TenPhong", sql.NVarChar(50), roomName)
+            .input("MaChiTietDaiDien", sql.Int, detailId)
+            .query(`
+                UPDATE c
+                SET LaNguoiDaiDienThanhToanDichVu =
+                    CASE WHEN c.MaChiTiet = @MaChiTietDaiDien THEN 1 ELSE 0 END
+                FROM dbo.ChiTietHopDong c
+                INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                WHERE hd.TenPhong = @TenPhong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                  AND c.TrangThai = N'Đang ở';
+            `);
     }
 
     app.post("/api/student/register", createRegistrationHandler({
@@ -1000,11 +1035,14 @@ function registerApiRoutes(app, {
                     .input("NgayDeXuat", sql.Date, extensionEndDate)
                     .query(`
                         SELECT TOP (1) c.MaChiTiet, CONVERT(char(10), c.NgayVao, 23) AS NgayVao,
-                               h.MaHopDong, CONVERT(char(10), h.NgayKetThuc, 23) AS NgayKetThuc,
+                               h.MaHopDong,
+                               CONVERT(char(10), effectiveEnd.NgayKetThucHieuLuc, 23) AS NgayKetThuc,
                                sv.TenPhong,
                                CONVERT(char(10), DATEADD(hour, 7, SYSUTCDATETIME()), 23) AS HomNayVN
                         FROM dbo.ChiTietHopDong c WITH (UPDLOCK, HOLDLOCK)
                         INNER JOIN dbo.HopDong h WITH (UPDLOCK, HOLDLOCK) ON h.MaHopDong = c.MaHopDong
+                        INNER JOIN dbo.vw_NgayKetThucHieuLucThanhVien effectiveEnd
+                            ON effectiveEnd.MaChiTiet = c.MaChiTiet
                         INNER JOIN dbo.SinhVien sv ON sv.MaSinhVien = c.MaSinhVien
                         WHERE c.MaSinhVien = @MaSinhVien
                           AND c.TrangThai = N'Đang ở'
@@ -1031,9 +1069,11 @@ function registerApiRoutes(app, {
                     SELECT sv.TenPhong, hd.NgayKetThuc
                     FROM dbo.SinhVien sv WITH (UPDLOCK, HOLDLOCK)
                     OUTER APPLY (
-                        SELECT TOP (1) NgayKetThuc
+                        SELECT TOP (1) effectiveEnd.NgayKetThucHieuLuc AS NgayKetThuc
                         FROM dbo.ChiTietHopDong c
                         INNER JOIN dbo.HopDong h ON h.MaHopDong = c.MaHopDong
+                        INNER JOIN dbo.vw_NgayKetThucHieuLucThanhVien effectiveEnd
+                            ON effectiveEnd.MaChiTiet = c.MaChiTiet
                         WHERE c.MaSinhVien = sv.MaSinhVien
                           AND c.TrangThai = N'Đang ở'
                           AND h.TrangThaiHopDong = N'Còn hiệu lực'
@@ -2156,39 +2196,47 @@ function registerApiRoutes(app, {
                 `);
 
             const today = vietnamDateOnly();
-            const activeContract = await new sql.Request(transaction)
+            const roomRepresentative = await new sql.Request(transaction)
                 .input("TenPhong", sql.NVarChar(50), room)
                 .query(`
-                    SELECT TOP (1) hd.MaHopDong,
-                           CONVERT(bit, CASE WHEN EXISTS (
-                               SELECT 1 FROM dbo.ChiTietHopDong c
-                               WHERE c.MaHopDong = hd.MaHopDong AND c.TrangThai = N'Đang ở'
-                                 AND c.LaNguoiDaiDienThanhToanDichVu = 1
-                           ) THEN 0 ELSE 1 END) AS LaNguoiDaiDien
-                    FROM dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK)
-                    WHERE hd.TenPhong = @TenPhong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
-                    ORDER BY hd.MaHopDong
+                    SELECT CONVERT(bit, CASE WHEN EXISTS (
+                        SELECT 1
+                        FROM dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK)
+                        INNER JOIN dbo.ChiTietHopDong c WITH (UPDLOCK, HOLDLOCK)
+                            ON c.MaHopDong = hd.MaHopDong
+                        WHERE hd.TenPhong = @TenPhong
+                          AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                          AND c.TrangThai = N'Đang ở'
+                          AND c.LaNguoiDaiDienThanhToanDichVu = 1
+                    ) THEN 0 ELSE 1 END) AS LaNguoiDaiDien
                 `);
-            let contractId;
-            let invoicePeriodDate = today;
-            if (activeContract.recordset.length) {
-                contractId = activeContract.recordset[0].MaHopDong;
+            const startDate = requestedStart || today;
+            let endDate = requestedEnd;
+            if (!endDate) {
+                const end = new Date(`${startDate}T00:00:00.000Z`);
+                end.setUTCFullYear(end.getUTCFullYear() + 1);
+                endDate = end.toISOString().slice(0, 10);
+            }
+            const activeParent = await new sql.Request(transaction)
+                .input("TenPhong", sql.NVarChar(50), room)
+                .query(`
+                    SELECT TOP (1) MaHopDong
+                    FROM dbo.HopDong WITH (UPDLOCK, HOLDLOCK)
+                    WHERE TenPhong = @TenPhong AND TrangThaiHopDong = N'Còn hiệu lực'
+                    ORDER BY NgayTao DESC, MaHopDong DESC
+                `);
+            let contractId = activeParent.recordset[0]?.MaHopDong;
+            if (contractId) {
                 await new sql.Request(transaction)
                     .input("MaHopDong", sql.NVarChar(20), contractId)
                     .input("MaSinhVien", sql.NVarChar(30), studentId)
                     .input("KyHanThanhToanPhong", sql.NVarChar(10), term)
-                    .input("LaNguoiDaiDien", sql.Bit, activeContract.recordset[0].LaNguoiDaiDien)
+                    .input("LaNguoiDaiDien", sql.Bit, Boolean(roomRepresentative.recordset[0]?.LaNguoiDaiDien))
                     .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                    .input("NgayVao", sql.Date, startDate)
+                    .input("NgayKetThuc", sql.Date, endDate)
                     .execute("dbo.sp_ThemSinhVienVaoHopDong");
             } else {
-                let startDate = requestedStart || today;
-                let endDate = requestedEnd;
-                if (!endDate) {
-                    const end = new Date(`${today}T00:00:00.000Z`);
-                    end.setUTCFullYear(end.getUTCFullYear() + 1);
-                    endDate = end.toISOString().slice(0, 10);
-                }
-                invoicePeriodDate = startDate;
                 const createdContract = await new sql.Request(transaction)
                     .input("TenPhong", sql.NVarChar(50), room)
                     .input("NgayBatDau", sql.Date, startDate)
@@ -2196,18 +2244,18 @@ function registerApiRoutes(app, {
                     .input("SinhVienJson", sql.NVarChar(sql.MAX), JSON.stringify([{
                         maSinhVien: studentId,
                         kyHanThanhToanPhong: term,
-                        laNguoiDaiDien: true
+                        laNguoiDaiDien: Boolean(roomRepresentative.recordset[0]?.LaNguoiDaiDien)
                     }]))
                     .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
                     .execute("dbo.sp_TaoHopDong");
                 contractId = createdContract.recordset?.find(row => row.MaHopDong)?.MaHopDong;
-                if (!contractId) throw new Error("Procedure tạo hợp đồng không trả mã hợp đồng.");
             }
+            if (!contractId) throw new Error("Procedure tạo hợp đồng phòng không trả mã hợp đồng.");
             const { invoices, warnings } = await notifyContractAndCreateFirstInvoices(sql, transaction, {
                 contractId,
                 creatorId: req.auth?.accountId,
-                invoiceStudentIds: activeContract.recordset.length ? [studentId] : null,
-                invoicePeriodDate
+                invoiceStudentIds: [studentId],
+                invoicePeriodDate: startDate
             });
             await transaction.commit();
             return res.status(201).json({
@@ -2274,10 +2322,12 @@ function registerApiRoutes(app, {
                 .input("MaSinhVienCu", sql.NVarChar(30), req.params.mssv)
                 .query(`
                     SELECT sv.MaSinhVien, sv.TenPhong,
-                           active.MaChiTiet, active.MaHopDong, active.TenPhong AS PhongHopDong
+                           active.MaChiTiet, active.MaHopDong, active.TenPhong AS PhongHopDong,
+                           active.LaNguoiDaiDienThanhToanDichVu
                     FROM dbo.SinhVien sv WITH (UPDLOCK, HOLDLOCK)
                     OUTER APPLY (
-                        SELECT TOP (1) c.MaChiTiet, c.MaHopDong, hd.TenPhong
+                        SELECT TOP (1) c.MaChiTiet, c.MaHopDong, hd.TenPhong,
+                               c.LaNguoiDaiDienThanhToanDichVu
                         FROM dbo.ChiTietHopDong c WITH (UPDLOCK, HOLDLOCK)
                         INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
                         WHERE c.MaSinhVien = sv.MaSinhVien AND c.TrangThai = N'Đang ở'
@@ -2342,6 +2392,8 @@ function registerApiRoutes(app, {
                             .execute("dbo.sp_ChuyenPhong");
                         const contractId = moved.recordset?.find(row => row.MaHopDongMoi)?.MaHopDongMoi;
                         if (!contractId) throw new Error("Procedure chuyển phòng không trả mã hợp đồng đích.");
+                        await ensureRoomServiceRepresentative(transaction, current.PhongHopDong);
+                        await ensureRoomServiceRepresentative(transaction, room);
                         const { invoices, warnings } = await notifyContractAndCreateFirstInvoices(sql, transaction, {
                             contractId,
                             creatorId: req.auth?.accountId,
@@ -2368,39 +2420,46 @@ function registerApiRoutes(app, {
                         return respondRequestError(res, 404, "Không tìm thấy phòng hoặc hạng phòng.");
                     }
                     const today = vietnamDateOnly();
-                    const activeContract = await new sql.Request(transaction)
+                    const representative = await new sql.Request(transaction)
                         .input("TenPhong", sql.NVarChar(50), room)
                         .query(`
-                            SELECT TOP (1) hd.MaHopDong,
-                                   CONVERT(bit, CASE WHEN EXISTS (
-                                       SELECT 1 FROM dbo.ChiTietHopDong c
-                                       WHERE c.MaHopDong = hd.MaHopDong AND c.TrangThai = N'Đang ở'
-                                         AND c.LaNguoiDaiDienThanhToanDichVu = 1
-                                   ) THEN 0 ELSE 1 END) AS LaNguoiDaiDien
-                            FROM dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK)
-                            WHERE hd.TenPhong = @TenPhong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
-                            ORDER BY hd.MaHopDong
+                            SELECT CONVERT(bit, CASE WHEN EXISTS (
+                                SELECT 1 FROM dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK)
+                                INNER JOIN dbo.ChiTietHopDong c WITH (UPDLOCK, HOLDLOCK)
+                                    ON c.MaHopDong = hd.MaHopDong
+                                WHERE hd.TenPhong = @TenPhong
+                                  AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                                  AND c.TrangThai = N'Đang ở'
+                                  AND c.LaNguoiDaiDienThanhToanDichVu = 1
+                            ) THEN 0 ELSE 1 END) AS LaNguoiDaiDien
                         `);
-                    let contractId;
-                    let invoicePeriodDate = today;
-                    let invoiceStudentIds = [studentId];
-                    if (activeContract.recordset.length) {
-                        contractId = activeContract.recordset[0].MaHopDong;
+                    const startDate = requestedStart || today;
+                    let endDate = requestedEnd;
+                    if (!endDate) {
+                        const end = new Date(`${startDate}T00:00:00.000Z`);
+                        end.setUTCFullYear(end.getUTCFullYear() + 1);
+                        endDate = end.toISOString().slice(0, 10);
+                    }
+                    const activeParent = await new sql.Request(transaction)
+                        .input("TenPhong", sql.NVarChar(50), room)
+                        .query(`
+                            SELECT TOP (1) MaHopDong
+                            FROM dbo.HopDong WITH (UPDLOCK, HOLDLOCK)
+                            WHERE TenPhong = @TenPhong AND TrangThaiHopDong = N'Còn hiệu lực'
+                            ORDER BY NgayTao DESC, MaHopDong DESC
+                        `);
+                    let contractId = activeParent.recordset[0]?.MaHopDong;
+                    if (contractId) {
                         await new sql.Request(transaction)
                             .input("MaHopDong", sql.NVarChar(20), contractId)
                             .input("MaSinhVien", sql.NVarChar(30), studentId)
                             .input("KyHanThanhToanPhong", sql.NVarChar(10), term)
-                            .input("LaNguoiDaiDien", sql.Bit, activeContract.recordset[0].LaNguoiDaiDien)
+                            .input("LaNguoiDaiDien", sql.Bit, Boolean(representative.recordset[0]?.LaNguoiDaiDien))
                             .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                            .input("NgayVao", sql.Date, startDate)
+                            .input("NgayKetThuc", sql.Date, endDate)
                             .execute("dbo.sp_ThemSinhVienVaoHopDong");
                     } else {
-                        const startDate = requestedStart || today;
-                        let endDate = requestedEnd;
-                        if (!endDate) {
-                            const end = new Date(`${startDate}T00:00:00.000Z`);
-                            end.setUTCFullYear(end.getUTCFullYear() + 1);
-                            endDate = end.toISOString().slice(0, 10);
-                        }
                         const createdContract = await new sql.Request(transaction)
                             .input("TenPhong", sql.NVarChar(50), room)
                             .input("NgayBatDau", sql.Date, startDate)
@@ -2408,20 +2467,18 @@ function registerApiRoutes(app, {
                             .input("SinhVienJson", sql.NVarChar(sql.MAX), JSON.stringify([{
                                 maSinhVien: studentId,
                                 kyHanThanhToanPhong: term,
-                                laNguoiDaiDien: true
+                                laNguoiDaiDien: Boolean(representative.recordset[0]?.LaNguoiDaiDien)
                             }]))
                             .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
                             .execute("dbo.sp_TaoHopDong");
                         contractId = createdContract.recordset?.find(row => row.MaHopDong)?.MaHopDong;
-                        if (!contractId) throw new Error("Procedure tạo hợp đồng không trả mã hợp đồng.");
-                        invoiceStudentIds = null;
-                        invoicePeriodDate = startDate;
                     }
+                    if (!contractId) throw new Error("Procedure tạo hợp đồng phòng không trả mã hợp đồng.");
                     const { invoices, warnings } = await notifyContractAndCreateFirstInvoices(sql, transaction, {
                         contractId,
                         creatorId: req.auth?.accountId,
-                        invoiceStudentIds,
-                        invoicePeriodDate
+                        invoiceStudentIds: [studentId],
+                        invoicePeriodDate: startDate
                     });
                     contractCreation = { MaHopDong: contractId, HoaDonTienPhong: invoices, CanhBao: warnings };
                 }
@@ -2432,6 +2489,9 @@ function registerApiRoutes(app, {
                     .input("LyDoRoi", sql.NVarChar(100), "Cập nhật trạng thái sinh viên")
                     .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
                     .execute("dbo.sp_SinhVienRoiHopDong");
+                if (current.LaNguoiDaiDienThanhToanDichVu) {
+                    await ensureRoomServiceRepresentative(transaction, current.PhongHopDong);
+                }
             } else {
                 await new sql.Request(transaction)
                     .input("MaSinhVien", sql.NVarChar(30), studentId)
@@ -2455,7 +2515,7 @@ function registerApiRoutes(app, {
     const contractQuery = `
         SELECT hd.MaHopDong, hd.TenPhong, hd.MaHangPhong, hd.NgayBatDau, hd.NgayKetThuc,
                hd.TrangThaiHopDong, hd.GhiChu, hd.SoLanGiaHan, hd.NgayKetThucThucTe,
-               c.MaChiTiet, c.MaSinhVien, sv.HoTen, c.NgayVao, c.NgayRa,
+               c.MaChiTiet, c.MaSinhVien, sv.HoTen, c.NgayVao, c.NgayKetThuc, c.NgayRa,
                effectiveEnd.NgayKetThucHieuLuc,
                c.KyHanThanhToanPhong, c.GiaPhongApDung, c.GiaPhongThangApDung,
                c.LaNguoiDaiDienThanhToanDichVu, c.TrangThai AS TrangThaiThanhVien,
@@ -2524,6 +2584,7 @@ function registerApiRoutes(app, {
                         MaChiTiet: row.MaChiTiet,
                         MaSinhVien: row.MaSinhVien,
                         HoTen: row.HoTen,
+                        NgayKetThuc: row.NgayKetThuc,
                         NgayKetThucHieuLuc: row.NgayKetThucHieuLuc,
                         NgayVao: row.NgayVao,
                         NgayRa: row.NgayRa,
@@ -2550,7 +2611,7 @@ function registerApiRoutes(app, {
         const { tenPhong, maHangPhong, ngayBatDau, ngayKetThuc, sinhVien } = req.body;
         if (!isValidId(tenPhong, 50) || !isValidId(maHangPhong, 20)
             || !isDateOnly(ngayBatDau) || !isDateOnly(ngayKetThuc)
-            || !Array.isArray(sinhVien) || sinhVien.length === 0
+            || !Array.isArray(sinhVien) || sinhVien.length < 1
             || sinhVien.some(member => !isObjectBody(member)
                 || !isValidId(member.maSinhVien, 30)
                 || !["THANG", "NAM"].includes(member.kyHanThanhToanPhong)
@@ -2679,11 +2740,20 @@ function registerApiRoutes(app, {
         const transaction = new sql.Transaction(getPool());
         try {
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const contract = await new sql.Request(transaction)
+                .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .query(`
+                    SELECT TOP (1) hd.TenPhong
+                    FROM dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK)
+                    WHERE hd.MaHopDong = @MaHopDong
+                `);
+            const roomName = contract.recordset[0]?.TenPhong;
             await new sql.Request(transaction)
                 .input("MaHopDong", sql.NVarChar(20), req.params.id)
                 .input("NgayKetThucThucTe", sql.Date, endDate)
                 .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
                 .execute("dbo.sp_KetThucHopDong");
+            if (roomName) await ensureRoomServiceRepresentative(transaction, roomName);
             await transaction.commit();
             return res.json({ success: true, MaHopDong: req.params.id, TrangThaiHopDong: "Đã kết thúc" });
         } catch (error) {
@@ -2708,7 +2778,7 @@ function registerApiRoutes(app, {
                 .input("MaHopDong", sql.NVarChar(20), req.params.id)
                 .input("MaSinhVien", sql.NVarChar(30), req.body.maSinhVien.trim())
                 .query(`
-                    SELECT c.MaChiTiet
+                    SELECT c.MaChiTiet, hd.TenPhong
                     FROM dbo.ChiTietHopDong c WITH (UPDLOCK, HOLDLOCK)
                     INNER JOIN dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK) ON hd.MaHopDong = c.MaHopDong
                     WHERE c.MaHopDong = @MaHopDong AND c.MaSinhVien = @MaSinhVien
@@ -2725,6 +2795,8 @@ function registerApiRoutes(app, {
                 .execute("dbo.sp_ChuyenPhong");
             const contractId = result.recordset?.find(row => row.MaHopDongMoi)?.MaHopDongMoi;
             if (!contractId) throw new Error("Procedure chuyển phòng không trả mã hợp đồng đích.");
+            await ensureRoomServiceRepresentative(transaction, member.recordset[0].TenPhong);
+            await ensureRoomServiceRepresentative(transaction, req.body.tenPhong.trim());
             const { invoices, warnings } = await notifyContractAndCreateFirstInvoices(sql, transaction, {
                 contractId,
                 creatorId: req.auth?.accountId,
@@ -2760,7 +2832,7 @@ function registerApiRoutes(app, {
                 .input("MaHopDong", sql.NVarChar(20), req.params.id)
                 .input("MaChiTiet", sql.Int, detailId)
                 .query(`
-                    SELECT c.MaChiTiet, c.MaSinhVien, hd.TrangThaiHopDong
+                    SELECT c.MaChiTiet, c.MaSinhVien, hd.TrangThaiHopDong, hd.TenPhong
                     FROM dbo.ChiTietHopDong c WITH (UPDLOCK, HOLDLOCK)
                     INNER JOIN dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK) ON hd.MaHopDong = c.MaHopDong
                     WHERE c.MaHopDong = @MaHopDong AND c.MaChiTiet = @MaChiTiet
@@ -2774,17 +2846,27 @@ function registerApiRoutes(app, {
                 await transaction.rollback();
                 return respondRequestError(res, 409, "Không thể đổi đại diện của hợp đồng đã kết thúc.");
             }
+            const room = await new sql.Request(transaction)
+                .input("TenPhong", sql.NVarChar(50), target.recordset[0].TenPhong)
+                .query("SELECT TenPhong FROM dbo.Phong WITH (UPDLOCK, HOLDLOCK) WHERE TenPhong = @TenPhong");
+            if (!room.recordset.length) {
+                await transaction.rollback();
+                return respondRequestError(res, 404, "Không tìm thấy phòng của thành viên.");
+            }
             await new sql.Request(transaction)
-                .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .input("TenPhong", sql.NVarChar(50), target.recordset[0].TenPhong)
                 .input("MaChiTiet", sql.Int, detailId)
                 .query(`
-                    UPDATE dbo.ChiTietHopDong
+                    UPDATE c
                     SET LaNguoiDaiDienThanhToanDichVu = 0
-                    WHERE MaHopDong = @MaHopDong AND TrangThai = N'Đang ở'
-                      AND LaNguoiDaiDienThanhToanDichVu = 1 AND MaChiTiet <> @MaChiTiet;
+                    FROM dbo.ChiTietHopDong c
+                    INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
+                    WHERE hd.TenPhong = @TenPhong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                      AND c.TrangThai = N'Đang ở'
+                      AND c.LaNguoiDaiDienThanhToanDichVu = 1 AND c.MaChiTiet <> @MaChiTiet;
                     UPDATE dbo.ChiTietHopDong
                     SET LaNguoiDaiDienThanhToanDichVu = 1
-                    WHERE MaHopDong = @MaHopDong AND MaChiTiet = @MaChiTiet
+                    WHERE MaChiTiet = @MaChiTiet
                       AND TrangThai = N'Đang ở';
                 `);
             await new sql.Request(transaction)
@@ -2821,13 +2903,16 @@ function registerApiRoutes(app, {
                 .input("TrangThai", sql.NVarChar(20), stringValue(status) || null)
                 .query(`
                     SELECT c.MaChiTiet, c.MaHopDong, c.MaSinhVien, sv.HoTen, hd.TenPhong,
-                           hd.MaHangPhong, c.NgayVao, c.NgayRa, c.KyHanThanhToanPhong,
+                           hd.MaHangPhong, c.NgayVao, c.NgayKetThuc, c.NgayRa,
+                           effectiveEnd.NgayKetThucHieuLuc, c.KyHanThanhToanPhong,
                            c.GiaPhongApDung, c.GiaPhongThangApDung,
                            c.LaNguoiDaiDienThanhToanDichVu, c.TrangThai, c.GhiChu,
                            c.LyDoRoi, hd.NgayBatDau, hd.NgayKetThuc, hd.TrangThaiHopDong
                     FROM dbo.ChiTietHopDong c
                     INNER JOIN dbo.HopDong hd ON hd.MaHopDong = c.MaHopDong
                     INNER JOIN dbo.SinhVien sv ON sv.MaSinhVien = c.MaSinhVien
+                    LEFT JOIN dbo.vw_NgayKetThucHieuLucThanhVien effectiveEnd
+                        ON effectiveEnd.MaChiTiet = c.MaChiTiet
                     WHERE (@MaHopDong IS NULL OR c.MaHopDong = @MaHopDong)
                       AND (@MaSinhVien IS NULL OR c.MaSinhVien = @MaSinhVien)
                       AND (@TrangThai IS NULL OR c.TrangThai = @TrangThai)
@@ -2845,51 +2930,52 @@ function registerApiRoutes(app, {
         if (!isValidId(req.params.id, 20) || !isObjectBody(req.body)
             || !isValidId(req.body.maSinhVien, 30)
             || !["THANG", "NAM"].includes(req.body.kyHanThanhToanPhong)
+            || !isDateOnly(req.body.ngayBatDau) || !isDateOnly(req.body.ngayKetThuc)
+            || req.body.ngayKetThuc <= req.body.ngayBatDau
             || (req.body.laNguoiDaiDien !== undefined && typeof req.body.laNguoiDaiDien !== "boolean")) {
-            return respondRequestError(res, 400, "Thông tin sinh viên, kỳ hạn hoặc đại diện không hợp lệ.");
+            return respondRequestError(res, 400, "Thông tin sinh viên, kỳ hạn, ngày thuê hoặc đại diện không hợp lệ.");
         }
+        const studentId = req.body.maSinhVien.trim();
         const transaction = new sql.Transaction(getPool());
         try {
             await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+            const parent = await new sql.Request(transaction)
+                .input("MaHopDong", sql.NVarChar(20), req.params.id)
+                .query(`
+                    SELECT hd.MaHopDong, hd.TenPhong
+                    FROM dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK)
+                    WHERE hd.MaHopDong = @MaHopDong AND hd.TrangThaiHopDong = N'Còn hiệu lực'
+                `);
+            if (!parent.recordset.length) {
+                await transaction.rollback();
+                return respondRequestError(res, 409, "Hợp đồng phòng không còn hiệu lực.");
+            }
             await new sql.Request(transaction)
                 .input("MaHopDong", sql.NVarChar(20), req.params.id)
-                .input("MaSinhVien", sql.NVarChar(30), req.body.maSinhVien.trim())
+                .input("MaSinhVien", sql.NVarChar(30), studentId)
                 .input("KyHanThanhToanPhong", sql.NVarChar(10), req.body.kyHanThanhToanPhong)
                 .input("LaNguoiDaiDien", sql.Bit, req.body.laNguoiDaiDien === true)
                 .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
+                .input("NgayVao", sql.Date, req.body.ngayBatDau)
+                .input("NgayKetThuc", sql.Date, req.body.ngayKetThuc)
                 .execute("dbo.sp_ThemSinhVienVaoHopDong");
-            const today = vietnamDateOnly();
-            const member = await new sql.Request(transaction)
-                .input("MaHopDong", sql.NVarChar(20), req.params.id)
-                .input("MaSinhVien", sql.NVarChar(30), req.body.maSinhVien.trim())
-                .query(`
-                    SELECT TOP (1) MaChiTiet
-                    FROM dbo.ChiTietHopDong WITH (UPDLOCK, HOLDLOCK)
-                    WHERE MaHopDong = @MaHopDong AND MaSinhVien = @MaSinhVien
-                      AND TrangThai = N'Đang ở'
-                    ORDER BY MaChiTiet DESC
-                `);
-            if (!member.recordset.length) {
-                throw new Error(`Không tìm thấy sinh viên ${req.body.maSinhVien} trong hợp đồng ${req.params.id} sau khi thêm.`);
-            }
             const { invoices, warnings } = await notifyContractAndCreateFirstInvoices(sql, transaction, {
                 contractId: req.params.id,
                 creatorId: req.auth?.accountId,
-                invoiceStudentIds: [req.body.maSinhVien.trim()],
-                invoicePeriodDate: today
+                invoiceStudentIds: [studentId]
             });
             await transaction.commit();
             return res.status(201).json({
                 success: true,
                 MaHopDong: req.params.id,
-                MaSinhVien: req.body.maSinhVien.trim(),
                 HoaDonTienPhong: invoices,
                 CanhBao: warnings
             });
         } catch (error) {
-            await rollback(transaction, "THÊM SINH VIÊN VÀO HỢP ĐỒNG");
-            return respondContractProcedureError(res, "THÊM SINH VIÊN VÀO HỢP ĐỒNG", error, {
-                getPool, sql, missingId: req.params.id, fallback: "Không thể thêm sinh viên vào hợp đồng."
+            await rollback(transaction, "THÊM HỢP ĐỒNG CON CHO SINH VIÊN");
+            return respondContractProcedureError(res, "THÊM HỢP ĐỒNG CON CHO SINH VIÊN", error, {
+                getPool, sql, missingId: req.params.id,
+                fallback: "Không thể thêm hợp đồng thuê phòng cho sinh viên."
             });
         }
     });
@@ -2909,20 +2995,26 @@ function registerApiRoutes(app, {
                 .input("MaHopDong", sql.NVarChar(20), req.params.id)
                 .input("MaChiTiet", sql.Int, detailId)
                 .query(`
-                    SELECT MaChiTiet FROM dbo.ChiTietHopDong WITH (UPDLOCK, HOLDLOCK)
-                    WHERE MaHopDong = @MaHopDong AND MaChiTiet = @MaChiTiet
-                      AND TrangThai = N'Đang ở'
+                    SELECT c.MaChiTiet, c.LaNguoiDaiDienThanhToanDichVu, hd.TenPhong
+                    FROM dbo.ChiTietHopDong c WITH (UPDLOCK, HOLDLOCK)
+                    INNER JOIN dbo.HopDong hd WITH (UPDLOCK, HOLDLOCK) ON hd.MaHopDong = c.MaHopDong
+                    WHERE c.MaHopDong = @MaHopDong AND c.MaChiTiet = @MaChiTiet
+                      AND c.TrangThai = N'Đang ở'
                 `);
             if (!member.recordset.length) {
                 await transaction.rollback();
                 return respondRequestError(res, 404, "Không tìm thấy thành viên đang ở trong hợp đồng.");
             }
+            const roomName = member.recordset[0].TenPhong;
             await new sql.Request(transaction)
                 .input("MaChiTiet", sql.Int, detailId)
                 .input("NgayRa", sql.Date, leaveDate)
                 .input("LyDoRoi", sql.NVarChar(100), stringValue(req.body?.lyDoRoi) || null)
                 .input("NguoiThucHien", sql.Int, req.auth?.accountId ?? null)
                 .execute("dbo.sp_SinhVienRoiHopDong");
+            if (member.recordset[0].LaNguoiDaiDienThanhToanDichVu) {
+                await ensureRoomServiceRepresentative(transaction, roomName);
+            }
             await transaction.commit();
             return res.json({ success: true, MaChiTiet: detailId });
         } catch (error) {

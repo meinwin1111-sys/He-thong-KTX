@@ -691,7 +691,7 @@ test("Admin revenue report keeps month and amount columns on one line inside a h
     }
 });
 
-test("Admin contract and member-add popups render conflict warning and open the selected student's move form in DOM", async () => {
+test("Admin contract popup renders occupied-student warning and opens the selected student's move form in DOM", async () => {
     const { dom, window } = await setupAdminWorkflowDom();
     try {
         window.document.querySelector('[data-action="contract-create"]').click();
@@ -711,18 +711,22 @@ test("Admin contract and member-add popups render conflict warning and open the 
 
         window.document.querySelector('[data-action="modal-close"]').click();
         window.document.querySelector('[data-detail-type="contract"][data-detail-id="HD-A"]').click();
-        await waitForDom(() => window.document.querySelector('[data-action="member-add"]'));
-        window.document.querySelector('[data-action="member-add"]').click();
-        await waitForDom(() => window.document.querySelector('form[data-form="member-add"]'));
-        const addForm = window.document.querySelector('form[data-form="member-add"]');
-        const addStudent = addForm.querySelector('[name="maSinhVien"]');
-        assert.ok([...addStudent.options].some(option => option.value === "OCCUPIED"));
-        addStudent.value = "OCCUPIED";
-        addStudent.dispatchEvent(new window.Event("change", { bubbles: true }));
-        assert.match(addForm.querySelector("[data-student-conflict]").textContent,
+        await waitForDom(() => window.document.querySelector('[data-action="contract-create-room"]'));
+        window.document.querySelector('[data-action="contract-create-room"]').click();
+        await waitForDom(() => window.document.querySelector('form[data-form="contract-create"]'));
+        const individualForm = window.document.querySelector('form[data-form="contract-create"]');
+        assert.equal(individualForm.elements.tenPhong.value, "A101");
+        assert.ok(individualForm.elements.ngayBatDau);
+        assert.ok(individualForm.elements.ngayKetThuc);
+        assert.equal(individualForm.elements.activeContractId, undefined);
+        const individualSearch = individualForm.querySelector("[data-student-search]");
+        individualSearch.value = "OCCUPIED";
+        individualSearch.dispatchEvent(new window.Event("input", { bubbles: true }));
+        individualForm.querySelector('[data-student-option="OCCUPIED"]').click();
+        assert.match(individualForm.querySelector("[data-student-conflict]").textContent,
             /đang ở phòng A102 \(hợp đồng HD-B\)/);
         assert.equal(window.document.querySelector('button[form="admin-workflow-form"][type="submit"]').disabled, true);
-        addForm.querySelector('[data-student-conflict] [data-action="member-move"]').click();
+        individualForm.querySelector('[data-student-conflict] [data-action="member-move"]').click();
         await waitForDom(() => window.document.querySelector('form[data-form="member-move"]'));
         assert.equal(window.document.querySelector('[name="maSinhVien"]').value, "OCCUPIED");
     } finally {
@@ -730,7 +734,7 @@ test("Admin contract and member-add popups render conflict warning and open the 
     }
 });
 
-test("Contract student combobox searches names and identifiers, excludes selected students, and submits full IDs", async () => {
+test("Contract student combobox submits one student with independent contract dates", async () => {
     const { dom, window, calls } = await setupAdminWorkflowDom({
         contractCreateResponse: { success: true, MaHopDong: "HD-NEW" }
     });
@@ -740,9 +744,7 @@ test("Contract student combobox searches names and identifiers, excludes selecte
         const form = window.document.querySelector('form[data-form="contract-create"]');
         const firstRow = form.querySelector(".member-row");
         const search = firstRow.querySelector("[data-student-search]");
-        const removeButton = firstRow.querySelector('[data-action="remove-member-row"]');
-        assert.ok(removeButton.classList.contains("shrink-0"));
-        assert.ok(removeButton.classList.contains("whitespace-nowrap"));
+        assert.equal(firstRow.querySelector('[data-action="remove-member-row"]'), null);
         assert.match(firstRow.querySelector(".grid").className, /minmax\(0,1fr\)/);
         assert.equal(search.getAttribute("aria-label").includes("Số CCCD hoặc hộ chiếu"), true);
 
@@ -763,24 +765,6 @@ test("Contract student combobox searches names and identifiers, excludes selecte
         assert.equal(firstRow.querySelector('[name="maSinhVien"]').value, "012345678901");
         assert.equal(search.value, "Nguyễn Ánh · 0123****8901");
 
-        window.document.querySelector('[data-action="add-member-row"]').click();
-        const rows = [...form.querySelectorAll(".member-row")];
-        const secondRow = rows[1];
-        const secondSearch = secondRow.querySelector("[data-student-search]");
-        secondSearch.value = "AB12CD34";
-        secondSearch.dispatchEvent(new window.Event("input", { bubbles: true }));
-        assert.deepEqual([...secondRow.querySelectorAll('[data-student-option]')]
-            .map(option => option.dataset.studentOption), ["AB12CD34"]);
-        secondRow.querySelector('[data-student-option="AB12CD34"]').click();
-        assert.equal(secondRow.querySelector("[data-student-search]").value, "Bình An · AB****34");
-
-        window.document.querySelector('[data-action="add-member-row"]').click();
-        const thirdRow = form.querySelectorAll(".member-row")[2];
-        const thirdSearch = thirdRow.querySelector("[data-student-search]");
-        thirdSearch.value = "012345678901";
-        thirdSearch.dispatchEvent(new window.Event("input", { bubbles: true }));
-        assert.equal(thirdRow.querySelectorAll('[data-student-option="012345678901"]').length, 0);
-
         form.elements.tenPhong.value = "A103";
         form.elements.tenPhong.dispatchEvent(new window.Event("change", { bubbles: true }));
         form.elements.ngayBatDau.value = "01/03/2026";
@@ -791,7 +775,9 @@ test("Contract student combobox searches names and identifiers, excludes selecte
         await waitForDom(() => calls.some(call => call.url === "/api/HopDong" && call.options.method === "POST"));
         const body = JSON.parse(calls.find(call =>
             call.url === "/api/HopDong" && call.options.method === "POST").options.body);
-        assert.deepEqual(body.sinhVien.map(member => member.maSinhVien), ["012345678901", "AB12CD34"]);
+        assert.deepEqual(body.sinhVien.map(member => member.maSinhVien), ["012345678901"]);
+        assert.equal(body.ngayBatDau, "2026-03-01");
+        assert.equal(body.ngayKetThuc, "2027-03-01");
 
         const source = fs.readFileSync(path.join(__dirname, "AdminWorkflows.js"), "utf8");
         assert.match(source, /\.slice\(0, 8\)/);
@@ -800,22 +786,34 @@ test("Contract student combobox searches names and identifiers, excludes selecte
     }
 });
 
-test("Member-add popup DOM submit calls the contract member endpoint", async () => {
+test("Adding a student from contract detail preselects the parent room and submits child-specific dates", async () => {
     const { dom, window, calls } = await setupAdminWorkflowDom();
     try {
         window.document.querySelector('[data-detail-type="contract"][data-detail-id="HD-A"]').click();
-        await waitForDom(() => window.document.querySelector('[data-action="member-add"]'));
-        window.document.querySelector('[data-action="member-add"]').click();
-        await waitForDom(() => window.document.querySelector('form[data-form="member-add"]'));
-        const form = window.document.querySelector('form[data-form="member-add"]');
-        form.elements.maSinhVien.value = "FREE-STUDENT";
-        form.elements.maSinhVien.dispatchEvent(new window.Event("change", { bubbles: true }));
+        await waitForDom(() => window.document.querySelector('[data-action="contract-create-room"]'));
+        window.document.querySelector('[data-action="contract-create-room"]').click();
+        await waitForDom(() => window.document.querySelector('form[data-form="contract-create"]'));
+        const form = window.document.querySelector('form[data-form="contract-create"]');
+        assert.equal(form.elements.tenPhong.value, "A101");
+        assert.equal(form.dataset.activeContract, "HD-A");
+        assert.match(form.querySelector("[data-contract-capacity]").textContent,
+            /Hợp đồng phòng HD-A; thông tin ngày thuê và kỳ hạn bên dưới áp dụng riêng cho sinh viên này/);
+        const search = form.querySelector("[data-student-search]");
+        search.value = "FREE-STUDENT";
+        search.dispatchEvent(new window.Event("input", { bubbles: true }));
+        form.querySelector('[data-student-option="FREE-STUDENT"]').click();
+        form.elements.ngayBatDau.value = "01/04/2026";
+        form.elements.ngayKetThuc.value = "01/04/2027";
         window.document.querySelector('button[form="admin-workflow-form"][type="submit"]').click();
-        await waitForDom(() => calls.some(call => call.url === "/api/HopDong/HD-A/chitiet" && call.options.method === "POST"));
-        const post = calls.find(call => call.url === "/api/HopDong/HD-A/chitiet" && call.options.method === "POST");
-        assert.deepEqual(JSON.parse(post.options.body), {
-            maSinhVien: "FREE-STUDENT", kyHanThanhToanPhong: "THANG", laNguoiDaiDien: false
-        });
+        await waitForDom(() => calls.some(call =>
+            call.url === "/api/HopDong/HD-A/chitiet" && call.options.method === "POST"));
+        const post = calls.find(call =>
+            call.url === "/api/HopDong/HD-A/chitiet" && call.options.method === "POST");
+        const payload = JSON.parse(post.options.body);
+        assert.equal(payload.maSinhVien, "FREE-STUDENT");
+        assert.equal(payload.kyHanThanhToanPhong, "THANG");
+        assert.equal(payload.ngayBatDau, "2026-04-01");
+        assert.equal(payload.ngayKetThuc, "2027-04-01");
     } finally {
         dom.window.close();
     }
@@ -1105,7 +1103,7 @@ test("Contract room options use current members, exclude unusable/full rooms, an
     ]);
 });
 
-test("Contract room selection routes active rooms to member-add and new rooms to contract-create", () => {
+test("Contract room selection identifies an existing room parent and counts its active members", () => {
     const rooms = [
         { TenPhong: "A1", SucChuaToiDa: 4, TrangThaiPhong: "Trống" },
         { TenPhong: "B2", SucChuaToiDa: 4, TrangThaiPhong: "Trống" }
@@ -1117,18 +1115,19 @@ test("Contract room selection routes active rooms to member-add and new rooms to
         }
     ];
     const options = utils.contractRoomAvailability(rooms, contracts);
-    assert.equal(options.find(room => room.TenPhong === "A1").activeContract.MaHopDong, "HD00042");
+    assert.equal(options.find(room => room.TenPhong === "A1").currentOccupants, 2);
     assert.deepEqual(utils.contractRoomSelection("A1", contracts), {
         mode: "add-member", contract: contracts[0]
     });
     assert.deepEqual(utils.contractRoomSelection("B2", contracts), {
         mode: "create-contract", contract: null
     });
-    assert.equal(utils.contractRoomSelection("A1", [
-        ...contracts, { ...contracts[0], MaHopDong: "HD00043" }
-    ]).mode, "invalid");
-    assert.deepEqual(options.map(room => [room.TenPhong, room.activeContract?.MaHopDong || null]), [
-        ["A1", "HD00042"], ["B2", null]
+    assert.deepEqual(utils.contractRoomSelection("A1", [
+        ...contracts, { ...contracts[0], MaHopDong: "HD-DUPLICATE" }
+    ]), { mode: "conflict", contract: null });
+    assert.equal(options.find(room => room.TenPhong === "A1").availableSeats, 2);
+    assert.deepEqual(options.map(room => [room.TenPhong, room.currentOccupants]), [
+        ["A1", 2], ["B2", 0]
     ]);
 });
 
@@ -1149,7 +1148,10 @@ test("Contract creation popup renders a search combobox with a hidden submission
     assert.match(source, /function memberFormRow\(member = \{\}, _roomName = "", excludedIds = \[\]\)/);
     assert.doesNotMatch(source, /studentOptions\(\{\s*availableOnly:\s*true,\s*roomName,\s*excludeIds\s*\}\)/);
     assert.match(source, /modal\.querySelector\("\[data-new-members\]"\)\.innerHTML = memberFormRow\(\)/);
-    assert.match(source, /function openAddMember\(contractId\)[\s\S]*?data-form="member-add"[\s\S]*?studentOptions\(\{ availableOnly: true, roomName: contract\?\.TenPhong \|\| "" \}\)/);
+    assert.match(source, /function openCreateContract\(preselectedRoom = ""\)/);
+    assert.match(source, /contract-create-room/);
+    assert.match(source, /data-create-contract-fields/);
+    assert.doesNotMatch(source, /function openAddMember/);
     assert.match(source, /data-form="member-move"[\s\S]*?roomOptions\(contract\?\.TenPhong/);
 });
 
@@ -1702,7 +1704,7 @@ test("Admin row-detail controls preserve accessible detail views without receipt
     }
     assert.doesNotMatch(source, /receipt-confirm|receipt-reject/);
     for (const action of ["room-edit", "invoice-cancel", "refund-print", "member-leave", "member-move",
-        "member-representative", "member-add", "contract-extend", "contract-end"]) {
+        "member-representative", "contract-create-room", "contract-extend", "contract-end"]) {
         assert.match(source, new RegExp(`"${action}"`));
     }
     assert.match(source, /event\.key === "Escape"/);

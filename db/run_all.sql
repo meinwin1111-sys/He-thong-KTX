@@ -149,5 +149,9 @@ PRINT N'=== Migration 037 ==='
 GO
 :r db/migrations/037_expired_renewal_notice_creator.sql
 GO
+PRINT N'=== Migration 042 (hợp đồng cha theo phòng, hợp đồng con theo sinh viên) ==='
+GO
+:r db/migrations/042_room_parent_child_contracts.sql
+GO
 PRINT N'=== Hết run_all (master seed chạy riêng: db/seed/run_master.sql) ==='
 GO

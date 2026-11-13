@@ -150,6 +150,7 @@ CREATE TABLE [dbo].[ChiTietHopDong](
 	[MaHopDong] [nvarchar](20) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
 	[MaSinhVien] [nvarchar](30) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
 	[NgayVao] [date] NOT NULL,
+	[NgayKetThuc] [date] NULL,
 	[NgayRa] [date] NULL,
 	[KyHanThanhToanPhong] [nvarchar](10) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
 	[GiaPhongApDung] [decimal](18, 2) NOT NULL,
@@ -202,6 +203,8 @@ ALTER TABLE [dbo].[ChiTietHopDong]  WITH CHECK ADD  CONSTRAINT [CK_CTHD_KyHan] C
 ALTER TABLE [dbo].[ChiTietHopDong] CHECK CONSTRAINT [CK_CTHD_KyHan]
 ALTER TABLE [dbo].[ChiTietHopDong]  WITH CHECK ADD  CONSTRAINT [CK_CTHD_Ngay] CHECK  (([NgayRa] IS NULL OR [NgayRa]>=[NgayVao]))
 ALTER TABLE [dbo].[ChiTietHopDong] CHECK CONSTRAINT [CK_CTHD_Ngay]
+ALTER TABLE [dbo].[ChiTietHopDong]  WITH CHECK ADD  CONSTRAINT [CK_CTHD_NgayKetThuc] CHECK  (([NgayKetThuc] IS NULL OR [NgayKetThuc]>=[NgayVao]))
+ALTER TABLE [dbo].[ChiTietHopDong] CHECK CONSTRAINT [CK_CTHD_NgayKetThuc]
 ALTER TABLE [dbo].[ChiTietHopDong]  WITH CHECK ADD  CONSTRAINT [CK_CTHD_TrangThai] CHECK  (([TrangThai]=N'Đã chuyển phòng' OR [TrangThai]=N'Đã rời' OR [TrangThai]=N'Đang ở'))
 ALTER TABLE [dbo].[ChiTietHopDong] CHECK CONSTRAINT [CK_CTHD_TrangThai]
 ALTER TABLE [dbo].[ChiTietHopDong]  WITH CHECK ADD  CONSTRAINT [CK_CTHD_TrangThai_NgayRa] CHECK  (([TrangThai]=N'Đang ở' AND ([NgayRa] IS NULL OR [NgayRa]>=[NgayVao]) OR [TrangThai]<>N'Đang ở' AND [NgayRa] IS NOT NULL))
